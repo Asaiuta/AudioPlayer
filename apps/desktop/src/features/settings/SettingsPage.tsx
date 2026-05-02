@@ -10,9 +10,18 @@ import type {
 
 const api = createApiClient();
 
-interface SettingsPanelProps {
+interface SettingsPageProps {
   onStateRefresh: () => Promise<void>;
 }
+
+const EQ_BANDS = [31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000] as const;
+type EqBandKey = `${(typeof EQ_BANDS)[number]}`;
+const EQ_BAND_KEYS: ReadonlyArray<EqBandKey> = EQ_BANDS.map((hz) => String(hz) as EqBandKey);
+
+const NOISE_SHAPER_OPTIONS = ["Lipshitz5", "FWeighted9", "ModifiedE9", "ImprovedE9", "TpdfOnly"] as const;
+const LOUDNESS_MODE_OPTIONS = ["track", "album", "streaming", "replaygain_track", "replaygain_album"] as const;
+const RESAMPLE_QUALITY_OPTIONS = ["low", "std", "hq", "uhq"] as const;
+const OUTPUT_BIT_OPTIONS = ["16", "24", "32"] as const;
 
 interface SettingsFormState {
   deviceId: string;
@@ -27,19 +36,45 @@ interface SettingsFormState {
   loudnessMode: string;
   targetLufs: string;
   preampDb: string;
+  saturationEnabled: boolean;
+  saturationDrive: string;
+  saturationMix: string;
+  crossfeedEnabled: boolean;
+  crossfeedMix: string;
+  dynamicLoudnessEnabled: boolean;
+  dynamicLoudnessStrength: string;
   targetSamplerate: string;
   resampleQuality: string;
   useCache: boolean;
   preemptiveResample: boolean;
+  eqBands: Record<EqBandKey, number>;
 }
-
-const NOISE_SHAPER_OPTIONS = ["Lipshitz5", "FWeighted9", "ModifiedE9", "ImprovedE9", "TpdfOnly"] as const;
-const LOUDNESS_MODE_OPTIONS = ["track", "album", "streaming", "replaygain_track", "replaygain_album"] as const;
-const RESAMPLE_QUALITY_OPTIONS = ["low", "std", "hq", "uhq"] as const;
-const OUTPUT_BIT_OPTIONS = ["16", "24", "32"] as const;
 
 const readErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Request failed";
+
+const formatHz = (hz: number) => (hz >= 1000 ? `${hz / 1000} kHz` : `${hz} Hz`);
+
+const buildEmptyEqBands = (): Record<EqBandKey, number> =>
+  EQ_BAND_KEYS.reduce(
+    (acc, key) => {
+      acc[key] = 0;
+      return acc;
+    },
+    {} as Record<EqBandKey, number>
+  );
+
+const eqBandsFromSettings = (settings: PersistentSettings): Record<EqBandKey, number> => {
+  const result = buildEmptyEqBands();
+  if (!settings.eq_bands) return result;
+  for (const key of EQ_BAND_KEYS) {
+    const value = settings.eq_bands[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      result[key] = value;
+    }
+  }
+  return result;
+};
 
 const toFormState = (settings: PersistentSettings): SettingsFormState => ({
   deviceId: settings.device_id === null ? "" : String(settings.device_id),
@@ -54,23 +89,27 @@ const toFormState = (settings: PersistentSettings): SettingsFormState => ({
   loudnessMode: settings.loudness_mode,
   targetLufs: String(settings.target_lufs),
   preampDb: String(settings.preamp_db),
+  saturationEnabled: settings.saturation_enabled,
+  saturationDrive: String(settings.saturation_drive),
+  saturationMix: String(settings.saturation_mix),
+  crossfeedEnabled: settings.crossfeed_enabled,
+  crossfeedMix: String(settings.crossfeed_mix),
+  dynamicLoudnessEnabled: settings.dynamic_loudness_enabled,
+  dynamicLoudnessStrength: String(settings.dynamic_loudness_strength),
   targetSamplerate: settings.target_samplerate === null ? "" : String(settings.target_samplerate),
   resampleQuality: settings.resample_quality,
   useCache: settings.use_cache,
-  preemptiveResample: settings.preemptive_resample
+  preemptiveResample: settings.preemptive_resample,
+  eqBands: eqBandsFromSettings(settings)
 });
 
 const parseOptionalInteger = (value: string, label: string): number | null => {
   const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-
+  if (!trimmed) return null;
   const parsed = Number.parseInt(trimmed, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     throw new Error(`${label} must be a positive integer or left empty.`);
   }
-
   return parsed;
 };
 
@@ -79,27 +118,35 @@ const parseRequiredNumber = (value: string, label: string): number => {
   if (!Number.isFinite(parsed)) {
     throw new Error(`${label} must be a valid number.`);
   }
-
   return parsed;
 };
 
 const parseDeviceId = (value: string): number | null => {
-  if (!value) {
-    return null;
-  }
-
+  if (!value) return null;
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed)) {
     throw new Error("Output device selection is invalid.");
   }
+  return parsed;
+};
 
+const parseRangedNumber = (
+  value: string,
+  label: string,
+  min: number,
+  max: number
+): number => {
+  const parsed = parseRequiredNumber(value, label);
+  if (parsed < min || parsed > max) {
+    throw new Error(`${label} must be between ${min} and ${max}.`);
+  }
   return parsed;
 };
 
 const isOption = <T extends string>(value: string, options: readonly T[]): value is T =>
   options.includes(value as T);
 
-export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
+export function SettingsPage({ onStateRefresh }: SettingsPageProps) {
   const [settingsState, setSettingsState] = useState<RequestState<PersistentSettings>>({
     status: "idle"
   });
@@ -119,10 +166,18 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
     loudnessMode: "track",
     targetLufs: "-12",
     preampDb: "0",
+    saturationEnabled: false,
+    saturationDrive: "0.5",
+    saturationMix: "1.0",
+    crossfeedEnabled: false,
+    crossfeedMix: "0.3",
+    dynamicLoudnessEnabled: false,
+    dynamicLoudnessStrength: "0.5",
     targetSamplerate: "",
     resampleQuality: "hq",
     useCache: false,
-    preemptiveResample: true
+    preemptiveResample: true,
+    eqBands: buildEmptyEqBands()
   });
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -131,7 +186,6 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
   const loadPanelData = useCallback(async () => {
     setSettingsState({ status: "loading" });
     setDevicesState({ status: "loading" });
-
     try {
       const [settings, devices] = await Promise.all([api.getSettings(), api.listDevices()]);
       setSettingsState({ status: "success", data: settings });
@@ -149,22 +203,39 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
     void loadPanelData();
   }, [loadPanelData]);
 
+  const updateEqBand = (key: EqBandKey, value: number) => {
+    setForm((current) => ({
+      ...current,
+      eqBands: { ...current.eqBands, [key]: value }
+    }));
+  };
+
+  const handleResetEq = () => {
+    setForm((current) => ({ ...current, eqBands: buildEmptyEqBands() }));
+  };
+
   const handleSave = async () => {
     setSaveMessage(null);
     setSaveError(null);
 
     try {
       const deviceId = parseDeviceId(form.deviceId);
-      const volume = parseRequiredNumber(form.volume, "Volume");
+      const volume = parseRangedNumber(form.volume, "Volume", 0, 4);
       const firTaps = parseOptionalInteger(form.firTaps, "FIR taps");
       const outputBits = Number.parseInt(form.outputBits, 10);
       const targetLufs = parseRequiredNumber(form.targetLufs, "Loudness target");
       const preampDb = parseRequiredNumber(form.preampDb, "Preamp");
       const targetSamplerate = parseOptionalInteger(form.targetSamplerate, "Upsampling");
+      const saturationDrive = parseRangedNumber(form.saturationDrive, "Saturation drive", 0, 4);
+      const saturationMix = parseRangedNumber(form.saturationMix, "Saturation mix", 0, 1);
+      const crossfeedMix = parseRangedNumber(form.crossfeedMix, "Crossfeed mix", 0, 1);
+      const dynamicLoudnessStrength = parseRangedNumber(
+        form.dynamicLoudnessStrength,
+        "Dynamic loudness strength",
+        0,
+        1
+      );
 
-      if (!Number.isFinite(volume) || volume < 0 || volume > 4) {
-        throw new Error("Volume must stay between 0.0 and 4.0.");
-      }
       if (!Number.isInteger(outputBits) || !isOption(form.outputBits, OUTPUT_BIT_OPTIONS)) {
         throw new Error("Output bit depth selection is invalid.");
       }
@@ -178,12 +249,21 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
         throw new Error("Resample quality selection is invalid.");
       }
 
+      const eqBandsForUpdate = EQ_BAND_KEYS.reduce(
+        (acc, key) => {
+          acc[key] = form.eqBands[key];
+          return acc;
+        },
+        {} as Record<string, number>
+      );
+
       const settingsUpdate: PersistentSettingsUpdate = {
         device_id: deviceId,
         exclusive_mode: form.exclusiveMode,
         volume,
         eq_type: form.eqType,
         fir_taps: form.eqType === "FIR" ? firTaps ?? 1023 : undefined,
+        eq_bands: eqBandsForUpdate,
         dither_enabled: form.ditherEnabled,
         output_bits: outputBits,
         noise_shaper_curve: form.noiseShaperCurve,
@@ -191,6 +271,13 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
         loudness_mode: form.loudnessMode,
         target_lufs: targetLufs,
         preamp_db: preampDb,
+        saturation_enabled: form.saturationEnabled,
+        saturation_drive: saturationDrive,
+        saturation_mix: saturationMix,
+        crossfeed_enabled: form.crossfeedEnabled,
+        crossfeed_mix: crossfeedMix,
+        dynamic_loudness_enabled: form.dynamicLoudnessEnabled,
+        dynamic_loudness_strength: dynamicLoudnessStrength,
         target_samplerate: targetSamplerate,
         resample_quality: form.resampleQuality,
         use_cache: form.useCache,
@@ -222,9 +309,7 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
       </div>
 
       <div className="settings-group">
-        <label className="field-label" htmlFor="settings-device">
-          Output Device
-        </label>
+        <label className="field-label" htmlFor="settings-device">Output Device</label>
         <select
           id="settings-device"
           className="select-input"
@@ -257,9 +342,7 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
 
       <div className="settings-grid">
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-volume">
-            Volume
-          </label>
+          <label className="field-label" htmlFor="settings-volume">Volume</label>
           <input
             id="settings-volume"
             className="text-input"
@@ -269,11 +352,8 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           />
         </div>
-
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-upsampling">
-            Upsampling (Hz)
-          </label>
+          <label className="field-label" htmlFor="settings-upsampling">Upsampling (Hz)</label>
           <input
             id="settings-upsampling"
             className="text-input"
@@ -290,9 +370,7 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
 
       <div className="settings-grid">
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-eq">
-            EQ Profile
-          </label>
+          <label className="field-label" htmlFor="settings-eq">EQ Profile</label>
           <select
             id="settings-eq"
             className="select-input"
@@ -304,11 +382,8 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             <option value="FIR">FIR</option>
           </select>
         </div>
-
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-fir-taps">
-            FIR Taps
-          </label>
+          <label className="field-label" htmlFor="settings-fir-taps">FIR Taps</label>
           <input
             id="settings-fir-taps"
             className="text-input"
@@ -321,11 +396,46 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
         </div>
       </div>
 
+      <div className="settings-group">
+        <div className="panel-subheader">
+          <span className="field-label">EQ Bands (±12 dB)</span>
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={handleResetEq}
+            disabled={isSaving}
+          >
+            Reset to 0 dB
+          </button>
+        </div>
+        <div className="eq-bands">
+          {EQ_BANDS.map((hz) => {
+            const key = String(hz) as EqBandKey;
+            const value = form.eqBands[key];
+            return (
+              <div key={key} className="eq-band">
+                <span className="eq-band-value">{value.toFixed(1)}</span>
+                <input
+                  className="eq-band-slider"
+                  type="range"
+                  min={-12}
+                  max={12}
+                  step={0.5}
+                  value={value}
+                  onChange={(event) => updateEqBand(key, Number.parseFloat(event.target.value))}
+                  disabled={isSaving}
+                  aria-label={`${formatHz(hz)} band gain`}
+                />
+                <span className="eq-band-label">{formatHz(hz)}</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       <div className="settings-grid">
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-output-bits">
-            Output Bits
-          </label>
+          <label className="field-label" htmlFor="settings-output-bits">Output Bits</label>
           <select
             id="settings-output-bits"
             className="select-input"
@@ -334,17 +444,12 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           >
             {OUTPUT_BIT_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option} bit
-              </option>
+              <option key={option} value={option}>{option} bit</option>
             ))}
           </select>
         </div>
-
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-noise-shaper">
-            Noise Shaper
-          </label>
+          <label className="field-label" htmlFor="settings-noise-shaper">Noise Shaper</label>
           <select
             id="settings-noise-shaper"
             className="select-input"
@@ -355,9 +460,7 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           >
             {NOISE_SHAPER_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
+              <option key={option} value={option}>{option}</option>
             ))}
           </select>
         </div>
@@ -376,7 +479,6 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           />
         </label>
-
         <label className="toggle-row" htmlFor="settings-loudness-enabled">
           <span>Loudness Enabled</span>
           <input
@@ -393,9 +495,7 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
 
       <div className="settings-grid">
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-loudness-mode">
-            Loudness Mode
-          </label>
+          <label className="field-label" htmlFor="settings-loudness-mode">Loudness Mode</label>
           <select
             id="settings-loudness-mode"
             className="select-input"
@@ -406,17 +506,12 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           >
             {LOUDNESS_MODE_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
+              <option key={option} value={option}>{option}</option>
             ))}
           </select>
         </div>
-
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-target-lufs">
-            Target LUFS
-          </label>
+          <label className="field-label" htmlFor="settings-target-lufs">Target LUFS</label>
           <input
             id="settings-target-lufs"
             className="text-input"
@@ -430,9 +525,7 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
 
       <div className="settings-grid">
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-preamp">
-            Preamp (dB)
-          </label>
+          <label className="field-label" htmlFor="settings-preamp">Preamp (dB)</label>
           <input
             id="settings-preamp"
             className="text-input"
@@ -442,11 +535,8 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           />
         </div>
-
         <div className="settings-group">
-          <label className="field-label" htmlFor="settings-resample-quality">
-            Resample Quality
-          </label>
+          <label className="field-label" htmlFor="settings-resample-quality">Resample Quality</label>
           <select
             id="settings-resample-quality"
             className="select-input"
@@ -457,11 +547,113 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           >
             {RESAMPLE_QUALITY_OPTIONS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
+              <option key={option} value={option}>{option}</option>
             ))}
           </select>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <span className="field-label">Saturation</span>
+        <label className="toggle-row" htmlFor="settings-saturation-enabled">
+          <span>Saturation Enabled</span>
+          <input
+            id="settings-saturation-enabled"
+            type="checkbox"
+            checked={form.saturationEnabled}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, saturationEnabled: event.target.checked }))
+            }
+            disabled={isSaving}
+          />
+        </label>
+        <div className="settings-grid">
+          <div className="settings-group">
+            <label className="field-label" htmlFor="settings-saturation-drive">Drive (0–4)</label>
+            <input
+              id="settings-saturation-drive"
+              className="text-input"
+              type="text"
+              value={form.saturationDrive}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, saturationDrive: event.target.value }))
+              }
+              disabled={isSaving || !form.saturationEnabled}
+            />
+          </div>
+          <div className="settings-group">
+            <label className="field-label" htmlFor="settings-saturation-mix">Mix (0–1)</label>
+            <input
+              id="settings-saturation-mix"
+              className="text-input"
+              type="text"
+              value={form.saturationMix}
+              onChange={(event) =>
+                setForm((current) => ({ ...current, saturationMix: event.target.value }))
+              }
+              disabled={isSaving || !form.saturationEnabled}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <span className="field-label">Crossfeed</span>
+        <label className="toggle-row" htmlFor="settings-crossfeed-enabled">
+          <span>Crossfeed Enabled</span>
+          <input
+            id="settings-crossfeed-enabled"
+            type="checkbox"
+            checked={form.crossfeedEnabled}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, crossfeedEnabled: event.target.checked }))
+            }
+            disabled={isSaving}
+          />
+        </label>
+        <div className="settings-group">
+          <label className="field-label" htmlFor="settings-crossfeed-mix">Mix (0–1)</label>
+          <input
+            id="settings-crossfeed-mix"
+            className="text-input"
+            type="text"
+            value={form.crossfeedMix}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, crossfeedMix: event.target.value }))
+            }
+            disabled={isSaving || !form.crossfeedEnabled}
+          />
+        </div>
+      </div>
+
+      <div className="settings-group">
+        <span className="field-label">Dynamic Loudness</span>
+        <label className="toggle-row" htmlFor="settings-dynamic-loudness-enabled">
+          <span>Dynamic Loudness Enabled</span>
+          <input
+            id="settings-dynamic-loudness-enabled"
+            type="checkbox"
+            checked={form.dynamicLoudnessEnabled}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, dynamicLoudnessEnabled: event.target.checked }))
+            }
+            disabled={isSaving}
+          />
+        </label>
+        <div className="settings-group">
+          <label className="field-label" htmlFor="settings-dynamic-loudness-strength">
+            Strength (0–1)
+          </label>
+          <input
+            id="settings-dynamic-loudness-strength"
+            className="text-input"
+            type="text"
+            value={form.dynamicLoudnessStrength}
+            onChange={(event) =>
+              setForm((current) => ({ ...current, dynamicLoudnessStrength: event.target.value }))
+            }
+            disabled={isSaving || !form.dynamicLoudnessEnabled}
+          />
         </div>
       </div>
 
@@ -478,7 +670,6 @@ export function SettingsPanel({ onStateRefresh }: SettingsPanelProps) {
             disabled={isSaving}
           />
         </label>
-
         <label className="toggle-row" htmlFor="settings-preemptive">
           <span>Preemptive Resample</span>
           <input

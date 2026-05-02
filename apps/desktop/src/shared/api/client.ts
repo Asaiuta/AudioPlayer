@@ -11,7 +11,9 @@ import type {
   QueueEntry,
   QueueStatus,
   PlayerState,
+  RepeatMode,
   ScanResult,
+  ShuffleMode,
   WebDavBrowseEntry,
   WebDavSource
 } from "./types";
@@ -25,6 +27,8 @@ export interface ApiClient {
   load: (path: string) => Promise<PlayerState>;
   seek: (position: number) => Promise<PlayerState>;
   setVolume: (volume: number) => Promise<PlayerState>;
+  setRepeatMode: (mode: RepeatMode) => Promise<PlayerState>;
+  setShuffleMode: (mode: ShuffleMode) => Promise<PlayerState>;
   listDevices: () => Promise<DevicesResponse>;
   configureOutput: (deviceId: number | null, exclusive?: boolean) => Promise<PlayerState>;
   getQueueStatus: () => Promise<QueueStatus>;
@@ -208,7 +212,9 @@ const playerStateStringFields = [
   "eq_type",
   "loudness_mode",
   "noise_shaper_curve",
-  "resample_quality"
+  "resample_quality",
+  "repeat_mode",
+  "shuffle_mode"
 ] as const;
 
 const playerStateNullableStringFields = [
@@ -216,7 +222,8 @@ const playerStateNullableStringFields = [
   "title",
   "artist",
   "album",
-  "genre"
+  "genre",
+  "media_id"
 ] as const;
 
 const parsePlayerState = (value: unknown): PlayerState | null => {
@@ -509,6 +516,32 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => ({
     });
     if (envelope.status === "error") {
       throw new Error(envelope.message ?? "Failed to set volume");
+    }
+    if (!envelope.state) {
+      throw new Error("State missing from response");
+    }
+    return envelope.state;
+  },
+  setRepeatMode: async (mode: RepeatMode) => {
+    const envelope = await requestEnvelope(baseUrl, "/repeat", {
+      method: "POST",
+      body: JSON.stringify({ mode })
+    });
+    if (envelope.status === "error") {
+      throw new Error(envelope.message ?? "Failed to set repeat mode");
+    }
+    if (!envelope.state) {
+      throw new Error("State missing from response");
+    }
+    return envelope.state;
+  },
+  setShuffleMode: async (mode: ShuffleMode) => {
+    const envelope = await requestEnvelope(baseUrl, "/shuffle", {
+      method: "POST",
+      body: JSON.stringify({ mode })
+    });
+    if (envelope.status === "error") {
+      throw new Error(envelope.message ?? "Failed to set shuffle mode");
     }
     if (!envelope.state) {
       throw new Error("State missing from response");

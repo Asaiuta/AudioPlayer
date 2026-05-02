@@ -124,7 +124,13 @@ export interface PlayerState {
   genre: string | null;
   year: number | null;
   has_cover_art: boolean;
+  media_id: string | null;
+  repeat_mode: RepeatMode;
+  shuffle_mode: ShuffleMode;
 }
+
+export type RepeatMode = "off" | "one" | "all";
+export type ShuffleMode = "off" | "on";
 
 export interface LibraryRoot {
   root_id: number;

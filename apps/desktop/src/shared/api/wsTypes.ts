@@ -2,11 +2,24 @@ export type WsEvent =
   | { type: "loading_progress"; progress: number }
   | { type: "load_complete"; file_path: string | null; duration: number }
   | { type: "load_error"; error: string }
-  | { type: "track_changed"; file_path: string | null; duration: number }
-  | { type: "playback_ended" }
+  | {
+      type: "track_changed";
+      file_path: string | null;
+      duration: number;
+      media_id: string | null;
+      title: string | null;
+      artist: string | null;
+      album: string | null;
+    }
+  | { type: "playback_ended"; position: number }
   | { type: "needs_preload"; remaining_secs: number }
   | { type: "spectrum_data"; data: number[] }
-  | { type: "queue_updated"; queue: unknown[] };
+  | { type: "queue_updated"; queue: unknown[] }
+  | { type: "play"; position: number; timestamp: number }
+  | { type: "pause"; position: number; timestamp: number }
+  | { type: "stop"; position: number; timestamp: number }
+  | { type: "seek"; position: number; timestamp: number }
+  | { type: "position"; position: number; timestamp: number };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -61,10 +74,20 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
       if (duration === null) {
         return null;
       }
-      return { type: eventType, file_path: filePath, duration };
+      return {
+        type: eventType,
+        file_path: filePath,
+        duration,
+        media_id: readNullableString(raw.media_id),
+        title: readNullableString(raw.title),
+        artist: readNullableString(raw.artist),
+        album: readNullableString(raw.album)
+      };
     }
-    case "playback_ended":
-      return { type: eventType };
+    case "playback_ended": {
+      const position = readNumber(raw.position) ?? 0;
+      return { type: eventType, position };
+    }
     case "needs_preload": {
       const remaining = readNumber(raw.remaining_secs);
       return remaining === null ? null : { type: eventType, remaining_secs: remaining };
@@ -76,6 +99,18 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
     case "queue_updated": {
       const queue = Array.isArray(raw.queue) ? raw.queue : null;
       return queue !== null ? { type: eventType, queue } : null;
+    }
+    case "play":
+    case "pause":
+    case "stop":
+    case "seek":
+    case "position": {
+      const position = readNumber(raw.position);
+      const timestamp = readNumber(raw.timestamp);
+      if (position === null || timestamp === null) {
+        return null;
+      }
+      return { type: eventType, position, timestamp };
     }
     default:
       return null;
