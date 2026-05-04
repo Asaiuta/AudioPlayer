@@ -1,0 +1,146 @@
+/* ============================================================
+   Design Tokens — modernized for the Solid migration (PR1).
+   Preserves the existing OKLCH palette / spacing rhythm so
+   ported components keep working visually, while extending
+   with elevation, motion and typography scales used by the
+   modernized component pass in PR3–PR5. UnoCSS theme reads
+   these via `var(--…)` so utilities and raw CSS share a
+   single source of truth.
+   ============================================================ */
+
+:root {
+  color-scheme: dark;
+
+  /* ---------- Spacing ---------- */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+  --space-9: 96px;
+
+  /* ---------- Radius ---------- */
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* ---------- Color: surface ladder ---------- */
+  --bg: oklch(0.14 0.02 250);
+  --surface-1: oklch(0.18 0.02 250);
+  --surface-2: oklch(0.22 0.025 250);
+  --surface-3: oklch(0.26 0.03 250);
+  --surface-4: oklch(0.30 0.035 250);
+
+  /* alpha companions used for translucent panels / chips. */
+  --surface-1-soft: oklch(0.18 0.02 250 / 0.7);
+  --surface-2-soft: oklch(0.22 0.025 250 / 0.7);
+  --surface-3-soft: oklch(0.26 0.03 250 / 0.7);
+
+  --border-subtle: oklch(0.28 0.02 250 / 0.6);
+  --border: oklch(0.34 0.02 250);
+  --border-strong: oklch(0.42 0.025 250);
+
+  /* legacy aliases (kept for parity with the React global.css; will
+     be retired once every component is ported in PR3–PR5) */
+  --surface: var(--surface-1);
+  --surface-strong: var(--surface-3);
+
+  /* ---------- Color: text ---------- */
+  --text: oklch(0.95 0.015 250);
+  --text-soft: oklch(0.84 0.02 250);
+  --muted: oklch(0.7 0.025 250);
+  --muted-soft: oklch(0.58 0.025 250);
+
+  /* ---------- Color: accent ---------- */
+  --accent: oklch(0.78 0.13 80);
+  --accent-strong: oklch(0.84 0.16 80);
+  --accent-soft: oklch(0.78 0.13 80 / 0.16);
+  --accent-foreground: oklch(0.18 0.05 60);
+
+  /* ---------- Semantic ---------- */
+  --success: oklch(0.78 0.13 140);
+  --warning: oklch(0.78 0.12 90);
+  --danger: oklch(0.7 0.16 25);
+  --info: oklch(0.72 0.12 240);
+
+  /* ---------- Elevation (layered shadows) ---------- */
+  --elev-1:
+    0 1px 2px oklch(0 0 0 / 0.32),
+    0 0 0 1px oklch(1 0 0 / 0.04) inset;
+  --elev-2:
+    0 4px 12px oklch(0 0 0 / 0.32),
+    0 0 0 1px oklch(1 0 0 / 0.04) inset;
+  --elev-3:
+    0 12px 28px oklch(0 0 0 / 0.42),
+    0 2px 6px oklch(0 0 0 / 0.28),
+    0 0 0 1px oklch(1 0 0 / 0.05) inset;
+  --elev-4:
+    0 24px 48px oklch(0 0 0 / 0.5),
+    0 8px 16px oklch(0 0 0 / 0.3),
+    0 0 0 1px oklch(1 0 0 / 0.06) inset;
+
+  /* glow used for active accents */
+  --glow-accent: 0 0 24px oklch(0.78 0.13 80 / 0.45);
+
+  /* ---------- Motion ---------- */
+  --ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-emphasized: cubic-bezier(0.18, 0.74, 0.18, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --duration-fast: 140ms;
+  --duration-base: 220ms;
+  --duration-slow: 360ms;
+  --duration-xslow: 540ms;
+
+  /* ---------- Typography ---------- */
+  --font-sans: "Sora", "Inter", "Segoe UI", -apple-system, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque", "Sora", "Inter", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: clamp(22px, 1.8vw + 14px, 30px);
+  --text-3xl: clamp(28px, 2.4vw + 18px, 40px);
+
+  --leading-tight: 1.15;
+  --leading-snug: 1.35;
+  --leading-normal: 1.55;
+
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.08em;
+
+  /* ---------- Layout ---------- */
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+  --top-nav-height: 56px;
+  --player-bar-height: 84px;
+
+  /* ---------- z-index scale ---------- */
+  --z-base: 0;
+  --z-sticky: 10;
+  --z-popover: 30;
+  --z-toast: 40;
+  --z-context-menu: 50;
+  --z-modal: 60;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+    --duration-base: 0ms;
+    --duration-slow: 0ms;
+    --duration-xslow: 0ms;
+  }
+}
