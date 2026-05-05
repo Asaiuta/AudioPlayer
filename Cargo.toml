@@ -60,6 +60,8 @@ hex = "0.4"
 crc32fast = "1.4"
 reqwest = { version = "0.12", features = ["blocking"] }
 quick-xml = { version = "0.36", features = ["serialize"] }
+ncm-api-rs = "0.1"
+serde_urlencoded = "0.7"
 
 # --- Optional: PyO3 for backward compat ---
 pyo3 = { version = "0.23", features = ["extension-module"], optional = true }

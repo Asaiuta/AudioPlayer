@@ -1,9 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { For, Show, createEffect, createSignal, onMount } from "solid-js";
 import { createApiClient } from "../../shared/api/client";
 import type { PlaybackHistoryEntry } from "../../shared/api/types";
+import { useTranslation } from "../../shared/i18n";
+import type { TranslationKey } from "../../shared/i18n";
 
 const api = createApiClient();
 const LIMIT_OPTIONS = [50, 100, 200, 500] as const;
+const KNOWN_EVENTS: ReadonlyArray<string> = ["play", "load", "pause", "stop", "seek"];
 
 interface HistoryPageProps {
   onStateRefresh: () => Promise<void>;
@@ -13,23 +16,6 @@ interface Feedback {
   tone: "neutral" | "success" | "error";
   message: string;
 }
-
-const readErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Request failed";
-
-const formatTimestamp = (epochSecs: number) => {
-  const date = new Date(epochSecs * 1000);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString();
-};
-
-const formatPosition = (secs: number | null) => {
-  if (secs === null || !Number.isFinite(secs)) return "—";
-  const total = Math.max(0, Math.floor(secs));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
 
 const eventToneClass = (eventType: string) => {
   switch (eventType) {
@@ -47,113 +33,134 @@ const eventToneClass = (eventType: string) => {
   }
 };
 
-export function HistoryPage({ onStateRefresh }: HistoryPageProps) {
-  const [entries, setEntries] = useState<PlaybackHistoryEntry[]>([]);
-  const [limit, setLimit] = useState<number>(LIMIT_OPTIONS[0]);
-  const [isFetching, setIsFetching] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback>({
+export function HistoryPage(props: HistoryPageProps) {
+  const { t, td } = useTranslation();
+  const [entries, setEntries] = createSignal<PlaybackHistoryEntry[]>([]);
+  const [limit, setLimit] = createSignal<number>(LIMIT_OPTIONS[0]);
+  const [isFetching, setIsFetching] = createSignal(false);
+  const [feedbackKey, setFeedbackKey] = createSignal<TranslationKey | null>("history.feedback.initial");
+  const [feedback, setFeedback] = createSignal<Feedback>({
     tone: "neutral",
-    message: "Recent playback events. Click Replay to load a track again."
+    message: t("history.feedback.initial")
   });
 
-  const refresh = useCallback(async () => {
+  const readErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : t("common.error.requestFailed");
+
+  const formatTimestamp = (epochSecs: number) => {
+    const date = new Date(epochSecs * 1000);
+    if (Number.isNaN(date.getTime())) return t("history.entry.timestampFallback");
+    return date.toLocaleString();
+  };
+
+  const formatPosition = (secs: number | null) => {
+    if (secs === null || !Number.isFinite(secs)) return t("history.entry.positionFallback");
+    const total = Math.max(0, Math.floor(secs));
+    const minutes = Math.floor(total / 60);
+    const seconds = total % 60;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  const localizeEvent = (eventType: string) =>
+    KNOWN_EVENTS.includes(eventType) ? td(`history.event.${eventType}`) : eventType;
+
+  createEffect(() => {
+    const key = feedbackKey();
+    if (key) {
+      setFeedback((current) => ({ ...current, message: t(key) }));
+    }
+  });
+
+  const setRawFeedback = (tone: Feedback["tone"], message: string) => {
+    setFeedbackKey(null);
+    setFeedback({ tone, message });
+  };
+
+  const refresh = async () => {
     setIsFetching(true);
     try {
-      const list = await api.getPlaybackHistory(limit);
+      const list = await api.getPlaybackHistory(limit());
       setEntries(list);
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     } finally {
       setIsFetching(false);
     }
-  }, [limit]);
+  };
 
-  useEffect(() => {
+  onMount(() => {
     void refresh();
-  }, [refresh]);
+  });
+
+  createEffect(() => {
+    limit();
+    void refresh();
+  });
 
   const handleReplay = async (entry: PlaybackHistoryEntry) => {
     try {
       await api.load(entry.source_path);
-      await onStateRefresh();
-      setFeedback({
-        tone: "success",
-        message: `Reloaded ${entry.source_path}`
-      });
+      await props.onStateRefresh();
+      setRawFeedback("success", t("history.feedback.reloaded", { path: entry.source_path }));
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     }
   };
 
   return (
-    <section className="panel panel-history">
-      <div className="panel-header">
-        <h2>History</h2>
-        <span className="panel-meta">{entries.length} events</span>
+    <section class="panel panel-history">
+      <div class="panel-header">
+        <h2>{t("history.title")}</h2>
+        <span class="panel-meta">{t("history.subtitle", { count: entries().length })}</span>
       </div>
 
-      <div className="settings-group">
-        <div className="panel-subheader">
-          <label className="field-label" htmlFor="history-limit">Show recent</label>
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={() => void refresh()}
-            disabled={isFetching}
-          >
-            {isFetching ? "Refreshing..." : "Refresh"}
+      <div class="settings-group">
+        <div class="panel-subheader">
+          <label class="field-label" for="history-limit">{t("history.limit.label")}</label>
+          <button type="button" class="ghost-button" onClick={() => void refresh()} disabled={isFetching()}>
+            {isFetching() ? t("history.refresh.refreshing") : t("history.refresh.button")}
           </button>
         </div>
         <select
           id="history-limit"
-          className="select-input"
-          value={limit}
-          onChange={(event) => setLimit(Number.parseInt(event.target.value, 10))}
-          disabled={isFetching}
+          class="select-input"
+          value={limit()}
+          onChange={(event) => setLimit(Number.parseInt(event.currentTarget.value, 10))}
+          disabled={isFetching()}
         >
-          {LIMIT_OPTIONS.map((option) => (
-            <option key={option} value={option}>
-              {option} events
-            </option>
-          ))}
+          <For each={LIMIT_OPTIONS}>
+            {(option) => <option value={option}>{t("history.limit.option", { count: option })}</option>}
+          </For>
         </select>
       </div>
 
-      <div className="settings-group">
-        {entries.length === 0 ? (
-          <div className="status-line">No playback events yet.</div>
-        ) : (
-          <ul className="history-list">
-            {entries.map((entry) => (
-              <li key={entry.id} className="history-item">
-                <span className={`history-chip ${eventToneClass(entry.event_type)}`}>
-                  {entry.event_type}
-                </span>
-                <div className="history-meta">
-                  <span className="history-path" title={entry.source_path}>
-                    {entry.source_path}
-                  </span>
-                  <span className="history-detail">
-                    {formatTimestamp(entry.event_at_epoch_secs)} · pos {formatPosition(entry.position_secs)}
-                    {entry.session_id !== null ? ` · session ${entry.session_id}` : ""}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => void handleReplay(entry)}
-                >
-                  Replay
-                </button>
-              </li>
-            ))}
+      <div class="settings-group">
+        <Show when={entries().length > 0} fallback={<div class="status-line">{t("history.empty")}</div>}>
+          <ul class="history-list">
+            <For each={entries()}>
+              {(entry) => (
+                <li class="history-item">
+                  <span class={`history-chip ${eventToneClass(entry.event_type)}`}>{localizeEvent(entry.event_type)}</span>
+                  <div class="history-meta">
+                    <span class="history-path" title={entry.source_path}>{entry.source_path}</span>
+                    <span class="history-detail">
+                      {formatTimestamp(entry.event_at_epoch_secs)}
+                      {" · "}
+                      {t("history.entry.position", { position: formatPosition(entry.position_secs) })}
+                      {entry.session_id !== null ? " · " + t("history.entry.session", { session: entry.session_id }) : ""}
+                    </span>
+                  </div>
+                  <button type="button" class="ghost-button" onClick={() => void handleReplay(entry)}>
+                    {t("history.entry.replay")}
+                  </button>
+                </li>
+              )}
+            </For>
           </ul>
-        )}
+        </Show>
       </div>
 
-      <div className={feedback.tone === "error" ? "status-error" : "status-line"}>
-        {feedback.message}
-      </div>
+      <div class={feedback().tone === "error" ? "status-error" : "status-line"}>{feedback().message}</div>
     </section>
   );
 }

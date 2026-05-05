@@ -1,5 +1,26 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Match, Switch, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { AppShell } from "../components/AppShell";
+import { BackgroundLayer } from "../components/BackgroundLayer";
+import { FullPlayer } from "../components/FullPlayer";
+import { PlayerBar } from "../components/PlayerBar";
+import { Sidebar } from "../components/Sidebar";
+import type { ActivePage } from "../components/Sidebar";
+import { TopNav } from "../components/TopNav";
+import { WindowControls } from "../components/WindowControls";
+import { HistoryPage } from "../features/history/HistoryPage";
+import { LibraryPage } from "../features/library/LibraryPage";
+import { NeteasePage } from "../features/online/NeteasePage";
+import {
+  mergeNcmTrackReference,
+  readLyricLines,
+  readSongDetailSupplement,
+  type NcmTrackReference,
+  type NcmTrackSupplement
+} from "../features/online/ncmPlayback";
+import { QueuePage } from "../features/queue/QueuePage";
+import { SettingsPage } from "../features/settings/SettingsPage";
 import { createApiClient } from "../shared/api/client";
+import { lyricNew, songDetail } from "../shared/api/ncm/search";
 import type {
   PlayerState,
   QueueEntry,
@@ -8,50 +29,53 @@ import type {
   ShuffleMode
 } from "../shared/api/types";
 import { useEngineSocket } from "../shared/api/useEngineSocket";
-import { Sidebar } from "../components/Sidebar";
-import type { ActivePage } from "../components/Sidebar";
-import { ContentArea } from "../components/ContentArea";
-import { PlayerBar } from "../components/PlayerBar";
-import { QueuePage } from "../features/queue/QueuePage";
-import { LibraryPage } from "../features/library/LibraryPage";
-import { HistoryPage } from "../features/history/HistoryPage";
-import { SettingsPage } from "../features/settings/SettingsPage";
+import { useTranslation } from "../shared/i18n";
+import { UISearchProvider } from "../shared/state/UISearchContext";
+import { useUISettings } from "../shared/state/useUISettings";
 
 const api = createApiClient();
+
 type WsStatus = "connected" | "connecting" | "disconnected";
+
+const REPEAT_CYCLE: ReadonlyArray<RepeatMode> = ["off", "all", "one"];
+
 const readErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "Request failed";
 
-const REPEAT_CYCLE: ReadonlyArray<RepeatMode> = ["off", "all", "one"];
 const nextRepeatMode = (current: RepeatMode): RepeatMode => {
   const index = REPEAT_CYCLE.indexOf(current);
   return REPEAT_CYCLE[(index + 1) % REPEAT_CYCLE.length] ?? "off";
 };
 
 export function App() {
-  const [state, setState] = useState<RequestState<PlayerState>>({ status: "idle" });
-  const [spectrum, setSpectrum] = useState<number[]>([]);
-  const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
-  const [wsStatus, setWsStatus] = useState<WsStatus>("connecting");
-  const [preloadRequested, setPreloadRequested] = useState(false);
-  const [commandError, setCommandError] = useState<string | null>(null);
-  const [activePage, setActivePage] = useState<ActivePage>("queue");
-  const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
-  const [livePosition, setLivePosition] = useState<number | null>(null);
-  const lastRefreshRef = useRef(0);
+  const [state, setState] = createSignal<RequestState<PlayerState>>({ status: "idle" });
+  const [spectrum, setSpectrum] = createSignal<number[]>([]);
+  const [loadingProgress, setLoadingProgress] = createSignal<number | null>(null);
+  const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
+  const [preloadRequested, setPreloadRequested] = createSignal(false);
+  const [commandError, setCommandError] = createSignal<string | null>(null);
+  const [activePage, setActivePage] = createSignal<ActivePage>("recommend");
+  const [queueEntries, setQueueEntries] = createSignal<QueueEntry[]>([]);
+  const [livePosition, setLivePosition] = createSignal<number | null>(null);
+  const [fullPlayerOpen, setFullPlayerOpen] = createSignal(false);
+  const [ncmTrackRefs, setNcmTrackRefs] = createSignal<Record<string, NcmTrackReference>>({});
+  const [currentNcmSupplement, setCurrentNcmSupplement] =
+    createSignal<NcmTrackSupplement | null>(null);
+  let lastRefreshAt = 0;
+  const uiSettings = useUISettings();
+  const { td } = useTranslation();
 
-  const refreshState = useCallback(async () => {
+  const refreshState = async () => {
     setState({ status: "loading" });
     try {
       const next = await api.getState();
       setState({ status: "success", data: next });
     } catch (error) {
-      const message = readErrorMessage(error);
-      setState({ status: "error", error: message });
+      setState({ status: "error", error: readErrorMessage(error) });
     }
-  }, []);
+  };
 
-  const refreshQueue = useCallback(async () => {
+  const refreshQueue = async () => {
     try {
       const entries = await api.getPersistentQueue();
       setQueueEntries(entries);
@@ -59,21 +83,21 @@ export function App() {
       // Skip controls degrade gracefully when the queue endpoint is unreachable.
       setQueueEntries([]);
     }
-  }, []);
+  };
 
-  useEffect(() => {
+  onMount(() => {
     void refreshState();
     void refreshQueue();
-  }, [refreshState, refreshQueue]);
+  });
 
-  const scheduleRefresh = useCallback(() => {
+  const scheduleRefresh = () => {
     const now = Date.now();
-    if (now - lastRefreshRef.current < 300) {
+    if (now - lastRefreshAt < 300) {
       return;
     }
-    lastRefreshRef.current = now;
+    lastRefreshAt = now;
     void refreshState();
-  }, [refreshState]);
+  };
 
   useEngineSocket({
     onOpen: () => {
@@ -133,7 +157,7 @@ export function App() {
     }
   });
 
-  const runPlayerCommand = useCallback(async (command: () => Promise<unknown>) => {
+  const runPlayerCommand = async (command: () => Promise<unknown>) => {
     setCommandError(null);
     try {
       await command();
@@ -141,113 +165,303 @@ export function App() {
     } catch (error) {
       setCommandError(readErrorMessage(error));
     }
-  }, [refreshState]);
+  };
 
-  const handlePlay = useCallback(async () => {
-    await runPlayerCommand(() => api.play());
-  }, [runPlayerCommand]);
+  const handlePlay = () => runPlayerCommand(() => api.play());
+  const handlePause = () => runPlayerCommand(() => api.pause());
+  const handleStop = () => runPlayerCommand(() => api.stop());
+  const handleSeek = (position: number) => runPlayerCommand(() => api.seek(position));
+  const handleVolumeChange = (volume: number) => runPlayerCommand(() => api.setVolume(volume));
 
-  const handlePause = useCallback(async () => {
-    await runPlayerCommand(() => api.pause());
-  }, [runPlayerCommand]);
+  const player = createMemo(() => {
+    const request = state();
+    return request.status === "success" ? request.data : null;
+  });
+  const currentTrackPath = createMemo(() => player()?.file_path ?? null);
+  const currentMediaId = createMemo(() => player()?.media_id ?? null);
+  const hasCoverArt = createMemo(() => Boolean(player()?.has_cover_art));
+  const coverUrl = createMemo(() => {
+    const mediaId = currentMediaId();
+    return mediaId && hasCoverArt() ? api.getCoverArtUrl(mediaId) : null;
+  });
 
-  const handleStop = useCallback(async () => {
-    await runPlayerCommand(() => api.stop());
-  }, [runPlayerCommand]);
-
-  const handleSeek = useCallback(async (position: number) => {
-    await runPlayerCommand(() => api.seek(position));
-  }, [runPlayerCommand]);
-
-  const handleVolumeChange = useCallback(async (volume: number) => {
-    await runPlayerCommand(() => api.setVolume(volume));
-  }, [runPlayerCommand]);
-
-  const currentTrackPath = state.status === "success" ? state.data.file_path : null;
-  const currentMediaId =
-    state.status === "success" ? state.data.media_id ?? null : null;
-  const hasCoverArt = state.status === "success" && state.data.has_cover_art;
-  const coverUrl = currentMediaId && hasCoverArt ? api.getCoverArtUrl(currentMediaId) : null;
-
-  const { prevEntryId, nextEntryId } = useMemo(() => {
-    if (!currentTrackPath || queueEntries.length === 0) {
+  const queueNeighbors = createMemo(() => {
+    const path = currentTrackPath();
+    const entries = queueEntries();
+    if (!path || entries.length === 0) {
       return { prevEntryId: null as number | null, nextEntryId: null as number | null };
     }
-    const index = queueEntries.findIndex((entry) => entry.source_path === currentTrackPath);
+
+    const index = entries.findIndex((entry) => entry.source_path === path);
     if (index < 0) {
       return { prevEntryId: null, nextEntryId: null };
     }
+
     return {
-      prevEntryId: index > 0 ? queueEntries[index - 1].entry_id : null,
-      nextEntryId: index < queueEntries.length - 1 ? queueEntries[index + 1].entry_id : null
+      prevEntryId: index > 0 ? entries[index - 1].entry_id : null,
+      nextEntryId: index < entries.length - 1 ? entries[index + 1].entry_id : null
     };
-  }, [currentTrackPath, queueEntries]);
+  });
 
-  const handleSkipPrev = useCallback(async () => {
-    if (prevEntryId === null) return;
-    await runPlayerCommand(() => api.playFromQueue(prevEntryId));
-  }, [prevEntryId, runPlayerCommand]);
+  const prevEntryId = () => queueNeighbors().prevEntryId;
+  const nextEntryId = () => queueNeighbors().nextEntryId;
 
-  const handleSkipNext = useCallback(async () => {
-    if (nextEntryId === null) return;
-    await runPlayerCommand(() => api.playFromQueue(nextEntryId));
-  }, [nextEntryId, runPlayerCommand]);
+  const handleSkipPrev = () => {
+    const entryId = prevEntryId();
+    if (entryId === null) return;
+    return runPlayerCommand(() => api.playFromQueue(entryId));
+  };
 
-  const repeatMode: RepeatMode =
-    state.status === "success" ? state.data.repeat_mode : "off";
-  const shuffleMode: ShuffleMode =
-    state.status === "success" ? state.data.shuffle_mode : "off";
+  const handleSkipNext = () => {
+    const entryId = nextEntryId();
+    if (entryId === null) return;
+    return runPlayerCommand(() => api.playFromQueue(entryId));
+  };
 
-  const handleCycleRepeat = useCallback(async () => {
-    const target = nextRepeatMode(repeatMode);
-    await runPlayerCommand(() => api.setRepeatMode(target));
-  }, [repeatMode, runPlayerCommand]);
+  const repeatMode = createMemo<RepeatMode>(() => player()?.repeat_mode ?? "off");
+  const shuffleMode = createMemo<ShuffleMode>(() => player()?.shuffle_mode ?? "off");
 
-  const handleToggleShuffle = useCallback(async () => {
-    const target: ShuffleMode = shuffleMode === "on" ? "off" : "on";
-    await runPlayerCommand(() => api.setShuffleMode(target));
-  }, [shuffleMode, runPlayerCommand]);
+  const handleCycleRepeat = () => {
+    const target = nextRepeatMode(repeatMode());
+    return runPlayerCommand(() => api.setRepeatMode(target));
+  };
+
+  const handleToggleShuffle = () => {
+    const target: ShuffleMode = shuffleMode() === "on" ? "off" : "on";
+    return runPlayerCommand(() => api.setShuffleMode(target));
+  };
+
+  const currentTrackRef = createMemo(() => {
+    const path = player()?.file_path;
+    return path ? ncmTrackRefs()[path] : undefined;
+  });
+  const currentNcmSongId = createMemo(() => currentTrackRef()?.songId ?? null);
+  const currentNcmCoverUrl = createMemo(
+    () => currentNcmSupplement()?.coverUrl ?? currentTrackRef()?.coverUrl ?? null
+  );
+  const resolvedCoverUrl = createMemo(() => currentNcmCoverUrl() ?? coverUrl());
+  const currentLyricLine = createMemo(() => currentNcmSupplement()?.lyrics ?? []);
+  const fullPlayerTitle = createMemo(
+    () =>
+      currentNcmSupplement()?.title ??
+      currentTrackRef()?.title ??
+      player()?.title ??
+      player()?.file_path ??
+      ""
+  );
+  const fullPlayerSubtitle = createMemo(() =>
+    [
+      currentNcmSupplement()?.artist ?? currentTrackRef()?.artist ?? player()?.artist,
+      currentNcmSupplement()?.album ?? currentTrackRef()?.album ?? player()?.album
+    ]
+      .filter(Boolean)
+      .join(" · ")
+  );
+  const fullPlayerDetail = createMemo(() =>
+    currentTrackRef() && currentNcmSongId() !== null ? `NCM · ID ${currentNcmSongId()}` : null
+  );
+  const lyricStatus = createMemo(() => {
+    const supplement = currentNcmSupplement();
+    if (supplement === null) return "idle";
+    if (supplement.status === "loading") return "loading";
+    if (supplement.status === "error") return "error";
+    return "ready";
+  });
+
+  const registerNcmPlayback = (track: NcmTrackReference) => {
+    setNcmTrackRefs((current) => ({
+      ...current,
+      [track.streamUrl]: mergeNcmTrackReference(current[track.streamUrl], track)
+    }));
+  };
+
+  createEffect(() => {
+    const trackRef = currentTrackRef();
+    if (!trackRef) {
+      setCurrentNcmSupplement(null);
+      return;
+    }
+
+    let cancelled = false;
+    setCurrentNcmSupplement({
+      status: "loading",
+      title: trackRef.title,
+      artist: trackRef.artist,
+      album: trackRef.album,
+      coverUrl: trackRef.coverUrl,
+      lyrics: [],
+      error: null
+    });
+
+    void Promise.allSettled([songDetail(trackRef.songId), lyricNew(trackRef.songId)]).then(
+      ([detailResult, lyricResult]) => {
+        if (cancelled) {
+          return;
+        }
+
+        const detailPayload =
+          detailResult.status === "fulfilled"
+            ? readSongDetailSupplement(detailResult.value, trackRef.songId)
+            : null;
+        const lyrics =
+          lyricResult.status === "fulfilled" ? readLyricLines(lyricResult.value) : [];
+        const error =
+          detailResult.status === "rejected"
+            ? readErrorMessage(detailResult.reason)
+            : lyricResult.status === "rejected"
+              ? readErrorMessage(lyricResult.reason)
+              : null;
+
+        setCurrentNcmSupplement({
+          status: error && !detailPayload && lyrics.length === 0 ? "error" : "success",
+          title: detailPayload?.title ?? trackRef.title,
+          artist: detailPayload?.artist ?? trackRef.artist,
+          album: detailPayload?.album ?? trackRef.album,
+          coverUrl: detailPayload?.coverUrl ?? trackRef.coverUrl,
+          lyrics,
+          error
+        });
+      }
+    );
+
+    onCleanup(() => {
+      cancelled = true;
+    });
+  });
 
   return (
-    <div className="app-shell">
-      <div className="app-body">
-        <Sidebar activePage={activePage} onChange={setActivePage} onRefresh={() => void refreshState()} />
-        <ContentArea>
-          {activePage === "queue" && (
+    <UISearchProvider activePage={activePage}>
+      <AppShell
+        sidebar={
+          <Sidebar
+            activePage={activePage()}
+            onChange={setActivePage}
+            onRefresh={() => void refreshState()}
+          />
+        }
+        topNav={
+          <TopNav
+            activePage={activePage()}
+            onOpenSettings={() => setActivePage("settings")}
+            windowControls={<WindowControls visible={uiSettings.customChrome} />}
+          />
+        }
+        backgroundLayer={
+          <BackgroundLayer
+            coverUrl={resolvedCoverUrl()}
+            enabled={uiSettings.bgEnabled}
+            blur={uiSettings.bgBlur}
+            maskOpacity={uiSettings.bgMask / 100}
+          />
+        }
+        playerBar={
+          <PlayerBar
+            request={state()}
+            loadingProgress={loadingProgress()}
+            wsStatus={wsStatus()}
+            commandError={commandError()}
+            coverUrl={resolvedCoverUrl()}
+            canSkipPrev={prevEntryId() !== null}
+            canSkipNext={nextEntryId() !== null}
+            livePosition={livePosition()}
+            repeatMode={repeatMode()}
+            shuffleMode={shuffleMode()}
+            onPlay={handlePlay}
+            onPause={handlePause}
+            onStop={handleStop}
+            onSeek={handleSeek}
+            onVolumeChange={handleVolumeChange}
+            onSkipPrev={handleSkipPrev}
+            onSkipNext={handleSkipNext}
+            onCycleRepeat={handleCycleRepeat}
+            onToggleShuffle={handleToggleShuffle}
+            onCoverClick={() => setFullPlayerOpen(true)}
+          />
+        }
+      >
+        <Switch>
+          <Match when={activePage() === "queue"}>
             <QueuePage
-              currentTrackPath={currentTrackPath}
-              preloadRequested={preloadRequested}
+              currentTrackPath={currentTrackPath()}
+              preloadRequested={preloadRequested()}
               onPreloadCleared={() => setPreloadRequested(false)}
               onStateRefresh={refreshState}
             />
-          )}
-          {activePage === "library" && <LibraryPage onStateRefresh={refreshState} />}
-          {activePage === "history" && <HistoryPage onStateRefresh={refreshState} />}
-          {activePage === "settings" && <SettingsPage onStateRefresh={refreshState} />}
-        </ContentArea>
-      </div>
-      <PlayerBar
-        request={state}
-        spectrum={spectrum}
-        loadingProgress={loadingProgress}
-        wsStatus={wsStatus}
-        commandError={commandError}
-        coverUrl={coverUrl}
-        canSkipPrev={prevEntryId !== null}
-        canSkipNext={nextEntryId !== null}
-        livePosition={livePosition}
-        repeatMode={repeatMode}
-        shuffleMode={shuffleMode}
+          </Match>
+          <Match when={activePage() === "library"}>
+            <LibraryPage
+              onStateRefresh={refreshState}
+              currentTrackPath={currentTrackPath()}
+              isPlaying={Boolean(player()?.is_playing)}
+            />
+          </Match>
+          <Match
+            when={
+              activePage() === "recommend" ||
+              activePage() === "discover" ||
+              activePage() === "created-playlists" ||
+              activePage() === "collected-playlists"
+            }
+          >
+            <NeteasePage
+              mode={
+                activePage() as "recommend" | "discover" | "created-playlists" | "collected-playlists"
+              }
+              onStateRefresh={refreshState}
+              currentTrackPath={currentTrackPath()}
+              currentSongId={currentNcmSongId()}
+              isPlaying={Boolean(player()?.is_playing)}
+              onRegisterPlayback={registerNcmPlayback}
+            />
+          </Match>
+          <Match when={activePage() === "recent"}>
+            <HistoryPage onStateRefresh={refreshState} />
+          </Match>
+          <Match when={activePage() === "settings"}>
+            <SettingsPage onStateRefresh={refreshState} />
+          </Match>
+          <Match when={activePage() === "liked" || activePage() === "cloud"}>
+            <div class="panel panel-placeholder">
+              <div class="panel-header">
+                <h2>{td(`sidebar.nav.${activePage()}.label`)}</h2>
+              </div>
+              <p class="panel-note">
+                {activePage() === "liked" && "喜欢的音乐 — 收藏同步功能开发中"}
+                {activePage() === "cloud" && "我的云盘 — 云盘功能开发中"}
+              </p>
+            </div>
+          </Match>
+        </Switch>
+      </AppShell>
+
+      <FullPlayer
+        isOpen={fullPlayerOpen()}
+        onClose={() => setFullPlayerOpen(false)}
+        coverUrl={resolvedCoverUrl()}
+        title={fullPlayerTitle()}
+        subtitle={fullPlayerSubtitle()}
+        detail={fullPlayerDetail()}
+        duration={player()?.duration ?? 0}
+        currentTime={livePosition() ?? player()?.current_time ?? 0}
+        isPlaying={Boolean(player()?.is_playing)}
+        spectrum={spectrum()}
+        lyrics={currentLyricLine()}
+        lyricStatus={lyricStatus()}
+        lyricError={currentNcmSupplement()?.error ?? null}
+        repeatMode={repeatMode()}
+        shuffleMode={shuffleMode()}
+        canSkipPrev={prevEntryId() !== null}
+        canSkipNext={nextEntryId() !== null}
         onPlay={handlePlay}
         onPause={handlePause}
-        onStop={handleStop}
         onSeek={handleSeek}
-        onVolumeChange={handleVolumeChange}
         onSkipPrev={handleSkipPrev}
         onSkipNext={handleSkipNext}
         onCycleRepeat={handleCycleRepeat}
         onToggleShuffle={handleToggleShuffle}
       />
-    </div>
+    </UISearchProvider>
   );
 }
+
+export default App;

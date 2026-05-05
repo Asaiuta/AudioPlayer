@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { For, Show, createEffect, createSignal, onMount } from "solid-js";
 import { createApiClient } from "../../shared/api/client";
 import type { QueueEntry, QueueStatus, RequestState } from "../../shared/api/types";
+import { useTranslation } from "../../shared/i18n";
+import type { TranslationKey } from "../../shared/i18n";
 
 const api = createApiClient();
 
@@ -17,89 +19,100 @@ interface QueueFeedback {
 }
 
 const trimPath = (value: string) => value.trim();
-const readErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Request failed";
 
-export function QueuePage({
-  currentTrackPath,
-  preloadRequested,
-  onPreloadCleared,
-  onStateRefresh
-}: QueuePageProps) {
-  const [loadPath, setLoadPath] = useState("");
-  const [nextPath, setNextPath] = useState("");
-  const [enqueuePath, setEnqueuePath] = useState("");
-  const [entries, setEntries] = useState<QueueEntry[]>([]);
-  const [queueState, setQueueState] = useState<RequestState<QueueStatus>>({ status: "idle" });
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<QueueFeedback>({
+export function QueuePage(props: QueuePageProps) {
+  const { t } = useTranslation();
+  const [loadPath, setLoadPath] = createSignal("");
+  const [nextPath, setNextPath] = createSignal("");
+  const [enqueuePath, setEnqueuePath] = createSignal("");
+  const [entries, setEntries] = createSignal<QueueEntry[]>([]);
+  const [queueState, setQueueState] = createSignal<RequestState<QueueStatus>>({ status: "idle" });
+  const [isSubmitting, setIsSubmitting] = createSignal(false);
+  const [feedbackKey, setFeedbackKey] = createSignal<TranslationKey | null>("queue.feedback.initial");
+  const [feedback, setFeedback] = createSignal<QueueFeedback>({
     tone: "neutral",
-    message: "Load a track now, queue gapless next, or build the persistent queue."
+    message: t("queue.feedback.initial")
   });
 
-  const refresh = useCallback(async () => {
+  const readErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : t("common.error.requestFailed");
+
+  createEffect(() => {
+    const key = feedbackKey();
+    if (key) {
+      setFeedback((current) => ({ ...current, message: t(key) }));
+    }
+  });
+
+  const refresh = async () => {
     try {
-      const [list, status] = await Promise.all([
-        api.getPersistentQueue(),
-        api.getQueueStatus()
-      ]);
+      const [list, status] = await Promise.all([api.getPersistentQueue(), api.getQueueStatus()]);
       setEntries(list);
       setQueueState({ status: "success", data: status });
     } catch (error) {
       setQueueState({ status: "error", error: readErrorMessage(error) });
     }
-  }, []);
+  };
 
-  useEffect(() => {
+  onMount(() => {
     setQueueState((current) => (current.status === "idle" ? { status: "loading" } : current));
     void refresh();
-  }, [refresh]);
+  });
 
-  useEffect(() => {
+  createEffect(() => {
+    props.currentTrackPath;
+    props.preloadRequested;
     void refresh();
-  }, [currentTrackPath, preloadRequested, refresh]);
+  });
 
-  const runWithFeedback = useCallback(
-    async (
-      action: () => Promise<void>,
-      pending: string,
-      success: string
-    ) => {
-      setIsSubmitting(true);
-      setFeedback({ tone: "neutral", message: pending });
-      try {
-        await action();
-        setFeedback({ tone: "success", message: success });
-      } catch (error) {
-        setFeedback({ tone: "error", message: readErrorMessage(error) });
-      } finally {
-        setIsSubmitting(false);
-      }
-    },
-    []
-  );
+  const setKeyedFeedback = (tone: QueueFeedback["tone"], key: TranslationKey) => {
+    setFeedbackKey(key);
+    setFeedback({ tone, message: t(key) });
+  };
+
+  const setRawFeedback = (tone: QueueFeedback["tone"], message: string) => {
+    setFeedbackKey(null);
+    setFeedback({ tone, message });
+  };
+
+  const runWithFeedback = async (
+    action: () => Promise<void>,
+    pendingKey: TranslationKey,
+    successKey: TranslationKey
+  ) => {
+    setIsSubmitting(true);
+    setKeyedFeedback("neutral", pendingKey);
+    try {
+      await action();
+      setKeyedFeedback("success", successKey);
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleLoad = async () => {
-    const path = trimPath(loadPath);
+    const path = trimPath(loadPath());
     if (!path) {
-      setFeedback({ tone: "error", message: "Enter a file path or URL to load." });
+      setKeyedFeedback("error", "queue.error.emptyLoad");
       return;
     }
     await runWithFeedback(
       async () => {
         await api.load(path);
-        await Promise.all([onStateRefresh(), refresh()]);
+        await Promise.all([props.onStateRefresh(), refresh()]);
         setLoadPath("");
       },
-      "Loading track into the engine...",
-      "Track loaded."
+      "queue.feedback.loadingTrack",
+      "queue.feedback.loaded"
     );
   };
 
   const handleQueueNext = async () => {
-    const path = trimPath(nextPath);
+    const path = trimPath(nextPath());
     if (!path) {
-      setFeedback({ tone: "error", message: "Enter a next-track path before queuing." });
+      setKeyedFeedback("error", "queue.error.emptyNext");
       return;
     }
     await runWithFeedback(
@@ -108,8 +121,8 @@ export function QueuePage({
         await refresh();
         setNextPath("");
       },
-      "Preparing next track for gapless playback...",
-      "Next track queued for gapless playback."
+      "queue.feedback.preparing",
+      "queue.feedback.nextQueued"
     );
   };
 
@@ -117,18 +130,18 @@ export function QueuePage({
     await runWithFeedback(
       async () => {
         await api.cancelPreload();
-        onPreloadCleared();
+        props.onPreloadCleared();
         await refresh();
       },
-      "Canceling pending preload...",
-      "Pending preload cleared."
+      "queue.feedback.canceling",
+      "queue.feedback.canceled"
     );
   };
 
   const handleEnqueue = async () => {
-    const path = trimPath(enqueuePath);
+    const path = trimPath(enqueuePath());
     if (!path) {
-      setFeedback({ tone: "error", message: "Enter a path to add to the queue." });
+      setKeyedFeedback("error", "queue.error.emptyEnqueue");
       return;
     }
     await runWithFeedback(
@@ -137,20 +150,23 @@ export function QueuePage({
         setEntries(list);
         setEnqueuePath("");
       },
-      "Adding to persistent queue...",
-      "Added to queue."
+      "queue.feedback.adding",
+      "queue.feedback.added"
     );
   };
 
   const handlePlay = async (entry: QueueEntry) => {
-    await runWithFeedback(
-      async () => {
-        await api.playFromQueue(entry.entry_id);
-        await Promise.all([onStateRefresh(), refresh()]);
-      },
-      `Playing ${entry.source_path}...`,
-      "Playback started."
-    );
+    setIsSubmitting(true);
+    setRawFeedback("neutral", t("queue.feedback.playing", { path: entry.source_path }));
+    try {
+      await api.playFromQueue(entry.entry_id);
+      await Promise.all([props.onStateRefresh(), refresh()]);
+      setKeyedFeedback("success", "queue.feedback.started");
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleRemove = async (entry: QueueEntry) => {
@@ -159,160 +175,166 @@ export function QueuePage({
         const list = await api.removeQueueEntry(entry.entry_id);
         setEntries(list);
       },
-      "Removing entry...",
-      "Entry removed from queue."
+      "queue.feedback.removing",
+      "queue.feedback.removed"
     );
   };
 
   const handleClear = async () => {
-    if (entries.length === 0) return;
+    if (entries().length === 0) return;
     await runWithFeedback(
       async () => {
         await api.clearPersistentQueue();
         setEntries([]);
       },
-      "Clearing queue...",
-      "Queue cleared."
+      "queue.feedback.clearing",
+      "queue.feedback.cleared"
     );
   };
 
-  const resolvedCurrentTrack =
-    queueState.status === "success" ? queueState.data.current_track_path : currentTrackPath;
-  const pendingTrack =
-    queueState.status === "success" ? queueState.data.pending_track_path : null;
-  const canCancel =
-    queueState.status === "success"
-      ? queueState.data.needs_preload || queueState.data.pending_ready || queueState.data.is_preload_canceling
-      : preloadRequested;
+  const resolvedCurrentTrack = () =>
+    queueData()?.current_track_path ?? props.currentTrackPath;
+  const queueData = () => {
+    const state = queueState();
+    return state.status === "success" ? state.data : null;
+  };
+  const queueError = () => {
+    const state = queueState();
+    return state.status === "error" ? state.error : null;
+  };
+  const pendingTrack = () => queueData()?.pending_track_path ?? null;
+  const canCancel = () =>
+    queueData()
+      ? Boolean(
+          queueData()?.needs_preload ||
+          queueData()?.pending_ready ||
+          queueData()?.is_preload_canceling
+        )
+      : props.preloadRequested;
+  const countKey = (): TranslationKey =>
+    entries().length === 1 ? "queue.persistent.count.one" : "queue.persistent.count.other";
+  const preloadStatusKey = (): TranslationKey =>
+    queueData()?.pending_ready
+      ? "queue.status.preload.ready"
+      : queueData()?.needs_preload
+        ? "queue.status.preload.requested"
+        : "queue.status.preload.idle";
 
   return (
-    <section className="panel panel-queue">
-      <div className="panel-header">
-        <h2>Queue</h2>
-        <span className="panel-meta">Local + WebDAV</span>
+    <section class="panel panel-queue">
+      <div class="panel-header">
+        <h2>{t("queue.title")}</h2>
+        <span class="panel-meta">{t("queue.subtitle")}</span>
       </div>
 
-      <div className="settings-group">
-        <label className="field-label" htmlFor="load-path">Load Track</label>
+      <div class="settings-group">
+        <label class="field-label" for="load-path">{t("queue.load.label")}</label>
         <input
           id="load-path"
-          className="text-input"
+          class="text-input"
           type="text"
-          value={loadPath}
-          onChange={(event) => setLoadPath(event.target.value)}
-          placeholder="D:\\Music\\Album\\Track.flac or https://server/audio.flac"
+          value={loadPath()}
+          onInput={(event) => setLoadPath(event.currentTarget.value)}
+          placeholder={t("queue.load.placeholder")}
         />
-        <button className="primary-button" type="button" onClick={handleLoad} disabled={isSubmitting}>
-          Load Now
+        <button class="primary-button" type="button" onClick={() => void handleLoad()} disabled={isSubmitting()}>
+          {t("queue.load.button")}
         </button>
       </div>
 
-      <div className="settings-group">
-        <label className="field-label" htmlFor="next-path">Queue Next (Gapless)</label>
+      <div class="settings-group">
+        <label class="field-label" for="next-path">{t("queue.next.label")}</label>
         <input
           id="next-path"
-          className="text-input"
+          class="text-input"
           type="text"
-          value={nextPath}
-          onChange={(event) => setNextPath(event.target.value)}
-          placeholder="Prepare the next gapless track"
+          value={nextPath()}
+          onInput={(event) => setNextPath(event.currentTarget.value)}
+          placeholder={t("queue.next.placeholder")}
         />
-        <div className="button-row">
-          <button className="ghost-button" type="button" onClick={handleQueueNext} disabled={isSubmitting}>
-            Queue For Gapless
+        <div class="button-row">
+          <button class="ghost-button" type="button" onClick={() => void handleQueueNext()} disabled={isSubmitting()}>
+            {t("queue.next.button")}
           </button>
           <button
-            className="ghost-button"
+            class="ghost-button"
             type="button"
-            onClick={handleCancelPreload}
-            disabled={isSubmitting || !canCancel}
+            onClick={() => void handleCancelPreload()}
+            disabled={isSubmitting() || !canCancel()}
           >
-            Cancel Preload
+            {t("queue.cancel.button")}
           </button>
         </div>
       </div>
 
-      <div className="settings-group">
-        <div className="panel-subheader">
-          <span className="field-label">Persistent Queue</span>
-          <span className="panel-meta">{entries.length} {entries.length === 1 ? "track" : "tracks"}</span>
+      <div class="settings-group">
+        <div class="panel-subheader">
+          <span class="field-label">{t("queue.persistent.title")}</span>
+          <span class="panel-meta">{t(countKey(), { count: entries().length })}</span>
         </div>
-        {entries.length === 0 ? (
-          <div className="status-line">Queue is empty. Add tracks below.</div>
-        ) : (
-          <ul className="queue-list">
-            {entries.map((entry) => {
-              const isCurrent = entry.source_path === resolvedCurrentTrack;
-              return (
-                <li key={entry.entry_id} className={`queue-item${isCurrent ? " is-current" : ""}`}>
-                  <div className="queue-item-meta">
-                    <span className="queue-item-path" title={entry.source_path}>
-                      {entry.source_path}
-                    </span>
-                    <span className="queue-item-status">
-                      {isCurrent ? "now playing" : entry.status}
-                    </span>
-                  </div>
-                  <div className="queue-item-actions">
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => void handlePlay(entry)}
-                      disabled={isSubmitting || isCurrent}
-                    >
-                      Play
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => void handleRemove(entry)}
-                      disabled={isSubmitting}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
+        <Show when={entries().length > 0} fallback={<div class="status-line">{t("queue.persistent.empty")}</div>}>
+          <ul class="queue-list">
+            <For each={entries()}>
+              {(entry) => {
+                const isCurrent = () => entry.source_path === resolvedCurrentTrack();
+                return (
+                  <li class={`queue-item${isCurrent() ? " is-current" : ""}`}>
+                    <div class="queue-item-meta">
+                      <span class="queue-item-path" title={entry.source_path}>{entry.source_path}</span>
+                      <span class="queue-item-status">
+                        {isCurrent() ? t("queue.entry.nowPlaying") : entry.status}
+                      </span>
+                    </div>
+                    <div class="queue-item-actions">
+                      <button type="button" class="ghost-button" onClick={() => void handlePlay(entry)} disabled={isSubmitting() || isCurrent()}>
+                        {t("queue.entry.play")}
+                      </button>
+                      <button type="button" class="ghost-button" onClick={() => void handleRemove(entry)} disabled={isSubmitting()}>
+                        {t("queue.entry.remove")}
+                      </button>
+                    </div>
+                  </li>
+                );
+              }}
+            </For>
           </ul>
-        )}
+        </Show>
         <input
-          className="text-input"
+          class="text-input"
           type="text"
-          value={enqueuePath}
-          onChange={(event) => setEnqueuePath(event.target.value)}
-          placeholder="Add path or URL to persistent queue"
+          value={enqueuePath()}
+          onInput={(event) => setEnqueuePath(event.currentTarget.value)}
+          placeholder={t("queue.persistent.placeholder")}
         />
-        <div className="button-row">
-          <button className="ghost-button" type="button" onClick={handleEnqueue} disabled={isSubmitting}>
-            Add to Queue
+        <div class="button-row">
+          <button class="ghost-button" type="button" onClick={() => void handleEnqueue()} disabled={isSubmitting()}>
+            {t("queue.persistent.add")}
           </button>
-          <button
-            className="ghost-button"
-            type="button"
-            onClick={handleClear}
-            disabled={isSubmitting || entries.length === 0}
-          >
-            Clear All
+          <button class="ghost-button" type="button" onClick={() => void handleClear()} disabled={isSubmitting() || entries().length === 0}>
+            {t("queue.persistent.clear")}
           </button>
         </div>
       </div>
 
-      <div className="status-stack">
-        <div className="status-line">Current {resolvedCurrentTrack ?? "No track loaded"}</div>
-        <div className={feedback.tone === "error" ? "status-error" : "status-line"}>{feedback.message}</div>
-        {queueState.status === "error" ? <div className="status-error">{queueState.error}</div> : null}
-        {queueState.status === "success" ? (
-          <>
-            <div className="status-line">Next {pendingTrack ?? "No next track staged"}</div>
-            <div className="status-line">
-              Preload {queueState.data.pending_ready ? "ready" : queueState.data.needs_preload ? "requested" : "idle"}
-            </div>
-            {queueState.data.is_preload_canceling ? (
-              <div className="status-line">Cancellation signal sent to the preload worker.</div>
-            ) : null}
-          </>
-        ) : null}
+      <div class="status-stack">
+        <div class="status-line">
+          {resolvedCurrentTrack()
+            ? t("queue.status.current", { path: resolvedCurrentTrack() ?? "" })
+            : t("queue.status.noTrack")}
+        </div>
+        <div class={feedback().tone === "error" ? "status-error" : "status-line"}>{feedback().message}</div>
+        <Show when={queueError()}>
+          {(error) => <div class="status-error">{error()}</div>}
+        </Show>
+        <Show when={queueData()}>
+          <div class="status-line">
+            {pendingTrack() ? t("queue.status.next", { path: pendingTrack() ?? "" }) : t("queue.status.noNext")}
+          </div>
+          <div class="status-line">{t(preloadStatusKey())}</div>
+          <Show when={queueData()?.is_preload_canceling}>
+            <div class="status-line">{t("queue.status.cancelSignal")}</div>
+          </Show>
+        </Show>
       </div>
     </section>
   );

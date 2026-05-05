@@ -1,18 +1,21 @@
-import { useEffect, useRef } from "react";
+import { createEffect } from "solid-js";
 
 interface SpectrumCanvasProps {
   data: number[];
   active: boolean;
 }
 
-export function SpectrumCanvas({ data, active }: SpectrumCanvasProps) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+export function SpectrumCanvas(props: SpectrumCanvasProps) {
+  let canvasRef: HTMLCanvasElement | undefined;
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
+  createEffect(() => {
+    const canvas = canvasRef;
+    const data = props.data;
+    const active = props.active;
     if (!canvas) {
       return;
     }
+
     const context = canvas.getContext("2d");
     if (!context) {
       return;
@@ -38,7 +41,7 @@ export function SpectrumCanvas({ data, active }: SpectrumCanvasProps) {
       const x = i * barWidth;
       context.fillRect(x, maxHeight - height, Math.max(2, barWidth - 2), height);
     }
-  }, [data, active]);
+  });
 
-  return <canvas ref={canvasRef} className="spectrum-canvas" />;
+  return <canvas ref={canvasRef} class="spectrum-canvas" />;
 }

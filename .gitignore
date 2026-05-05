@@ -39,3 +39,16 @@ Desktop.ini
 
 # Logs
 *.log
+
+# AI Agent configs
+.agents/
+.codex/
+.cursor/
+.opencode/
+
+# Temp files
+.tmp-*/
+tmp/
+
+# Archived apps (removed post-migration)
+apps/desktop-react-archive/

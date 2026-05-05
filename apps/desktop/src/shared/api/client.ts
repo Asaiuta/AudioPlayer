@@ -17,7 +17,7 @@ import type {
   WebDavBrowseEntry,
   WebDavSource
 } from "./types";
-import { resolveBaseUrl } from "./env";
+import { invalidateApiToken, peekApiToken, resolveApiToken, resolveBaseUrl } from "./env";
 
 export interface ApiClient {
   getState: () => Promise<PlayerState>;
@@ -80,17 +80,6 @@ const isNullableNumber = (value: unknown): value is number | null =>
 
 const isNullableInteger = (value: unknown): value is number | null =>
   value === null || isInteger(value);
-
-const readArray = <T>(value: unknown, parser: (item: unknown) => T | null): T[] | null => {
-  if (!Array.isArray(value)) return null;
-  const result: T[] = [];
-  for (const item of value) {
-    const parsed = parser(item);
-    if (parsed === null) return null;
-    result.push(parsed);
-  }
-  return result;
-};
 
 const isNumberRecord = (value: unknown): value is Record<string, number> => {
   if (!isRecord(value)) {
@@ -434,13 +423,26 @@ const parseQueueStatusResponse = (value: unknown): QueueStatus => {
 };
 
 const requestJson = async (baseUrl: string, path: string, init?: RequestInit) => {
-  const response = await fetch(`${baseUrl}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
+  const runRequest = async (forceTokenRefresh: boolean) => {
+    const token = await resolveApiToken(forceTokenRefresh);
+    const headers = new Headers(init?.headers ?? {});
+    if (!headers.has("Content-Type")) {
+      headers.set("Content-Type", "application/json");
     }
-  });
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    return fetch(`${baseUrl}${path}`, {
+      ...init,
+      headers
+    });
+  };
+
+  let response = await runRequest(false);
+  if (response.status === 401) {
+    invalidateApiToken();
+    response = await runRequest(true);
+  }
 
   if (!response.ok) {
     throw new Error(`Request failed: ${response.status}`);
@@ -454,7 +456,12 @@ const requestEnvelope = async (baseUrl: string, path: string, init?: RequestInit
   return parseEnvelope(json);
 };
 
-export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => ({
+export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
+  // Eagerly warm the token cache so synchronous callers (e.g. `getCoverArtUrl`)
+  // see a value as soon as possible after construction.
+  void resolveApiToken();
+
+  return {
   getState: async () => {
     const envelope = await requestEnvelope(baseUrl, "/state");
     if (envelope.status === "error") {
@@ -750,6 +757,9 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => ({
     return json.history as PlaybackHistoryEntry[];
   },
   getCoverArtUrl: (mediaId: string) => {
-    return `${baseUrl}/cover_art/${encodeURIComponent(mediaId)}`;
+    const token = peekApiToken();
+    const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
+    return `${baseUrl}/cover_art/${encodeURIComponent(mediaId)}${suffix}`;
   }
-});
+  };
+};

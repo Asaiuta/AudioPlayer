@@ -12,19 +12,18 @@
     "build:bundle": "npm run build:web && npm run build:sidecar",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "tauri": "tauri"
+    "tauri": "powershell -ExecutionPolicy Bypass -File ./scripts/tauri-wrapper.ps1"
   },
   "dependencies": {
-    "@tauri-apps/api": "^1.5.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "@tauri-apps/api": "^2.0.0",
+    "solid-js": "^1.9.3"
   },
   "devDependencies": {
-    "@types/react": "^18.3.5",
-    "@types/react-dom": "^18.3.0",
-    "@tauri-apps/cli": "^1.5.0",
-    "@vitejs/plugin-react": "^4.3.1",
+    "@tauri-apps/cli": "^2.0.0",
+    "@unocss/transformer-variant-group": "^66.6.8",
     "typescript": "^5.6.3",
-    "vite": "^5.4.8"
+    "unocss": "^66.6.8",
+    "vite": "^5.4.8",
+    "vite-plugin-solid": "^2.11.0"
   }
 }

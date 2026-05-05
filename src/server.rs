@@ -25,10 +25,16 @@ use crate::settings::PersistentSettingsUpdate;
 use crate::settings::SharedSettingsManager;
 use crate::webdav::WebDavConfig;
 
+/// Environment variable that carries the per-run bearer token from the Tauri host
+/// (or any supervising process) to the audio sidecar. Required at startup; an empty
+/// or missing value aborts the server.
+pub const ENV_AUDIO_API_TOKEN: &str = "AUDIO_API_TOKEN";
+
 /// Application state shared across handlers
 pub struct AppState {
     pub player: Mutex<AudioPlayer>,
     pub webdav_config: Mutex<WebDavConfig>,
+    pub ncm_client: Arc<ncm_api_rs::ApiClient>,
     /// FIX for LoudnessDatabase integration: Database for pre-computed loudness metadata
     pub loudness_db: Mutex<Option<LoudnessDatabase>>,
     /// SQLite-backed application domain state
@@ -38,7 +44,7 @@ pub struct AppState {
     /// Env-only server runtime settings
     pub server_config: crate::config::RuntimeServerConfig,
     /// Dedicated runtime for CPU/IO-heavy analysis jobs
-    pub analysis_runtime: Arc<TokioRuntime>,
+    pub analysis_runtime: Arc<AnalysisRuntime>,
     /// Concurrency guard for analysis jobs to avoid starving playback/control plane
     pub analysis_semaphore: Arc<Semaphore>,
     /// Background scan task records
@@ -55,6 +61,42 @@ pub struct AppState {
     pub shutdown_handle: Mutex<Option<ServerHandle>>,
     /// Active playback session id in the domain database
     pub active_session_id: Mutex<Option<i64>>,
+    /// Per-run bearer token shared with the supervising Tauri host. Validated by
+    /// the auth middleware on every HTTP route and by the WebSocket handshake.
+    pub api_token: Arc<String>,
+}
+
+/// Own the dedicated analysis runtime and guarantee it is torn down on a plain
+/// OS thread even when the enclosing app state drops inside an async context.
+pub struct AnalysisRuntime {
+    inner: Option<TokioRuntime>,
+}
+
+impl AnalysisRuntime {
+    fn new(runtime: TokioRuntime) -> Self {
+        Self {
+            inner: Some(runtime),
+        }
+    }
+
+    fn handle(&self) -> tokio::runtime::Handle {
+        self.inner
+            .as_ref()
+            .expect("analysis runtime handle requested after shutdown")
+            .handle()
+            .clone()
+    }
+}
+
+impl Drop for AnalysisRuntime {
+    fn drop(&mut self) {
+        if let Some(runtime) = self.inner.take() {
+            let join_handle = std::thread::spawn(move || {
+                runtime.shutdown_timeout(Duration::from_secs(2));
+            });
+            let _ = join_handle.join();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -69,10 +111,13 @@ pub struct ScanTaskRecord {
 }
 
 mod effects;
+mod netease;
 mod playback;
 mod settings_handlers;
 mod webdav_handlers;
 mod ws_handlers;
+
+pub mod auth;
 
 async fn run_analysis_job<T, F>(data: &web::Data<Arc<AppState>>, job: F) -> Result<T, String>
 where
@@ -84,7 +129,7 @@ where
         .await
         .map_err(|e| format!("Analysis semaphore closed: {}", e))?;
 
-    let handle = data.analysis_runtime.handle().clone();
+    let handle = data.analysis_runtime.handle();
     let join_handle = handle.spawn_blocking(move || {
         let _permit = permit;
         job()
@@ -732,6 +777,19 @@ pub async fn run_server(
     settings_manager: SharedSettingsManager,
     runtime_paths: RuntimePaths,
 ) -> std::io::Result<()> {
+    let api_token = std::env::var(ENV_AUDIO_API_TOKEN).unwrap_or_default();
+    if api_token.trim().is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!(
+                "{} is not set. The audio sidecar requires a per-run bearer token \
+                 supplied by the Tauri host. Set the env var before launch.",
+                ENV_AUDIO_API_TOKEN
+            ),
+        ));
+    }
+    let api_token = Arc::new(api_token);
+
     let app_db = Arc::new(
         AppDatabase::open(&runtime_paths.app_db_path)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?,
@@ -805,15 +863,17 @@ pub async fn run_server(
     let scan_task_ttl_secs = config.server.scan_task_ttl_secs;
     let analysis_task_timeout_secs = config.server.analysis_task_timeout_secs;
     let allowed_origins = config.server.allowed_origins.clone();
+    let ncm_client = Arc::new(ncm_api_rs::create_client(None));
 
     let state = Arc::new(AppState {
         player: Mutex::new(player),
         webdav_config: Mutex::new(webdav_config),
+        ncm_client: Arc::clone(&ncm_client),
         loudness_db: Mutex::new(loudness_db),
         app_db,
         settings_manager,
         server_config: config.server,
-        analysis_runtime: Arc::new(analysis_runtime),
+        analysis_runtime: Arc::new(AnalysisRuntime::new(analysis_runtime)),
         analysis_semaphore: Arc::new(Semaphore::new(analysis_parallelism)),
         scan_tasks: Mutex::new(HashMap::new()),
         scan_task_counter: AtomicU64::new(0),
@@ -822,6 +882,7 @@ pub async fn run_server(
         analysis_task_timeout_secs,
         shutdown_handle: Mutex::new(None),
         active_session_id: Mutex::new(None),
+        api_token: Arc::clone(&api_token),
     });
 
     restore_domain_state(&state);
@@ -829,16 +890,25 @@ pub async fn run_server(
 
     log::info!("Starting Audio Engine on http://127.0.0.1:{}", port);
     log::info!("Allowed UI origins: {}", allowed_origins.join(", "));
+    log::info!(
+        "Bearer auth enabled (token length={}, env={})",
+        api_token.len(),
+        ENV_AUDIO_API_TOKEN
+    );
 
     // Print ready signal for parent process
     println!("RUST_AUDIO_ENGINE_READY");
 
     let server_state = Arc::clone(&state);
     let cors_allowed_origins = allowed_origins.clone();
+    let auth_token = Arc::clone(&api_token);
     let server = HttpServer::new(move || {
         let allowed_origins = cors_allowed_origins.clone();
         App::new()
             .app_data(web::Data::new(Arc::clone(&server_state)))
+            // Inner-to-outer wrap order: BearerAuth runs first, then Logger sees the
+            // resulting (possibly 401) response, then Cors handles preflight + headers.
+            .wrap(auth::BearerAuth::new(Arc::clone(&auth_token)))
             .wrap(middleware::Logger::default())
             .wrap(
                 Cors::default()
@@ -852,8 +922,14 @@ pub async fn run_server(
                             })
                             .unwrap_or(false)
                     })
+                    .supports_credentials()
                     .allowed_methods(vec!["GET", "POST", "OPTIONS"])
-                    .allowed_headers(vec![header::CONTENT_TYPE])
+                    .allowed_headers(vec![
+                        header::CONTENT_TYPE,
+                        header::AUTHORIZATION,
+                        header::COOKIE,
+                    ])
+                    .expose_headers(vec![header::SET_COOKIE])
                     .max_age(3600),
             )
             // CORS preflight handler - catch all OPTIONS requests
@@ -863,6 +939,7 @@ pub async fn run_server(
             .configure(effects::configure_routes)
             .configure(settings_handlers::configure_routes)
             .configure(webdav_handlers::configure_routes)
+            .configure(netease::configure_routes)
             .configure(ws_handlers::configure_routes)
     })
     .bind(("127.0.0.1", port))?
@@ -876,15 +953,6 @@ pub async fn run_server(
 
     let server_result = server.await;
     playback_supervisor.abort();
-
-    if let Ok(app_state) = Arc::try_unwrap(state) {
-        if let Ok(runtime) = Arc::try_unwrap(app_state.analysis_runtime) {
-            let _ = actix_web::rt::task::spawn_blocking(move || {
-                runtime.shutdown_timeout(Duration::from_secs(2));
-            })
-            .await;
-        }
-    }
-
+    drop(state);
     server_result
 }

@@ -1,9 +1,9 @@
-import type { ReactNode } from "react";
+import type { JSX } from "solid-js";
 
 interface ContentAreaProps {
-  children: ReactNode;
+  children: JSX.Element;
 }
 
-export function ContentArea({ children }: ContentAreaProps) {
-  return <main className="content-area">{children}</main>;
+export function ContentArea(props: ContentAreaProps) {
+  return <main class="content-area">{props.children}</main>;
 }

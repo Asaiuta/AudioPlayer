@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { resolveWsUrl } from "./env";
+import { onCleanup } from "solid-js";
+import { invalidateApiToken, resolveApiToken, resolveWsUrl } from "./env";
 import { parseWsEvent } from "./wsTypes";
 import type { WsEvent } from "./wsTypes";
 
@@ -19,100 +19,93 @@ export const useEngineSocket = ({
   onClose,
   onError,
   onReconnect
-}: EngineSocketOptions) => {
-  const eventRef = useRef(onEvent);
-  const openRef = useRef(onOpen);
-  const closeRef = useRef(onClose);
-  const errorRef = useRef(onError);
-  const reconnectRef = useRef(onReconnect);
+}: EngineSocketOptions): void => {
+  let disposed = false;
+  let socket: WebSocket | null = null;
+  let retryTimer: number | null = null;
+  let reconnectAttempt = 0;
 
-  useEffect(() => {
-    eventRef.current = onEvent;
-    openRef.current = onOpen;
-    closeRef.current = onClose;
-    errorRef.current = onError;
-    reconnectRef.current = onReconnect;
-  }, [onEvent, onOpen, onClose, onError, onReconnect]);
+  const clearRetry = () => {
+    if (retryTimer !== null) {
+      window.clearTimeout(retryTimer);
+      retryTimer = null;
+    }
+  };
 
-  useEffect(() => {
-    let disposed = false;
-    let socket: WebSocket | null = null;
-    let retryTimer: number | null = null;
-    let reconnectAttempt = 0;
+  const scheduleReconnect = () => {
+    if (disposed || retryTimer !== null) {
+      return;
+    }
 
-    const clearRetry = () => {
-      if (retryTimer !== null) {
-        window.clearTimeout(retryTimer);
-        retryTimer = null;
-      }
-    };
+    reconnectAttempt += 1;
+    const delayMs = Math.min(5_000, 400 * 2 ** Math.max(0, reconnectAttempt - 1));
+    onReconnect?.(reconnectAttempt, delayMs);
+    retryTimer = window.setTimeout(() => {
+      retryTimer = null;
+      void connect();
+    }, delayMs);
+  };
 
-    const scheduleReconnect = () => {
-      if (disposed || retryTimer !== null) {
-        return;
-      }
+  const connect = async () => {
+    if (disposed) {
+      return;
+    }
 
-      reconnectAttempt += 1;
-      const delayMs = Math.min(5_000, 400 * 2 ** Math.max(0, reconnectAttempt - 1));
-      reconnectRef.current?.(reconnectAttempt, delayMs);
-      retryTimer = window.setTimeout(() => {
-        retryTimer = null;
-        connect();
-      }, delayMs);
-    };
+    // Browsers cannot attach Authorization headers to WebSocket upgrades, so
+    // present the bearer token as a Sec-WebSocket-Protocol entry.
+    const token = await resolveApiToken(reconnectAttempt > 0);
+    if (disposed) {
+      return;
+    }
 
-    const connect = () => {
+    const protocols = token ? [`bearer.${token}`] : undefined;
+    socket = new WebSocket(url, protocols);
+
+    socket.addEventListener("open", () => {
+      reconnectAttempt = 0;
+      clearRetry();
+      onOpen?.();
+    });
+
+    socket.addEventListener("close", () => {
       if (disposed) {
         return;
       }
 
-      socket = new WebSocket(url);
+      onClose?.();
+      scheduleReconnect();
+    });
 
-      socket.addEventListener("open", () => {
-        reconnectAttempt = 0;
-        clearRetry();
-        openRef.current?.();
-      });
-
-      socket.addEventListener("close", () => {
-        if (disposed) {
-          return;
-        }
-
-        closeRef.current?.();
+    socket.addEventListener("error", (event) => {
+      invalidateApiToken();
+      onError?.(event);
+      if (socket?.readyState !== WebSocket.OPEN) {
         scheduleReconnect();
-      });
+      }
+    });
 
-      socket.addEventListener("error", (event) => {
-        errorRef.current?.(event);
-        if (socket?.readyState !== WebSocket.OPEN) {
-          scheduleReconnect();
+    socket.addEventListener("message", (message) => {
+      if (typeof message.data !== "string") {
+        return;
+      }
+
+      try {
+        const raw = JSON.parse(message.data) as unknown;
+        const parsed = parseWsEvent(raw);
+        if (parsed) {
+          onEvent(parsed);
         }
-      });
+      } catch {
+        return;
+      }
+    });
+  };
 
-      socket.addEventListener("message", (message) => {
-        if (typeof message.data !== "string") {
-          return;
-        }
+  void connect();
 
-        try {
-          const raw = JSON.parse(message.data) as unknown;
-          const parsed = parseWsEvent(raw);
-          if (parsed) {
-            eventRef.current(parsed);
-          }
-        } catch {
-          return;
-        }
-      });
-    };
-
-    connect();
-
-    return () => {
-      disposed = true;
-      clearRetry();
-      socket?.close();
-    };
-  }, [url]);
+  onCleanup(() => {
+    disposed = true;
+    clearRetry();
+    socket?.close();
+  });
 };

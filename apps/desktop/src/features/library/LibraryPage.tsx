@@ -1,12 +1,24 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import { createApiClient } from "../../shared/api/client";
 import type { LibraryRoot, MediaItem } from "../../shared/api/types";
+import { useTranslation } from "../../shared/i18n";
+import type { TranslationKey } from "../../shared/i18n";
+import { useUISearch } from "../../shared/state/UISearchContext";
+import { IconAlbum, IconArtist, IconFolder, IconPlayCircle, IconRefresh } from "../../components/icons";
+import { MediaList, type MediaContextAction, type MediaListItem } from "../../components/media/MediaList";
+import { PageHeader } from "../../components/page/PageHeader";
+import { SegmentedTabs } from "../../components/page/SegmentedTabs";
+import { ManageRootsModal } from "./ManageRootsModal";
 
 const api = createApiClient();
 const PAGE_SIZE = 100;
 
+type LibraryTab = "songs" | "artists" | "albums" | "folders";
+
 interface LibraryPageProps {
   onStateRefresh: () => Promise<void>;
+  currentTrackPath: string | null;
+  isPlaying: boolean;
 }
 
 interface Feedback {
@@ -14,104 +26,115 @@ interface Feedback {
   message: string;
 }
 
-const readErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Request failed";
+type LibraryListItem = MediaItem & MediaListItem;
 
-const formatDuration = (secs: number | null) => {
-  if (secs === null || !Number.isFinite(secs)) return "—";
-  const total = Math.max(0, Math.floor(secs));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
-
-const formatScanTimestamp = (epochSecs: number | null) => {
-  if (epochSecs === null) return "never";
-  const date = new Date(epochSecs * 1000);
-  if (Number.isNaN(date.getTime())) return "never";
-  return date.toLocaleString();
-};
+const adaptItem = (item: MediaItem): LibraryListItem => ({ ...item, id: item.media_id });
 
 const matchesSearch = (item: MediaItem, query: string) => {
   if (!query) return true;
   const haystacks = [item.title, item.artist, item.album, item.source_path];
-  for (const value of haystacks) {
-    if (value && value.toLowerCase().includes(query)) return true;
-  }
-  return false;
+  return haystacks.some((value) => value?.toLowerCase().includes(query));
 };
 
-export function LibraryPage({ onStateRefresh }: LibraryPageProps) {
-  const [roots, setRoots] = useState<LibraryRoot[]>([]);
-  const [items, setItems] = useState<MediaItem[]>([]);
-  const [limit, setLimit] = useState(PAGE_SIZE);
-  const [reachedEnd, setReachedEnd] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [scanPath, setScanPath] = useState("");
-  const [scanDisplayName, setScanDisplayName] = useState("");
-  const [isFetching, setIsFetching] = useState(false);
-  const [isScanning, setIsScanning] = useState(false);
-  const [feedback, setFeedback] = useState<Feedback>({
+export function LibraryPage(props: LibraryPageProps) {
+  const { t } = useTranslation();
+  const { query: globalQuery } = useUISearch();
+  const [roots, setRoots] = createSignal<LibraryRoot[]>([]);
+  const [items, setItems] = createSignal<MediaItem[]>([]);
+  const [limit, setLimit] = createSignal(PAGE_SIZE);
+  const [reachedEnd, setReachedEnd] = createSignal(false);
+  const [activeTab, setActiveTab] = createSignal<LibraryTab>("songs");
+  const [manageOpen, setManageOpen] = createSignal(false);
+  const [isFetching, setIsFetching] = createSignal(false);
+  const [isScanning, setIsScanning] = createSignal(false);
+  const [feedbackKey, setFeedbackKey] = createSignal<TranslationKey | null>("library.feedback.initial");
+  const [feedback, setFeedback] = createSignal<Feedback>({
     tone: "neutral",
-    message: "Scan a path to populate the library, then browse and play indexed tracks."
+    message: t("library.feedback.initial")
   });
 
-  const refreshRoots = useCallback(async () => {
+  const readErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : t("common.error.requestFailed");
+
+  const formatScanTimestamp = (epochSecs: number | null) => {
+    if (epochSecs === null) return t("library.timestamp.never");
+    const date = new Date(epochSecs * 1000);
+    if (Number.isNaN(date.getTime())) return t("library.timestamp.never");
+    return date.toLocaleString();
+  };
+
+  createEffect(() => {
+    const key = feedbackKey();
+    if (key) {
+      setFeedback((current) => ({ ...current, message: t(key) }));
+    }
+  });
+
+  const setKeyedFeedback = (tone: Feedback["tone"], key: TranslationKey) => {
+    setFeedbackKey(key);
+    setFeedback({ tone, message: t(key) });
+  };
+
+  const setRawFeedback = (tone: Feedback["tone"], message: string) => {
+    setFeedbackKey(null);
+    setFeedback({ tone, message });
+  };
+
+  const refreshRoots = async () => {
     try {
       const list = await api.getLibraryRoots();
       setRoots(list);
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     }
-  }, []);
+  };
 
-  const fetchItems = useCallback(async (nextLimit: number) => {
+  const fetchItems = async (nextLimit = limit()) => {
     setIsFetching(true);
     try {
       const list = await api.getMediaItems(nextLimit);
       setItems(list);
       setReachedEnd(list.length < nextLimit);
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     } finally {
       setIsFetching(false);
     }
-  }, []);
+  };
 
-  useEffect(() => {
+  onMount(() => {
     void refreshRoots();
-  }, [refreshRoots]);
+    void fetchItems();
+  });
 
-  useEffect(() => {
-    void fetchItems(limit);
-  }, [fetchItems, limit]);
+  createEffect(() => {
+    const nextLimit = limit();
+    void fetchItems(nextLimit);
+  });
 
-  const filteredItems = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return items;
-    return items.filter((item) => matchesSearch(item, query));
-  }, [items, searchQuery]);
+  const adaptedItems = createMemo(() => items().map(adaptItem));
+  const filteredItems = createMemo(() => {
+    const query = globalQuery().trim().toLowerCase();
+    if (!query) return adaptedItems();
+    return adaptedItems().filter((item) => matchesSearch(item, query));
+  });
 
-  const handleScan = async () => {
-    const path = scanPath.trim();
+  const handleScan = async (path: string, display: string) => {
     if (!path) {
-      setFeedback({ tone: "error", message: "Enter a path to scan." });
+      setKeyedFeedback("error", "library.feedback.emptyPath");
       return;
     }
     setIsScanning(true);
-    setFeedback({ tone: "neutral", message: `Scanning ${path}...` });
+    setRawFeedback("neutral", t("library.feedback.scanning", { path }));
     try {
-      const display = scanDisplayName.trim();
       const result = await api.scanLibraryRoot(path, display ? display : undefined);
-      await Promise.all([refreshRoots(), fetchItems(limit)]);
-      setScanPath("");
-      setScanDisplayName("");
-      setFeedback({
-        tone: "success",
-        message: `Scan complete: ${result.scanned_files} scanned, ${result.indexed_files} indexed.`
-      });
+      await Promise.all([refreshRoots(), fetchItems(limit())]);
+      setRawFeedback("success", t("library.feedback.scanComplete", {
+        scanned: result.scanned_files,
+        indexed: result.indexed_files
+      }));
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     } finally {
       setIsScanning(false);
     }
@@ -119,194 +142,162 @@ export function LibraryPage({ onStateRefresh }: LibraryPageProps) {
 
   const handleRescan = async (root: LibraryRoot) => {
     setIsScanning(true);
-    setFeedback({ tone: "neutral", message: `Rescanning ${root.display_name}...` });
+    setRawFeedback("neutral", t("library.feedback.rescanning", { name: root.display_name }));
     try {
-      const result = await api.scanLibraryRoot(
-        root.source_path,
-        root.display_name,
-        root.source_key ?? undefined
-      );
-      await Promise.all([refreshRoots(), fetchItems(limit)]);
-      setFeedback({
-        tone: "success",
-        message: `Rescan complete: ${result.scanned_files} scanned, ${result.indexed_files} indexed.`
-      });
+      const result = await api.scanLibraryRoot(root.source_path, root.display_name, root.source_key ?? undefined);
+      await Promise.all([refreshRoots(), fetchItems(limit())]);
+      setRawFeedback("success", t("library.feedback.rescanComplete", {
+        scanned: result.scanned_files,
+        indexed: result.indexed_files
+      }));
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     } finally {
       setIsScanning(false);
     }
   };
 
   const handleLoadMore = () => {
-    if (reachedEnd || isFetching) return;
+    if (reachedEnd() || isFetching()) return;
     setLimit((prev) => prev + PAGE_SIZE);
   };
 
-  const handlePlay = async (item: MediaItem) => {
+  const handlePlay = async (item: LibraryListItem) => {
     try {
       await api.load(item.source_path);
-      await onStateRefresh();
-      setFeedback({
-        tone: "success",
-        message: `Loaded ${item.title ?? item.source_path}`
-      });
+      await props.onStateRefresh();
+      setRawFeedback("success", t("library.feedback.loaded", { title: item.title ?? item.source_path }));
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     }
   };
 
-  const handleEnqueue = async (item: MediaItem) => {
+  const handleEnqueue = async (item: LibraryListItem) => {
     try {
       await api.enqueueTrack(item.source_path);
-      setFeedback({
-        tone: "success",
-        message: `Added to queue: ${item.title ?? item.source_path}`
-      });
+      setRawFeedback("success", t("library.feedback.added", { title: item.title ?? item.source_path }));
     } catch (error) {
-      setFeedback({ tone: "error", message: readErrorMessage(error) });
+      setRawFeedback("error", readErrorMessage(error));
     }
   };
 
+  const handleContextAction = (action: MediaContextAction) => {
+    if (action === "copy-path") {
+      setRawFeedback("success", t("media.copy.success"));
+    }
+  };
+
+  const handlePlayAll = () => {
+    const first = filteredItems()[0];
+    if (first) void handlePlay(first);
+  };
+
+  const handleRefresh = () => {
+    void refreshRoots();
+    void fetchItems(limit());
+  };
+
+  const subtitleKey = (): TranslationKey =>
+    reachedEnd() ? "library.subtitle.complete" : "library.subtitle.more";
+
+  const tabItems = () => [
+    { value: "songs", label: t("library.tabs.songs") },
+    { value: "artists", label: t("library.tabs.artists") },
+    { value: "albums", label: t("library.tabs.albums") },
+    { value: "folders", label: t("library.tabs.folders") }
+  ];
+
   return (
-    <section className="panel panel-library">
-      <div className="panel-header">
-        <h2>Library</h2>
-        <span className="panel-meta">
-          {items.length} loaded {reachedEnd ? "(complete)" : "(more available)"}
-        </span>
-      </div>
-
-      <div className="settings-group">
-        <span className="field-label">Library Roots</span>
-        {roots.length === 0 ? (
-          <div className="status-line">No roots scanned yet. Add one below.</div>
-        ) : (
-          <ul className="library-roots">
-            {roots.map((root) => (
-              <li key={root.root_id} className="library-root">
-                <div className="library-root-meta">
-                  <span className="library-root-name">{root.display_name}</span>
-                  <span className="library-root-path" title={root.source_path}>
-                    {root.source_path}
-                  </span>
-                  <span className="library-root-stats">
-                    {root.track_count} tracks · {root.source_kind} · last scan {formatScanTimestamp(root.last_scan_finished_at_epoch_secs)} · {root.scan_status}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className="ghost-button"
-                  onClick={() => void handleRescan(root)}
-                  disabled={isScanning}
-                >
-                  Rescan
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div className="settings-group">
-        <span className="field-label">Add Library Root</span>
-        <div className="settings-grid">
-          <input
-            className="text-input"
-            type="text"
-            value={scanPath}
-            onChange={(event) => setScanPath(event.target.value)}
-            placeholder="D:\\Music or /home/user/music"
+    <section class="panel panel-library panel-page">
+      <PageHeader
+        title={t("library.title")}
+        meta={
+          <>
+            <span class="page-header-meta-line">{t(subtitleKey(), { count: items().length })}</span>
+            <span class="page-header-meta-line">{t("library.tracks.match", { filtered: filteredItems().length, total: items().length })}</span>
+          </>
+        }
+        actions={
+          <>
+            <button type="button" class="primary-button page-action" onClick={handlePlayAll} disabled={filteredItems().length === 0 || isFetching()}>
+              <IconPlayCircle />
+              <span>{t("library.action.playAll")}</span>
+            </button>
+            <button type="button" class="ghost-button page-action" onClick={handleRefresh} disabled={isFetching() || isScanning()}>
+              <IconRefresh />
+              <span>{t("library.action.refresh")}</span>
+            </button>
+            <button type="button" class="ghost-button page-action" onClick={() => setManageOpen(true)}>
+              <IconFolder />
+              <span>{t("library.action.manageRoots")}</span>
+            </button>
+          </>
+        }
+        tabs={
+          <SegmentedTabs
+            value={activeTab()}
+            onChange={(next) => setActiveTab(next as LibraryTab)}
+            items={tabItems()}
+            ariaLabel={t("library.title")}
           />
-          <input
-            className="text-input"
-            type="text"
-            value={scanDisplayName}
-            onChange={(event) => setScanDisplayName(event.target.value)}
-            placeholder="Display name (optional)"
-          />
-        </div>
-        <div className="button-row">
-          <button className="primary-button" type="button" onClick={handleScan} disabled={isScanning}>
-            Scan
-          </button>
-        </div>
-      </div>
+        }
+      />
 
-      <div className="settings-group">
-        <div className="panel-subheader">
-          <span className="field-label">Tracks</span>
-          <span className="panel-meta">
-            {filteredItems.length} of {items.length} match
-          </span>
-        </div>
-        <input
-          className="text-input"
-          type="search"
-          value={searchQuery}
-          onChange={(event) => setSearchQuery(event.target.value)}
-          placeholder="Filter loaded tracks by title, artist, album, or path"
-        />
-        {filteredItems.length === 0 ? (
-          <div className="status-line">
-            {items.length === 0
-              ? "No indexed tracks yet — scan a root above."
-              : "No tracks match the current filter."}
-          </div>
-        ) : (
-          <ul className="media-list">
-            {filteredItems.map((item) => {
-              const title = item.title ?? item.source_path;
-              const credits = [item.artist, item.album].filter(Boolean).join(" · ");
-              return (
-                <li key={item.media_id} className="media-item">
-                  <div className="media-item-meta">
-                    <span className="media-item-title" title={item.source_path}>
-                      {title}
-                    </span>
-                    <span className="media-item-credits">{credits || "—"}</span>
-                  </div>
-                  <span className="media-item-duration">{formatDuration(item.duration_secs)}</span>
-                  <div className="media-item-actions">
-                    <button
-                      type="button"
-                      className="primary-button"
-                      onClick={() => void handlePlay(item)}
-                      disabled={isFetching}
-                    >
-                      Play
-                    </button>
-                    <button
-                      type="button"
-                      className="ghost-button"
-                      onClick={() => void handleEnqueue(item)}
-                      disabled={isFetching}
-                    >
-                      Enqueue
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {!reachedEnd ? (
-          <div className="button-row">
-            <button
-              type="button"
-              className="ghost-button"
-              onClick={handleLoadMore}
-              disabled={isFetching}
-            >
-              {isFetching ? "Loading..." : "Load More"}
+      <Show when={activeTab() === "songs"}>
+        <Show
+          when={filteredItems().length > 0}
+          fallback={<div class="status-line">{items().length === 0 ? t("library.tracks.emptyAll") : t("library.tracks.emptyFilter")}</div>}
+        >
+          <MediaList
+            items={filteredItems()}
+            currentSourcePath={props.currentTrackPath}
+            isPlayingNow={props.isPlaying}
+            onPlay={(item) => void handlePlay(item)}
+            onEnqueue={(item) => void handleEnqueue(item)}
+            onContextAction={handleContextAction}
+            isLoading={isFetching()}
+            emptyState={t("library.tracks.emptyAll")}
+          />
+        </Show>
+        <Show when={!reachedEnd()}>
+          <div class="button-row">
+            <button type="button" class="ghost-button" onClick={handleLoadMore} disabled={isFetching()}>
+              {isFetching() ? t("library.tracks.loading") : t("library.tracks.loadMore")}
             </button>
           </div>
-        ) : null}
-      </div>
+        </Show>
+      </Show>
 
-      <div className={feedback.tone === "error" ? "status-error" : "status-line"}>
-        {feedback.message}
-      </div>
+      <Show when={activeTab() === "artists"}>
+        <div class="empty-tab" role="status">
+          <span class="empty-tab-icon" aria-hidden="true"><IconArtist /></span>
+          <span>{t("library.tabs.placeholder.artists")}</span>
+        </div>
+      </Show>
+      <Show when={activeTab() === "albums"}>
+        <div class="empty-tab" role="status">
+          <span class="empty-tab-icon" aria-hidden="true"><IconAlbum /></span>
+          <span>{t("library.tabs.placeholder.albums")}</span>
+        </div>
+      </Show>
+      <Show when={activeTab() === "folders"}>
+        <div class="empty-tab" role="status">
+          <span class="empty-tab-icon" aria-hidden="true"><IconFolder /></span>
+          <span>{t("library.tabs.placeholder.folders")}</span>
+        </div>
+      </Show>
+
+      <div class={feedback().tone === "error" ? "status-error" : "status-line"}>{feedback().message}</div>
+
+      <ManageRootsModal
+        open={manageOpen()}
+        onClose={() => setManageOpen(false)}
+        roots={roots()}
+        isScanning={isScanning()}
+        onAddRoot={handleScan}
+        onRescan={handleRescan}
+        formatScanTimestamp={formatScanTimestamp}
+      />
     </section>
   );
 }

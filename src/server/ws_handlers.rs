@@ -1,4 +1,5 @@
 use super::*;
+use actix_web::http::header;
 use actix_web::{web, HttpRequest, HttpResponse};
 use actix_ws::{self, Message};
 use std::sync::Arc;
@@ -6,6 +7,7 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio::time::interval;
 
+use super::auth::{bearer_header, constant_time_eq, query_token};
 use crate::player::{
     EVENT_LOAD_COMPLETE, EVENT_NEEDS_PRELOAD_RESET, EVENT_PLAYBACK_ENDED, EVENT_PLAYBACK_PAUSED,
     EVENT_PLAYBACK_SEEKED, EVENT_PLAYBACK_STARTED, EVENT_PLAYBACK_STOPPED, EVENT_QUEUE_UPDATED,
@@ -23,12 +25,71 @@ fn now_millis() -> u64 {
         .unwrap_or(0)
 }
 
+/// Validate the per-run bearer token presented during a WebSocket upgrade.
+///
+/// Browsers cannot attach `Authorization` headers to WebSocket handshakes, so we
+/// accept any of:
+/// 1. `Authorization: Bearer <token>` (programmatic / non-browser clients)
+/// 2. `Sec-WebSocket-Protocol: bearer.<token>` (browser-friendly subprotocol)
+/// 3. `?token=<token>` query parameter (last-resort fallback)
+///
+/// Returns the matched subprotocol entry (so the server can echo it back) when
+/// authentication came from `Sec-WebSocket-Protocol`, or `None` otherwise.
+fn authenticate_ws(req: &HttpRequest, expected: &str) -> Result<Option<String>, ()> {
+    if let Some(provided) = bearer_header(req.headers().get(header::AUTHORIZATION)) {
+        if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+            return Ok(None);
+        }
+    }
+    if let Some(protocols) = req
+        .headers()
+        .get(header::SEC_WEBSOCKET_PROTOCOL)
+        .and_then(|h| h.to_str().ok())
+    {
+        for entry in protocols.split(',') {
+            let trimmed = entry.trim();
+            if let Some(provided) = trimmed.strip_prefix("bearer.") {
+                if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+                    return Ok(Some(trimmed.to_string()));
+                }
+            }
+        }
+    }
+    if let Some(provided) = query_token(req.uri().query()) {
+        if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+            return Ok(None);
+        }
+    }
+    Err(())
+}
+
 async fn websocket(
     req: HttpRequest,
     stream: web::Payload,
     data: web::Data<Arc<AppState>>,
 ) -> Result<HttpResponse, actix_web::Error> {
-    let (response, mut session, mut msg_stream) = actix_ws::handle(&req, stream)?;
+    let expected_token = Arc::clone(&data.api_token);
+    let chosen_protocol = match authenticate_ws(&req, &expected_token) {
+        Ok(protocol) => protocol,
+        Err(_) => {
+            log::warn!("WebSocket upgrade rejected: missing or invalid bearer token");
+            return Ok(HttpResponse::Unauthorized().json(serde_json::json!({
+                "status": "error",
+                "message": "unauthorized"
+            })));
+        }
+    };
+
+    let (mut response, mut session, mut msg_stream) = actix_ws::handle(&req, stream)?;
+
+    // Echo the negotiated subprotocol so the browser handshake completes.
+    if let Some(protocol) = chosen_protocol {
+        if let Ok(value) = actix_web::http::header::HeaderValue::from_str(&protocol) {
+            response
+                .headers_mut()
+                .insert(header::SEC_WEBSOCKET_PROTOCOL, value);
+        }
+    }
 
     let shared_state = {
         let player = data.player.lock();

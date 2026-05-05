@@ -1,33 +1,40 @@
-import { useEffect, useState } from "react";
+import { createEffect, createSignal, Show } from "solid-js";
+import { useTranslation } from "../shared/i18n";
 
 interface CoverArtProps {
   coverUrl: string | null;
   alt?: string;
 }
 
-export function CoverArt({ coverUrl, alt = "Album cover" }: CoverArtProps) {
-  const [hasFailed, setHasFailed] = useState(false);
+export function CoverArt(props: CoverArtProps) {
+  const { t } = useTranslation();
+  const [hasFailed, setHasFailed] = createSignal(false);
 
-  useEffect(() => {
+  createEffect(() => {
+    props.coverUrl;
     setHasFailed(false);
-  }, [coverUrl]);
+  });
 
-  const showImage = coverUrl !== null && !hasFailed;
+  const showImage = () => props.coverUrl !== null && !hasFailed();
+  const resolvedAlt = () => props.alt ?? t("cover.alt");
 
   return (
-    <div className="cover-art">
-      {showImage ? (
+    <div class="cover-art">
+      <Show
+        when={showImage()}
+        fallback={
+          <div class="cover-placeholder" aria-hidden="true">
+            <span>♪</span>
+          </div>
+        }
+      >
         <img
-          className="cover-art-image"
-          src={coverUrl}
-          alt={alt}
+          class="cover-art-image"
+          src={props.coverUrl ?? ""}
+          alt={resolvedAlt()}
           onError={() => setHasFailed(true)}
         />
-      ) : (
-        <div className="cover-placeholder" aria-hidden="true">
-          <span>♪</span>
-        </div>
-      )}
+      </Show>
     </div>
   );
 }
