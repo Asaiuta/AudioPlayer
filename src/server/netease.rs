@@ -311,6 +311,37 @@ async fn dispatch(
             .user_playlist_collect(query)
             .await
             .map_err(DispatchError::Ncm),
+        // -------- Phase 9: identity, user data chain, activity --------
+        // Map directly to the ncm-api-rs methods called out in
+        // .trellis/tasks/05-05-ncm-align-identity/research.md.
+        "user_account" => client
+            .user_account(query)
+            .await
+            .map_err(DispatchError::Ncm),
+        "user_detail" => client
+            .user_detail(query)
+            .await
+            .map_err(DispatchError::Ncm),
+        "user_subcount" => client
+            .user_subcount(query)
+            .await
+            .map_err(DispatchError::Ncm),
+        "user_level" => client
+            .user_level(query)
+            .await
+            .map_err(DispatchError::Ncm),
+        "likelist" => client
+            .likelist(query)
+            .await
+            .map_err(DispatchError::Ncm),
+        "daily_signin" => client
+            .daily_signin(query)
+            .await
+            .map_err(DispatchError::Ncm),
+        "scrobble" => client
+            .scrobble(query)
+            .await
+            .map_err(DispatchError::Ncm),
         _ => Err(DispatchError::UnsupportedRoute),
     }
 }
@@ -563,6 +594,31 @@ mod tests {
     fn route_to_method_replaces_slashes() {
         assert_eq!(normalize_route("/login/qr/key/"), "login/qr/key");
         assert_eq!(route_to_method("login/qr/key"), "login_qr_key");
+    }
+
+    #[test]
+    fn phase9_identity_routes_resolve_to_dispatch_keys() {
+        // Every Phase 9 route below MUST land on a dispatch arm in `dispatch()`.
+        // The mapping is `path → snake_case method name`. If you rename a
+        // dispatch arm you must update both sides.
+        let cases = [
+            ("/user/account", "user_account"),
+            ("/user/detail", "user_detail"),
+            ("/user/subcount", "user_subcount"),
+            ("/user/level", "user_level"),
+            ("/likelist", "likelist"),
+            ("/daily_signin", "daily_signin"),
+            ("/scrobble", "scrobble"),
+        ];
+        for (path, expected) in cases {
+            let normalized = normalize_route(path);
+            let method = route_to_method(&normalized);
+            assert_eq!(
+                method, expected,
+                "route {} should resolve to method {}",
+                path, expected
+            );
+        }
     }
 
     #[test]
