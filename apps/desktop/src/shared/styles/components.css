@@ -6230,8 +6230,23 @@
       inset 0 0 0 1px oklch(1 0 0 / 0.05);
   }
 
+  .album-card--round:hover .album-card-art {
+    transform: none;
+    box-shadow:
+      0 6px 16px oklch(0 0 0 / 0.18),
+      inset 0 0 0 1px oklch(1 0 0 / 0.04);
+  }
+
+  .album-card--round .album-card-play-btn {
+    display: none;
+  }
+
   .album-card:active .album-card-art {
     transform: translateY(-1px) scale(0.99);
+  }
+
+  .album-card--round:active .album-card-art {
+    transform: none;
   }
 
   .album-card.is-active .album-card-art {
