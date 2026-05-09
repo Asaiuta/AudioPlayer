@@ -20,15 +20,7 @@ import {
 } from "../../shared/api/ncm";
 import { useTranslation } from "../../shared/i18n";
 import { AlbumCard } from "../../components/AlbumCard";
-import {
-  IconChevronLeft,
-  IconDots,
-  IconList,
-  IconMusic,
-  IconPlay,
-  IconPlayCircle,
-  IconSearch
-} from "../../components/icons";
+import { IconPlayCircle } from "../../components/icons";
 import { LoginModal } from "../../components/LoginModal";
 import { MediaList } from "../../components/media/MediaList";
 import { PageHeader } from "../../components/page/PageHeader";
@@ -80,6 +72,11 @@ import {
   safeDiscoverFetch
 } from "./shared/parsers";
 import { createPlaybackController } from "./shared/playback";
+import { AlbumDetail } from "./details/AlbumDetail";
+import { ArtistDetail } from "./details/ArtistDetail";
+import { DailySongsDetail } from "./details/DailySongsDetail";
+import { LikedSongsDetail } from "./details/LikedSongsDetail";
+import { PlaylistDetail } from "./details/PlaylistDetail";
 
 const api = createApiClient();
 const SEARCH_LIMIT = 30;
@@ -868,124 +865,6 @@ export function NeteasePage(props: NeteasePageProps) {
     setIsPlaylistDetailScrolled(target.scrollTop > 10);
   };
 
-  const PlaylistTracks = () => (
-    <Show when={selectedPlaylist()}>
-      {(playlist) => (
-        <section class="playlist-detail">
-          <div class={`playlist-detail-shell${isPlaylistDetailScrolled() ? " is-small" : ""}`}>
-            <header class="playlist-detail-head">
-              <div class="playlist-detail-art" aria-hidden="true">
-                <Show when={playlist().coverUrl} fallback={<span>{playlist().name.slice(0, 1)}</span>}>
-                  {(coverUrl) => (
-                    <>
-                      <img class="playlist-detail-art-img" src={coverUrl()} alt="" />
-                      <img class="playlist-detail-art-shadow" src={coverUrl()} alt="" />
-                    </>
-                  )}
-                </Show>
-                <div class="playlist-detail-art-mask" />
-              </div>
-              <div class="playlist-detail-copy">
-                <h2 title={playlist().name}>{playlist().name}</h2>
-                <div class="playlist-detail-collapse">
-                  <p class="playlist-detail-desc">{pageTitle()}</p>
-                  <div class="playlist-detail-meta">
-                    <span>
-                      <IconMusic />
-                      {playlistMetaText()}
-                    </span>
-                  </div>
-                </div>
-                <div class="playlist-detail-menu">
-                  <div class="playlist-detail-menu-left">
-                    <button
-                      type="button"
-                      class="primary-button playlist-detail-play"
-                      onClick={() => void playAllPlaylistTracks()}
-                      disabled={filteredPlaylistTracks().length === 0 || isLoadingPlaylistTracks()}
-                    >
-                      <IconPlay />
-                      {isLoadingPlaylistTracks() ? t("ncm.playlist.loading") : t("ncm.playlist.play")}
-                    </button>
-                    <button
-                      type="button"
-                      class="ghost-button playlist-detail-back"
-                      onClick={handleBackToPlaylists}
-                    >
-                      <IconChevronLeft />
-                      {t("ncm.playlist.backToList")}
-                    </button>
-                    <button
-                      type="button"
-                      class="ghost-button playlist-detail-more"
-                      aria-label={t("ncm.playlist.more")}
-                      title={t("ncm.playlist.more")}
-                    >
-                      <IconList />
-                    </button>
-                  </div>
-                  <div class="playlist-detail-menu-right">
-                    <label class="playlist-detail-search">
-                      <IconSearch />
-                      <input
-                        type="search"
-                        value={playlistFilter()}
-                        placeholder={t("ncm.playlist.search")}
-                        onInput={(event) => setPlaylistFilter(event.currentTarget.value)}
-                      />
-                    </label>
-                    <div class="playlist-detail-tabs" role="tablist" aria-label={t("ncm.playlist.tabs.aria")}>
-                      <button
-                        type="button"
-                        class={playlistDetailTab() === "songs" ? "is-active" : ""}
-                        role="tab"
-                        aria-selected={playlistDetailTab() === "songs"}
-                        onClick={() => setPlaylistDetailTab("songs")}
-                      >
-                        {t("ncm.playlist.tab.songs")}
-                        <span>{playlistTrackCount()}</span>
-                      </button>
-                      <button
-                        type="button"
-                        class={playlistDetailTab() === "comments" ? "is-active" : ""}
-                        role="tab"
-                        aria-selected={playlistDetailTab() === "comments"}
-                        onClick={() => setPlaylistDetailTab("comments")}
-                      >
-                        {t("ncm.playlist.tab.comments")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </header>
-            <Show
-              when={playlistDetailTab() === "songs"}
-              fallback={
-                <div class="playlist-detail-comments">
-                  <IconDots />
-                  <span>{t("ncm.playlist.commentsPlaceholder")}</span>
-                </div>
-              }
-            >
-              <MediaList
-                items={filteredPlaylistTracks()}
-                currentSourcePath={props.currentTrackPath}
-                currentSongId={props.currentSongId}
-                isPlayingNow={props.isPlaying}
-                onPlay={(item) => void playback.playOnlineTrack(item)}
-                onEnqueue={(item) => void playback.enqueueOnlineTrack(item)}
-                onScroll={handlePlaylistTrackScroll}
-                isLoading={isLoadingPlaylistTracks()}
-                emptyState={<div class="panel-note">{t("ncm.empty.noTracks")}</div>}
-              />
-            </Show>
-          </div>
-        </section>
-      )}
-    </Show>
-  );
-
   const PlaylistBrowserCard = (props: {
     playlist: OnlinePlaylistSummary;
     active: boolean;
@@ -1383,163 +1262,6 @@ export function NeteasePage(props: NeteasePageProps) {
     </section>
   );
 
-  const DailySongsDetail = () => {
-    const eyebrow = () => {
-      const profile = loginProfile();
-      return profile
-        ? t("ncm.daily.eyebrow", { name: profile.nickname ?? profile.userId })
-        : t("ncm.daily.eyebrowAnonymous");
-    };
-    return (
-      <section class="ncm-daily-detail">
-        <button
-          type="button"
-          class="ghost-button ncm-daily-detail-back"
-          onClick={exitDailySongs}
-        >
-          <IconChevronLeft />
-          {t("ncm.daily.backToFeed")}
-        </button>
-        <header class="ncm-daily-detail-hero">
-          <span class="ncm-daily-detail-eyebrow">{eyebrow()}</span>
-          <h2>{t("ncm.daily.title")}</h2>
-          <p class="ncm-daily-detail-meta">
-            {dailySongsState().length > 0
-              ? t("ncm.daily.metaCount", { count: dailySongsState().length })
-              : t("ncm.daily.description")}
-          </p>
-        </header>
-        <MediaList
-          items={dailySongsState()}
-          currentSourcePath={props.currentTrackPath}
-          currentSongId={props.currentSongId}
-          isPlayingNow={props.isPlaying}
-          onPlay={(item) => void playback.playOnlineTrack(item)}
-          onEnqueue={(item) => void playback.enqueueOnlineTrack(item)}
-          isLoading={isLoadingDailySongs()}
-          emptyState={<div class="panel-note">{t("ncm.daily.empty")}</div>}
-        />
-      </section>
-    );
-  };
-
-  const LikedSongsDetail = () => {
-    const eyebrow = () => {
-      const profile = loginProfile();
-      return profile
-        ? t("ncm.liked.eyebrow", { name: profile.nickname ?? profile.userId })
-        : t("ncm.liked.eyebrowAnonymous");
-    };
-    return (
-      <section class="ncm-daily-detail">
-        <button
-          type="button"
-          class="ghost-button ncm-daily-detail-back"
-          onClick={exitLikedSongs}
-        >
-          <IconChevronLeft />
-          {t("ncm.liked.backToFeed")}
-        </button>
-        <header class="ncm-daily-detail-hero">
-          <span class="ncm-daily-detail-eyebrow">{eyebrow()}</span>
-          <h2>{t("ncm.liked.title")}</h2>
-          <p class="ncm-daily-detail-meta">
-            {likedSongsTotal() > 0
-              ? t("ncm.liked.metaCount", { count: likedSongsTotal() })
-              : t("ncm.liked.description")}
-          </p>
-        </header>
-        <MediaList
-          items={likedSongsState()}
-          currentSourcePath={props.currentTrackPath}
-          currentSongId={props.currentSongId}
-          isPlayingNow={props.isPlaying}
-          onPlay={(item) => void playback.playOnlineTrack(item)}
-          onEnqueue={(item) => void playback.enqueueOnlineTrack(item)}
-          isLoading={isLoadingLikedSongs()}
-          emptyState={<div class="panel-note">{t("ncm.liked.empty")}</div>}
-        />
-      </section>
-    );
-  };
-
-  const AlbumDetail = () => {
-    const album = selectedAlbum();
-    if (!album) return null;
-    return (
-      <section class="ncm-daily-detail">
-        <button
-          type="button"
-          class="ghost-button ncm-daily-detail-back"
-          onClick={exitAlbum}
-        >
-          <IconChevronLeft />
-          {t("ncm.album.backToFeed")}
-        </button>
-        <header class="ncm-daily-detail-hero">
-          <Show when={album.coverUrl}>
-            {(url) => <img class="ncm-detail-hero-cover" src={url()} alt="" />}
-          </Show>
-          <h2>{album.title}</h2>
-          <p class="ncm-daily-detail-meta">
-            {album.subtitle ?? ""}
-            {albumTracksState().length > 0
-              ? ` · ${t("ncm.album.metaCount", { count: albumTracksState().length })}`
-              : ""}
-          </p>
-        </header>
-        <MediaList
-          items={albumTracksState()}
-          currentSourcePath={props.currentTrackPath}
-          currentSongId={props.currentSongId}
-          isPlayingNow={props.isPlaying}
-          onPlay={(item) => void playback.playOnlineTrack(item)}
-          onEnqueue={(item) => void playback.enqueueOnlineTrack(item)}
-          isLoading={isLoadingAlbumTracks()}
-          emptyState={<div class="panel-note">{t("ncm.album.empty")}</div>}
-        />
-      </section>
-    );
-  };
-
-  const ArtistDetail = () => {
-    const artist = selectedArtist();
-    if (!artist) return null;
-    return (
-      <section class="ncm-daily-detail">
-        <button
-          type="button"
-          class="ghost-button ncm-daily-detail-back"
-          onClick={exitArtist}
-        >
-          <IconChevronLeft />
-          {t("ncm.artist.backToFeed")}
-        </button>
-        <header class="ncm-daily-detail-hero">
-          <Show when={artist.coverUrl}>
-            {(url) => <img class="ncm-detail-hero-cover ncm-detail-hero-cover--round" src={url()} alt="" />}
-          </Show>
-          <h2>{artist.title}</h2>
-          <p class="ncm-daily-detail-meta">
-            {artistTracksState().length > 0
-              ? t("ncm.artist.metaCount", { count: artistTracksState().length })
-              : ""}
-          </p>
-        </header>
-        <MediaList
-          items={artistTracksState()}
-          currentSourcePath={props.currentTrackPath}
-          currentSongId={props.currentSongId}
-          isPlayingNow={props.isPlaying}
-          onPlay={(item) => void playback.playOnlineTrack(item)}
-          onEnqueue={(item) => void playback.enqueueOnlineTrack(item)}
-          isLoading={isLoadingArtistTracks()}
-          emptyState={<div class="panel-note">{t("ncm.artist.empty")}</div>}
-        />
-      </section>
-    );
-  };
-
   const SongsResultPanel = () => (
     <section class="online-result-panel">
       <div class="online-result-panel-head">
@@ -1749,23 +1471,79 @@ export function NeteasePage(props: NeteasePageProps) {
                             </Show>
                           }
                         >
-                          <PlaylistTracks />
+                          <PlaylistDetail
+                            playlist={selectedPlaylist()}
+                            tracks={filteredPlaylistTracks()}
+                            trackCount={playlistTrackCount()}
+                            metaText={playlistMetaText()}
+                            subtitleText={pageTitle()}
+                            isLoadingTracks={isLoadingPlaylistTracks()}
+                            isScrolled={isPlaylistDetailScrolled()}
+                            filter={playlistFilter()}
+                            detailTab={playlistDetailTab()}
+                            setFilter={setPlaylistFilter}
+                            setDetailTab={setPlaylistDetailTab}
+                            onBack={handleBackToPlaylists}
+                            onPlayAll={playAllPlaylistTracks}
+                            onScroll={handlePlaylistTrackScroll}
+                            playback={playback}
+                            currentTrackPath={props.currentTrackPath}
+                            currentSongId={props.currentSongId}
+                            isPlaying={props.isPlaying}
+                          />
                         </Show>
                       }
                     >
-                      <ArtistDetail />
+                      <ArtistDetail
+                        artist={selectedArtist()}
+                        tracks={artistTracksState()}
+                        isLoading={isLoadingArtistTracks()}
+                        onBack={exitArtist}
+                        playback={playback}
+                        currentTrackPath={props.currentTrackPath}
+                        currentSongId={props.currentSongId}
+                        isPlaying={props.isPlaying}
+                      />
                     </Show>
                   }
                 >
-                  <AlbumDetail />
+                  <AlbumDetail
+                    album={selectedAlbum()}
+                    tracks={albumTracksState()}
+                    isLoading={isLoadingAlbumTracks()}
+                    onBack={exitAlbum}
+                    playback={playback}
+                    currentTrackPath={props.currentTrackPath}
+                    currentSongId={props.currentSongId}
+                    isPlaying={props.isPlaying}
+                  />
                 </Show>
               }
             >
-              <LikedSongsDetail />
+              <LikedSongsDetail
+                loginProfile={loginProfile()}
+                tracks={likedSongsState()}
+                total={likedSongsTotal()}
+                isLoading={isLoadingLikedSongs()}
+                onBack={exitLikedSongs}
+                playback={playback}
+                currentTrackPath={props.currentTrackPath}
+                currentSongId={props.currentSongId}
+                isPlaying={props.isPlaying}
+              />
             </Show>
           }
         >
-          <DailySongsDetail />
+          <DailySongsDetail
+            loginProfile={loginProfile()}
+            tracks={dailySongsState()}
+            isLoading={isLoadingDailySongs()}
+            onBack={exitDailySongs}
+            playback={playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
         </Show>
       </Show>
 
@@ -1776,7 +1554,26 @@ export function NeteasePage(props: NeteasePageProps) {
               <PlaylistGrid />
             </Show>
           }>
-            <PlaylistTracks />
+            <PlaylistDetail
+              playlist={selectedPlaylist()}
+              tracks={filteredPlaylistTracks()}
+              trackCount={playlistTrackCount()}
+              metaText={playlistMetaText()}
+              subtitleText={pageTitle()}
+              isLoadingTracks={isLoadingPlaylistTracks()}
+              isScrolled={isPlaylistDetailScrolled()}
+              filter={playlistFilter()}
+              detailTab={playlistDetailTab()}
+              setFilter={setPlaylistFilter}
+              setDetailTab={setPlaylistDetailTab}
+              onBack={handleBackToPlaylists}
+              onPlayAll={playAllPlaylistTracks}
+              onScroll={handlePlaylistTrackScroll}
+              playback={playback}
+              currentTrackPath={props.currentTrackPath}
+              currentSongId={props.currentSongId}
+              isPlaying={props.isPlaying}
+            />
           </Show>
         </Show>
       </Show>
