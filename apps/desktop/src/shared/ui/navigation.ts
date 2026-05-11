@@ -11,8 +11,7 @@ export const ACTIVE_PAGES = [
   "recent",
   "queue",
   "created-playlists",
-  "collected-playlists",
-  "settings"
+  "collected-playlists"
 ] as const;
 
 export type ActivePage = (typeof ACTIVE_PAGES)[number];

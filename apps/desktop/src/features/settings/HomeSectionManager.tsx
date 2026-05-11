@@ -17,6 +17,20 @@ const SECTION_LABELS: Record<HomeSectionKey, string> = {
   albums: "ncm.home.section.newAlbums"
 };
 
+const managerClass = "home-section-manager flex flex-col gap-[2px]";
+
+const rowClass =
+  "home-section-row flex items-center justify-between rounded-sm px-[10px] py-[6px] transition-background duration-150 ease-standard hover:bg-[var(--border-overlay)]";
+
+const toggleClass = "home-section-toggle flex cursor-pointer items-center gap-[8px] text-[13px]";
+
+const checkboxClass = "accent-accent";
+
+const arrowsClass = "home-section-arrows flex gap-[4px]";
+
+const arrowButtonClass =
+  "icon-btn inline-flex h-[28px] w-[28px] items-center justify-center rounded-sm border-0 bg-transparent text-text text-[14px] transition-background duration-150 ease-standard hover:bg-[var(--surface-pressed)] disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent";
+
 function readSections(): HomeSectionConfig[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.homeSections);
@@ -96,22 +110,23 @@ export function HomeSectionManager() {
   };
 
   return (
-    <div class="home-section-manager">
+    <div class={managerClass}>
       <For each={sorted()}>
         {(section, index) => (
-          <div class="home-section-row">
-            <label class="home-section-toggle">
+          <div class={rowClass}>
+            <label class={toggleClass}>
               <input
+                class={checkboxClass}
                 type="checkbox"
                 checked={section.visible}
                 onChange={() => toggleVisibility(section.key)}
               />
               <span>{t(SECTION_LABELS[section.key] as Parameters<typeof t>[0])}</span>
             </label>
-            <div class="home-section-arrows">
+            <div class={arrowsClass}>
               <button
                 type="button"
-                class="icon-btn"
+                class={arrowButtonClass}
                 disabled={index() === 0}
                 onClick={() => moveUp(section.key)}
                 aria-label="Move up"
@@ -120,7 +135,7 @@ export function HomeSectionManager() {
               </button>
               <button
                 type="button"
-                class="icon-btn"
+                class={arrowButtonClass}
                 disabled={index() === sorted().length - 1}
                 onClick={() => moveDown(section.key)}
                 aria-label="Move down"

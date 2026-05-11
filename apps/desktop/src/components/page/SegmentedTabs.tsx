@@ -13,6 +13,16 @@ interface SegmentedTabsProps {
   ariaLabel?: string;
 }
 
+const segmentedTabsClass =
+  "segmented-tabs inline-flex items-center gap-1 p-1 rounded-pill bg-[var(--border-faint)] border border-border-subtle shadow-none";
+
+const segmentedTabBaseClass =
+  "segmented-tab min-h-[34px] px-3 rounded-pill text-xs font-600 text-muted transition-colors duration-fast ease-standard hover:text-text disabled:opacity-[0.48] disabled:cursor-not-allowed";
+
+const segmentedTabActiveClass = "is-active text-accent-foreground bg-accent shadow-none";
+
+const segmentedTabsSelectClass = "segmented-tabs-select hidden w-full";
+
 /**
  * Pill-shaped tab strip with arrow-key navigation. A select fallback is exposed
  * for narrow viewports through CSS.
@@ -62,10 +72,14 @@ export function SegmentedTabs(props: SegmentedTabsProps) {
 
   return (
     <>
-      <div class="segmented-tabs" role="tablist" aria-label={props.ariaLabel}>
+      <div class={segmentedTabsClass} role="tablist" aria-label={props.ariaLabel}>
         <For each={props.items}>
           {(item, index) => {
             const active = () => item.value === props.value;
+            const className = () =>
+              active()
+                ? `${segmentedTabBaseClass} ${segmentedTabActiveClass}`
+                : segmentedTabBaseClass;
             return (
               <button
                 ref={(el) => {
@@ -76,7 +90,7 @@ export function SegmentedTabs(props: SegmentedTabsProps) {
                 aria-selected={active()}
                 aria-disabled={item.disabled}
                 disabled={item.disabled}
-                class={`segmented-tab${active() ? " is-active" : ""}`}
+                class={className()}
                 tabIndex={active() ? 0 : -1}
                 onClick={() => {
                   if (!item.disabled) props.onChange(item.value);
@@ -90,7 +104,7 @@ export function SegmentedTabs(props: SegmentedTabsProps) {
         </For>
       </div>
       <select
-        class="segmented-tabs-select"
+        class={segmentedTabsSelectClass}
         value={props.value}
         onChange={(event) => props.onChange(event.currentTarget.value)}
         aria-label={props.ariaLabel}

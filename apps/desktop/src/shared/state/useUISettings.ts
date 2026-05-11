@@ -7,6 +7,10 @@ export type ThemeMode = "dark" | "light" | "auto";
 
 export type RouteAnimation = "none" | "fade" | "zoom" | "slide" | "up" | "flow" | "mask-left" | "mask-top";
 
+export type FullPlayerCommentMode = "fullscreen" | "half-left" | "half-right";
+
+export type FullPlayerCoverMode = "normal" | "record";
+
 export interface HomeSectionConfig {
   key: HomeSectionKey;
   order: number;
@@ -20,6 +24,8 @@ export interface UISettings {
   customChrome: boolean;
   fullPlayerLayout: "balanced" | "lyrics";
   fullPlayerAutoFocusLyrics: boolean;
+  fullPlayerCommentMode: FullPlayerCommentMode;
+  fullPlayerCoverMode: FullPlayerCoverMode;
   homeSections: HomeSectionConfig[];
   themeMode: ThemeMode;
   ncmSongLevel: string;
@@ -40,6 +46,8 @@ export const STORAGE_KEYS = {
   customChrome: "ui.window.customChrome",
   fullPlayerLayout: "ui.fullPlayer.layout",
   fullPlayerAutoFocusLyrics: "ui.fullPlayer.autoFocusLyrics",
+  fullPlayerCommentMode: "ui.fullPlayer.commentMode",
+  fullPlayerCoverMode: "ui.fullPlayer.coverMode",
   homeSections: "ui.home.sections",
   themeMode: "ui.theme.mode",
   ncmSongLevel: "ncm.song.level",
@@ -70,6 +78,8 @@ const DEFAULTS: UISettings = {
   customChrome: true,
   fullPlayerLayout: "balanced",
   fullPlayerAutoFocusLyrics: true,
+  fullPlayerCommentMode: "fullscreen",
+  fullPlayerCoverMode: "normal",
   homeSections: DEFAULT_HOME_SECTIONS,
   themeMode: "dark",
   ncmSongLevel: "exhigh",
@@ -142,9 +152,27 @@ const VALID_SONG_LEVELS = new Set(["standard", "higher", "exhigh", "lossless", "
 
 const VALID_ROUTE_ANIMATIONS = new Set<RouteAnimation>(["none", "fade", "zoom", "slide", "up", "flow", "mask-left", "mask-top"]);
 
+const VALID_COMMENT_MODES = new Set<FullPlayerCommentMode>(["fullscreen", "half-left", "half-right"]);
+
+const VALID_COVER_MODES = new Set<FullPlayerCoverMode>(["normal", "record"]);
+
 function readRouteAnimation(): RouteAnimation {
   const raw = readString(STORAGE_KEYS.routeAnimation, DEFAULTS.routeAnimation);
   return VALID_ROUTE_ANIMATIONS.has(raw as RouteAnimation) ? (raw as RouteAnimation) : DEFAULTS.routeAnimation;
+}
+
+function readCommentMode(): FullPlayerCommentMode {
+  const raw = readString(STORAGE_KEYS.fullPlayerCommentMode, DEFAULTS.fullPlayerCommentMode);
+  return VALID_COMMENT_MODES.has(raw as FullPlayerCommentMode)
+    ? (raw as FullPlayerCommentMode)
+    : DEFAULTS.fullPlayerCommentMode;
+}
+
+function readCoverMode(): FullPlayerCoverMode {
+  const raw = readString(STORAGE_KEYS.fullPlayerCoverMode, DEFAULTS.fullPlayerCoverMode);
+  return VALID_COVER_MODES.has(raw as FullPlayerCoverMode)
+    ? (raw as FullPlayerCoverMode)
+    : DEFAULTS.fullPlayerCoverMode;
 }
 
 function readSettings(): UISettings {
@@ -178,6 +206,8 @@ function readSettings(): UISettings {
       STORAGE_KEYS.fullPlayerAutoFocusLyrics,
       DEFAULTS.fullPlayerAutoFocusLyrics
     ),
+    fullPlayerCommentMode: readCommentMode(),
+    fullPlayerCoverMode: readCoverMode(),
     homeSections: readHomeSections(),
     themeMode,
     ncmSongLevel,
@@ -194,7 +224,7 @@ function readSettings(): UISettings {
 
 /**
  * Reads UI settings from localStorage and listens for changes
- * dispatched by GeneralSettingsSection.
+ * dispatched by the settings sections.
  */
 export function useUISettings(): UISettings {
   const [settings, setSettings] = createStore<UISettings>(readSettings());
