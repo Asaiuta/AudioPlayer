@@ -56,6 +56,12 @@ pub struct PlaybackHistoryEntry {
     pub event_at_epoch_secs: u64,
     pub position_secs: Option<f64>,
     pub payload: Option<JsonValue>,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub has_cover_art: bool,
+    pub external_artwork_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +80,7 @@ pub struct MediaItemRecord {
     pub sample_rate: Option<u32>,
     pub channels: Option<u32>,
     pub has_cover_art: bool,
+    pub external_artwork_url: Option<String>,
     pub size_bytes: Option<u64>,
     pub updated_at_epoch_secs: u64,
 }
@@ -170,6 +177,32 @@ pub struct StoredWebDavSource {
 pub struct AppDatabase {
     conn: Mutex<Connection>,
     db_path: PathBuf,
+}
+
+fn media_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MediaItemRecord> {
+    let source_path: String = row.get(1)?;
+    let stored_size: Option<i64> = row.get(16)?;
+    Ok(MediaItemRecord {
+        media_id: row.get(0)?,
+        source_path: source_path.clone(),
+        source_kind: row.get(2)?,
+        title: row.get(3)?,
+        artist: row.get(4)?,
+        album: row.get(5)?,
+        track_number: row.get::<_, Option<i64>>(6)?.map(|v| v as u32),
+        disc_number: row.get::<_, Option<i64>>(7)?.map(|v| v as u32),
+        genre: row.get(8)?,
+        year: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
+        duration_secs: row.get(10)?,
+        sample_rate: row.get::<_, Option<i64>>(11)?.map(|v| v as u32),
+        channels: row.get::<_, Option<i64>>(12)?.map(|v| v as u32),
+        has_cover_art: row.get::<_, i64>(14)? != 0,
+        external_artwork_url: row.get(15)?,
+        size_bytes: stored_size
+            .map(|v| v as u64)
+            .or_else(|| file_size_for_source_path(&source_path)),
+        updated_at_epoch_secs: row.get::<_, i64>(13)? as u64,
+    })
 }
 
 impl AppDatabase {
@@ -755,6 +788,19 @@ impl AppDatabase {
         sample_rate: Option<u32>,
         channels: Option<usize>,
     ) -> Result<String, String> {
+        self.record_media_metadata_with_scan_info(source_path, metadata, duration_secs, sample_rate, channels, None, None)
+    }
+
+    pub fn record_media_metadata_with_scan_info(
+        &self,
+        source_path: &str,
+        metadata: &TrackMetadata,
+        duration_secs: Option<f64>,
+        sample_rate: Option<u32>,
+        channels: Option<usize>,
+        mtime: Option<f64>,
+        size_bytes: Option<u64>,
+    ) -> Result<String, String> {
         let media_id = self.record_media_stub(source_path)?;
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let now = now_epoch_secs_i64();
@@ -771,6 +817,8 @@ impl AppDatabase {
                 duration_secs = COALESCE(?9, duration_secs),
                 sample_rate = COALESCE(?10, sample_rate),
                 channels = COALESCE(?11, channels),
+                mtime = COALESCE(?13, mtime),
+                size_bytes = COALESCE(?14, size_bytes),
                 updated_at = ?12
             WHERE media_id = ?1
             "#,
@@ -787,6 +835,8 @@ impl AppDatabase {
                 sample_rate.map(|v| v as i64),
                 channels.map(|v| v as i64),
                 now,
+                mtime,
+                size_bytes.map(|v| v as i64),
             ],
         )
         .map_err(|e| format!("Failed to update media metadata: {}", e))?;
@@ -816,6 +866,71 @@ impl AppDatabase {
         }
 
         Ok(media_id_for_path(source_path))
+    }
+
+    pub fn record_external_media_metadata(
+        &self,
+        source_path: &str,
+        title: Option<&str>,
+        artist: Option<&str>,
+        album: Option<&str>,
+        duration_secs: Option<f64>,
+        external_artwork_url: Option<&str>,
+    ) -> Result<String, String> {
+        let media_id = self.record_media_stub(source_path)?;
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = now_epoch_secs_i64();
+        conn.execute(
+            r#"
+            UPDATE media_items
+            SET title = COALESCE(?2, title),
+                artist = COALESCE(?3, artist),
+                album = COALESCE(?4, album),
+                duration_secs = COALESCE(?5, duration_secs),
+                external_artwork_url = COALESCE(?6, external_artwork_url),
+                updated_at = ?7
+            WHERE media_id = ?1
+            "#,
+            params![
+                media_id,
+                title,
+                artist,
+                album,
+                duration_secs,
+                external_artwork_url,
+                now,
+            ],
+        )
+        .map_err(|e| format!("Failed to update external media metadata: {}", e))?;
+        Ok(media_id_for_path(source_path))
+    }
+
+    pub fn media_metadata_for_path(
+        &self,
+        source_path: &str,
+    ) -> Result<Option<MediaItemRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            r#"
+            SELECT media_id, source_path, source_kind, title, artist, album, track_number, disc_number,
+                   genre, year, duration_secs, sample_rate, channels, updated_at,
+                   EXISTS (
+                       SELECT 1
+                       FROM cover_art_cache
+                       WHERE cover_art_cache.media_id = media_items.media_id
+                       LIMIT 1
+                   ) AS has_cover_art,
+                   external_artwork_url,
+                   size_bytes
+            FROM media_items
+            WHERE media_id = ?1 OR source_path = ?2
+            LIMIT 1
+            "#,
+            params![media_id_for_path(source_path), source_path],
+            |row| media_item_from_row(row),
+        )
+        .optional()
+        .map_err(|e| format!("Failed to read media metadata for '{}': {}", source_path, e))
     }
 
     pub fn get_cover_art_for_media(
@@ -991,9 +1106,18 @@ impl AppDatabase {
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT id, session_id, media_id, source_path, event_type, event_at, position_secs, payload_json
-                FROM playback_history
-                ORDER BY event_at DESC, id DESC
+                SELECT h.id, h.session_id, h.media_id, h.source_path, h.event_type, h.event_at,
+                       h.position_secs, h.payload_json, m.title, m.artist, m.album, m.duration_secs,
+                       EXISTS (
+                           SELECT 1
+                           FROM cover_art_cache
+                           WHERE cover_art_cache.media_id = h.media_id
+                           LIMIT 1
+                       ) AS has_cover_art,
+                       m.external_artwork_url
+                FROM playback_history h
+                LEFT JOIN media_items m ON m.media_id = h.media_id
+                ORDER BY h.event_at DESC, h.id DESC
                 LIMIT ?1
                 "#,
             )
@@ -1013,6 +1137,12 @@ impl AppDatabase {
                     payload: payload_json
                         .as_deref()
                         .and_then(|value| serde_json::from_str(value).ok()),
+                    title: row.get(8)?,
+                    artist: row.get(9)?,
+                    album: row.get(10)?,
+                    duration_secs: row.get(11)?,
+                    has_cover_art: row.get::<_, i64>(12)? != 0,
+                    external_artwork_url: row.get(13)?,
                 })
             })
             .map_err(|e| format!("Failed to query playback history: {}", e))?;
@@ -1033,7 +1163,9 @@ impl AppDatabase {
                            FROM cover_art_cache
                            WHERE cover_art_cache.media_id = media_items.media_id
                            LIMIT 1
-                       ) AS has_cover_art
+                       ) AS has_cover_art,
+                       external_artwork_url,
+                       size_bytes
                 FROM media_items
                 ORDER BY updated_at DESC, media_id DESC
                 LIMIT ?1
@@ -1042,31 +1174,129 @@ impl AppDatabase {
             .map_err(|e| format!("Failed to prepare media items query: {}", e))?;
 
         let rows = stmt
-            .query_map(params![limit as i64], |row| {
-                let source_path: String = row.get(1)?;
-                Ok(MediaItemRecord {
-                    media_id: row.get(0)?,
-                    source_path: source_path.clone(),
-                    source_kind: row.get(2)?,
-                    title: row.get(3)?,
-                    artist: row.get(4)?,
-                    album: row.get(5)?,
-                    track_number: row.get::<_, Option<i64>>(6)?.map(|v| v as u32),
-                    disc_number: row.get::<_, Option<i64>>(7)?.map(|v| v as u32),
-                    genre: row.get(8)?,
-                    year: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
-                    duration_secs: row.get(10)?,
-                    sample_rate: row.get::<_, Option<i64>>(11)?.map(|v| v as u32),
-                    channels: row.get::<_, Option<i64>>(12)?.map(|v| v as u32),
-                    has_cover_art: row.get::<_, i64>(14)? != 0,
-                    size_bytes: file_size_for_source_path(&source_path),
-                    updated_at_epoch_secs: row.get::<_, i64>(13)? as u64,
-                })
-            })
+            .query_map(params![limit as i64], media_item_from_row)
             .map_err(|e| format!("Failed to query media items: {}", e))?;
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to decode media items: {}", e))
+    }
+
+    pub fn list_media_items(&self) -> Result<Vec<MediaItemRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT media_id, source_path, source_kind, title, artist, album, track_number, disc_number,
+                       genre, year, duration_secs, sample_rate, channels, updated_at,
+                       EXISTS (
+                           SELECT 1
+                           FROM cover_art_cache
+                           WHERE cover_art_cache.media_id = media_items.media_id
+                           LIMIT 1
+                       ) AS has_cover_art,
+                       external_artwork_url,
+                       size_bytes
+                FROM media_items
+                ORDER BY lower(COALESCE(title, source_path)), media_id
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare media items list query: {}", e))?;
+
+        let rows = stmt
+            .query_map([], media_item_from_row)
+            .map_err(|e| format!("Failed to query media items list: {}", e))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode media items list: {}", e))
+    }
+
+    /// Load a snapshot of existing local media items for incremental scanning.
+    /// Returns a map of source_path -> (mtime, size_bytes, has_cover_art).
+    pub fn load_scan_snapshot(&self) -> Result<std::collections::HashMap<String, (Option<f64>, Option<u64>, bool)>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT source_path, mtime, size_bytes,
+                       EXISTS (
+                           SELECT 1 FROM cover_art_cache
+                           WHERE cover_art_cache.media_id = media_items.media_id LIMIT 1
+                       ) AS has_cover
+                FROM media_items
+                WHERE source_kind = 'local'
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare scan snapshot query: {}", e))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                let path: String = row.get(0)?;
+                let mtime: Option<f64> = row.get(1)?;
+                let size: Option<i64> = row.get(2)?;
+                let has_cover: i64 = row.get(3)?;
+                Ok((path, (mtime, size.map(|v| v as u64), has_cover != 0)))
+            })
+            .map_err(|e| format!("Failed to query scan snapshot: {}", e))?;
+
+        let mut map = std::collections::HashMap::new();
+        for row in rows.flatten() {
+            map.insert(row.0, row.1);
+        }
+        Ok(map)
+    }
+
+    pub fn delete_local_media_not_in_root(
+        &self,
+        root_path: &str,
+        keep_paths: &[String],
+    ) -> Result<u64, String> {
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start media cleanup transaction: {}", e))?;
+        let mut stmt = tx
+            .prepare(
+                r#"
+                SELECT source_path
+                FROM media_items
+                WHERE source_kind = 'local'
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare media cleanup query: {}", e))?;
+        let candidates = stmt
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query media cleanup candidates: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode media cleanup candidates: {}", e))?;
+        drop(stmt);
+
+        let root_media_id = media_id_for_path(root_path).trim_end_matches('/').to_string();
+        let root_id_prefix = format!("{}/", root_media_id);
+        let keep = keep_paths
+            .iter()
+            .map(|path| media_id_for_path(path))
+            .collect::<std::collections::HashSet<_>>();
+        let mut removed = 0_u64;
+        for source_path in candidates {
+            let media_id = media_id_for_path(&source_path);
+            if media_id != root_media_id && !media_id.starts_with(&root_id_prefix) {
+                continue;
+            }
+            if keep.contains(&media_id) {
+                continue;
+            }
+            let changed = tx
+                .execute(
+                    "DELETE FROM media_items WHERE media_id = ?1",
+                    params![media_id],
+                )
+                .map_err(|e| format!("Failed to delete stale media item '{}': {}", source_path, e))?;
+            removed += changed as u64;
+        }
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit media cleanup transaction: {}", e))?;
+        Ok(removed)
     }
 
     pub fn recent_playback_sessions(
@@ -1587,17 +1817,18 @@ impl AppDatabase {
         after_source_path: Option<&str>,
     ) -> Result<Option<QueueEntryRecord>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let after_media_id = after_source_path.map(media_id_for_path);
 
         let query_with_cursor = r#"
             SELECT queue_id, entry_id, position_index, shuffle_index, source_path, media_id, status, added_at, updated_at
             FROM playback_queue_entries
             WHERE queue_id = ?1
-              AND status = 'queued'
+              AND status IN ('queued', 'preloading')
               AND COALESCE(shuffle_index, position_index) > COALESCE(
                   (
                       SELECT COALESCE(q2.shuffle_index, q2.position_index)
                       FROM playback_queue_entries q2
-                      WHERE q2.queue_id = ?1 AND q2.source_path = ?2
+                      WHERE q2.queue_id = ?1 AND q2.media_id = ?2
                       ORDER BY COALESCE(q2.shuffle_index, q2.position_index) ASC, q2.entry_id ASC
                       LIMIT 1
                   ),
@@ -1611,7 +1842,7 @@ impl AppDatabase {
             SELECT queue_id, entry_id, position_index, shuffle_index, source_path, media_id, status, added_at, updated_at
             FROM playback_queue_entries
             WHERE queue_id = ?1
-              AND status = 'queued'
+              AND status IN ('queued', 'preloading')
             ORDER BY COALESCE(shuffle_index, position_index) ASC, entry_id ASC
             LIMIT 1
         "#;
@@ -1630,8 +1861,8 @@ impl AppDatabase {
             })
         };
 
-        let result = if let Some(source_path) = after_source_path {
-            conn.query_row(query_with_cursor, params![queue_id, source_path], mapper)
+        let result = if let Some(media_id) = after_media_id.as_deref() {
+            conn.query_row(query_with_cursor, params![queue_id, media_id], mapper)
         } else {
             conn.query_row(query_without_cursor, params![queue_id], mapper)
         };
@@ -1747,12 +1978,53 @@ impl AppDatabase {
         Ok(())
     }
 
+    pub fn mark_queue_entry_playing(
+        &self,
+        queue_id: &str,
+        entry_id: i64,
+    ) -> Result<(), String> {
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start queue status transaction: {}", e))?;
+        let now = now_epoch_secs_i64();
+
+        tx.execute(
+            r#"
+            UPDATE playback_queue_entries
+            SET status = 'queued',
+                updated_at = ?3
+            WHERE queue_id = ?1
+              AND entry_id <> ?2
+              AND status IN ('playing', 'preloading')
+            "#,
+            params![queue_id, entry_id, now],
+        )
+        .map_err(|e| format!("Failed to clear active queue entries: {}", e))?;
+
+        tx.execute(
+            r#"
+            UPDATE playback_queue_entries
+            SET status = 'playing',
+                updated_at = ?3
+            WHERE queue_id = ?1 AND entry_id = ?2
+            "#,
+            params![queue_id, entry_id, now],
+        )
+        .map_err(|e| format!("Failed to mark queue entry as playing: {}", e))?;
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit queue status transaction: {}", e))?;
+        Ok(())
+    }
+
     pub fn mark_queue_entry_played_by_path(
         &self,
         queue_id: &str,
         source_path: &str,
     ) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let media_id = media_id_for_path(source_path);
         conn.execute(
             r#"
             UPDATE playback_queue_entries
@@ -1761,12 +2033,12 @@ impl AppDatabase {
             WHERE entry_id = (
                 SELECT entry_id
                 FROM playback_queue_entries
-                WHERE queue_id = ?1 AND source_path = ?2
+                WHERE queue_id = ?1 AND media_id = ?2
                 ORDER BY position_index ASC, entry_id ASC
                 LIMIT 1
             )
             "#,
-            params![queue_id, source_path, now_epoch_secs_i64()],
+            params![queue_id, media_id, now_epoch_secs_i64()],
         )
         .map_err(|e| format!("Failed to mark queue entry as played: {}", e))?;
         Ok(())
@@ -1781,6 +2053,7 @@ impl AppDatabase {
     ) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let updated_at = now_epoch_secs_i64();
+        let media_id = media_id_for_path(source_path);
 
         let changed = if current_statuses.is_empty() {
             conn.execute(
@@ -1791,12 +2064,12 @@ impl AppDatabase {
                 WHERE entry_id = (
                     SELECT entry_id
                     FROM playback_queue_entries
-                    WHERE queue_id = ?1 AND source_path = ?2
+                    WHERE queue_id = ?1 AND media_id = ?2
                     ORDER BY position_index ASC, entry_id ASC
                     LIMIT 1
                 )
                 "#,
-                params![queue_id, source_path, next_status, updated_at],
+                params![queue_id, media_id, next_status, updated_at],
             )
         } else {
             let placeholders = std::iter::repeat("?")
@@ -1812,7 +2085,7 @@ impl AppDatabase {
                     SELECT entry_id
                     FROM playback_queue_entries
                     WHERE queue_id = ?
-                      AND source_path = ?
+                      AND media_id = ?
                       AND status IN ({})
                     ORDER BY position_index ASC, entry_id ASC
                     LIMIT 1
@@ -1821,7 +2094,7 @@ impl AppDatabase {
                 placeholders
             );
             let mut query_params: Vec<&dyn ToSql> =
-                vec![&next_status, &updated_at, &queue_id, &source_path];
+                vec![&next_status, &updated_at, &queue_id, &media_id];
             for status in current_statuses {
                 query_params.push(status);
             }
@@ -1838,7 +2111,14 @@ impl AppDatabase {
 }
 
 pub(crate) fn media_id_for_path(path: &str) -> String {
-    path.replace('\\', "/").to_lowercase()
+    normalize_media_path_for_id(path).replace('\\', "/").to_lowercase()
+}
+
+fn normalize_media_path_for_id(path: &str) -> &str {
+    path.strip_prefix(r"\\?\UNC\")
+        .map(|rest| rest.strip_prefix('\\').unwrap_or(rest))
+        .or_else(|| path.strip_prefix(r"\\?\"))
+        .unwrap_or(path)
 }
 
 fn file_size_for_source_path(source_path: &str) -> Option<u64> {
@@ -1924,6 +2204,34 @@ mod tests {
         let history = db.recent_playback_history(10).unwrap();
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].event_type, "load_requested");
+    }
+
+    #[test]
+    fn playback_history_includes_media_metadata() {
+        let db = AppDatabase::in_memory().unwrap();
+        let path = "https://music.example.test/song.mp3";
+        db.record_external_media_metadata(
+            path,
+            Some("Online Song"),
+            Some("Online Artist"),
+            Some("Online Album"),
+            Some(213.5),
+            Some("https://img.example.test/song.jpg"),
+        )
+        .unwrap();
+        db.append_playback_history(None, path, "play", Some(0.0), None)
+            .unwrap();
+
+        let history = db.recent_playback_history(10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].title.as_deref(), Some("Online Song"));
+        assert_eq!(history[0].artist.as_deref(), Some("Online Artist"));
+        assert_eq!(history[0].album.as_deref(), Some("Online Album"));
+        assert_eq!(history[0].duration_secs, Some(213.5));
+        assert_eq!(
+            history[0].external_artwork_url.as_deref(),
+            Some("https://img.example.test/song.jpg")
+        );
     }
 
     #[test]
@@ -2124,7 +2432,7 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(versions, vec![1, 2, 3, 4]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5]);
 
         let index_count: i64 = conn
             .query_row(
@@ -2251,6 +2559,83 @@ mod tests {
             media_id_for_path("D:\\Music\\Artist\\Track.FLAC"),
             "d:/music/artist/track.flac"
         );
+        assert_eq!(
+            media_id_for_path(r"\\?\D:\Music\Artist\Track.FLAC"),
+            "d:/music/artist/track.flac"
+        );
+    }
+
+    #[test]
+    fn queue_cursor_matches_extended_length_windows_paths() {
+        let db = AppDatabase::in_memory().unwrap();
+        db.append_queue_entries(
+            "active",
+            &[
+                "D:\\Music\\a.flac".to_string(),
+                "D:\\Music\\b.flac".to_string(),
+                "D:\\Music\\c.flac".to_string(),
+            ],
+        )
+        .unwrap();
+
+        let next = db
+            .peek_next_queue_entry("active", Some(r"\\?\D:\Music\a.flac"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(next.source_path, "D:\\Music\\b.flac");
+    }
+
+    #[test]
+    fn peek_next_queue_entry_can_advance_to_preloading_entry() {
+        let db = AppDatabase::in_memory().unwrap();
+        db.append_queue_entries(
+            "active",
+            &[
+                "D:/music/a.flac".to_string(),
+                "D:/music/b.flac".to_string(),
+                "D:/music/c.flac".to_string(),
+            ],
+        )
+        .unwrap();
+        let queue = db.list_queue_entries("active").unwrap();
+        db.mark_queue_entry_status("active", queue[1].entry_id, "preloading")
+            .unwrap();
+
+        let next = db
+            .peek_next_queue_entry("active", Some("D:/music/a.flac"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(next.source_path, "D:/music/b.flac");
+        assert_eq!(next.status, "preloading");
+    }
+
+    #[test]
+    fn mark_queue_entry_playing_keeps_single_active_entry() {
+        let db = AppDatabase::in_memory().unwrap();
+        db.append_queue_entries(
+            "active",
+            &[
+                "D:/music/a.flac".to_string(),
+                "D:/music/b.flac".to_string(),
+                "D:/music/c.flac".to_string(),
+            ],
+        )
+        .unwrap();
+        let queue = db.list_queue_entries("active").unwrap();
+
+        db.mark_queue_entry_status("active", queue[0].entry_id, "playing")
+            .unwrap();
+        db.mark_queue_entry_status("active", queue[1].entry_id, "preloading")
+            .unwrap();
+        db.mark_queue_entry_playing("active", queue[2].entry_id)
+            .unwrap();
+
+        let queue = db.list_queue_entries("active").unwrap();
+        assert_eq!(queue[0].status, "queued");
+        assert_eq!(queue[1].status, "queued");
+        assert_eq!(queue[2].status, "playing");
     }
 
     #[test]

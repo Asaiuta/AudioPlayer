@@ -16,6 +16,7 @@ path = "src/main.rs"
 audio-runtime-paths = { path = "crates/audio-runtime-paths" }
 # --- Core Audio ---
 symphonia = { version = "0.5", features = ["all"] }
+lofty = "0.22"
 cpal = "0.15"
 soxr = "0.6.0"   # Restored for f64 Hi-Fi SoX VHQ resampling
 

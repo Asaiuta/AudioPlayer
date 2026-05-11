@@ -28,6 +28,12 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), String> {
     if current < 4 {
         apply_shuffle_index_migration(conn)?;
     }
+    if current < 5 {
+        apply_scan_incremental_migration(conn)?;
+    }
+    if current < 6 {
+        apply_external_artwork_url_migration(conn)?;
+    }
 
     Ok(())
 }
@@ -93,6 +99,46 @@ fn apply_shuffle_index_migration(conn: &mut Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| format!("Failed to create shuffle queue indexes: {}", e))?;
+
+    record_version_tx(&tx, version)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit migration {}: {}", version, e))?;
+    log::info!("Applied app database migration {}", version);
+    Ok(())
+}
+
+fn apply_scan_incremental_migration(conn: &mut Connection) -> Result<(), String> {
+    let version = 5;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start migration {} transaction: {}", version, e))?;
+
+    if !column_exists(&tx, "media_items", "mtime")? {
+        tx.execute_batch("ALTER TABLE media_items ADD COLUMN mtime REAL")
+            .map_err(|e| format!("Failed to add media_items.mtime: {}", e))?;
+    }
+    if !column_exists(&tx, "media_items", "size_bytes")? {
+        tx.execute_batch("ALTER TABLE media_items ADD COLUMN size_bytes INTEGER")
+            .map_err(|e| format!("Failed to add media_items.size_bytes: {}", e))?;
+    }
+
+    record_version_tx(&tx, version)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit migration {}: {}", version, e))?;
+    log::info!("Applied app database migration {}", version);
+    Ok(())
+}
+
+fn apply_external_artwork_url_migration(conn: &mut Connection) -> Result<(), String> {
+    let version = 6;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start migration {} transaction: {}", version, e))?;
+
+    if !column_exists(&tx, "media_items", "external_artwork_url")? {
+        tx.execute_batch("ALTER TABLE media_items ADD COLUMN external_artwork_url TEXT")
+            .map_err(|e| format!("Failed to add media_items.external_artwork_url: {}", e))?;
+    }
 
     record_version_tx(&tx, version)?;
     tx.commit()
@@ -204,6 +250,91 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, 2);
+    }
+
+    #[test]
+    fn external_artwork_url_migration_succeeds_when_column_is_missing() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE media_items (
+                media_id       TEXT PRIMARY KEY,
+                source_path    TEXT NOT NULL UNIQUE,
+                source_kind    TEXT NOT NULL,
+                title          TEXT,
+                artist         TEXT,
+                album          TEXT,
+                track_number   INTEGER,
+                disc_number    INTEGER,
+                genre          TEXT,
+                year           INTEGER,
+                duration_secs  REAL,
+                sample_rate    INTEGER,
+                channels       INTEGER,
+                added_at       INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at) VALUES (5, 100);
+            "#,
+        )
+        .unwrap();
+
+        apply_external_artwork_url_migration(&mut conn).unwrap();
+
+        assert!(column_exists(&conn, "media_items", "external_artwork_url").unwrap());
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 6);
+    }
+
+    #[test]
+    fn external_artwork_url_migration_succeeds_when_column_already_exists() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE media_items (
+                media_id       TEXT PRIMARY KEY,
+                source_path    TEXT NOT NULL UNIQUE,
+                source_kind    TEXT NOT NULL,
+                title          TEXT,
+                artist         TEXT,
+                album          TEXT,
+                track_number   INTEGER,
+                disc_number    INTEGER,
+                genre          TEXT,
+                year           INTEGER,
+                duration_secs  REAL,
+                sample_rate    INTEGER,
+                channels       INTEGER,
+                external_artwork_url TEXT,
+                added_at       INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at) VALUES (5, 100);
+            "#,
+        )
+        .unwrap();
+
+        apply_external_artwork_url_migration(&mut conn).unwrap();
+
+        assert!(column_exists(&conn, "media_items", "external_artwork_url").unwrap());
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 6);
     }
 
     #[test]

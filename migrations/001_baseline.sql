@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS media_items (
     duration_secs  REAL,
     sample_rate    INTEGER,
     channels       INTEGER,
+    external_artwork_url TEXT,
     added_at       INTEGER NOT NULL,
     updated_at     INTEGER NOT NULL
 );
