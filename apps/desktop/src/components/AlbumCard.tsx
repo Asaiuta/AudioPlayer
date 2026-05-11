@@ -1,5 +1,7 @@
 import { Show } from "solid-js";
 import { IconArtist, IconPlay } from "./icons";
+import { SImage } from "./SImage";
+import { coverSizeUrl } from "../shared/ui/coverSize";
 
 interface AlbumCardProps {
   title: string;
@@ -27,6 +29,9 @@ const formatPlayCount = (count: number): string => {
 
 export function AlbumCard(props: AlbumCardProps) {
   const fallbackInitial = () => props.title.trim().slice(0, 1).toUpperCase() || "·";
+  // 卡片显示尺寸约 120-184px，使用 m 档 (300px) 足够
+  const sizedUrl = () => coverSizeUrl(props.coverUrl, "m");
+  const shadowUrl = () => coverSizeUrl(props.coverUrl, "s");
 
   return (
     <button
@@ -39,11 +44,21 @@ export function AlbumCard(props: AlbumCardProps) {
           when={props.coverUrl}
           fallback={<span class="album-card-fallback">{fallbackInitial()}</span>}
         >
-          {(url) => (
+          {(_) => (
             <>
-              <img class="album-card-art-img" src={url()} alt="" loading="lazy" />
+              <SImage
+                src={sizedUrl()}
+                class="album-card-art-img"
+                observeVisibility={true}
+                releaseOnHide={false}
+              />
               <Show when={props.shape === "round"}>
-                <img class="album-card-art-shadow" src={url()} alt="" loading="lazy" />
+                <SImage
+                  src={shadowUrl()}
+                  class="album-card-art-shadow"
+                  observeVisibility={true}
+                  releaseOnHide={true}
+                />
                 <span class="album-card-art-artist-icon">
                   <IconArtist />
                 </span>

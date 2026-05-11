@@ -387,6 +387,14 @@ export function IconHeart(props: IconProps) {
   );
 }
 
+export function IconHeartFilled(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M10 16.5s-6.5-4.5-6.5-8A3.5 3.5 0 0 1 10 5.5a3.5 3.5 0 0 1 6.5 3c0 3.5-6.5 8-6.5 8z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function IconCloud(props: IconProps) {
   return (
     <svg {...baseProps} {...props}>
@@ -442,6 +450,57 @@ export function IconDots(props: IconProps) {
       <circle cx="5" cy="10" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="10" cy="10" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function IconMessage(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M4.5 5.5A2.5 2.5 0 0 1 7 3h6a2.5 2.5 0 0 1 2.5 2.5v4A2.5 2.5 0 0 1 13 12H9l-4.5 4v-4.5A2.5 2.5 0 0 1 2 9V5.5" />
+      <path d="M7 7h6" />
+      <path d="M7 9.5h3.5" />
+    </svg>
+  );
+}
+
+export function IconDownload(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M10 3.5v8" />
+      <path d="M6.5 8.5L10 12l3.5-3.5" />
+      <path d="M4 15.5h12" />
+    </svg>
+  );
+}
+
+export function IconTextPlay(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M4 5.5h8" />
+      <path d="M4 9h6" />
+      <path d="M4 12.5h5" />
+      <path d="M12.5 10.5l4 2.5-4 2.5z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function IconDesktopLyric(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <rect x="3" y="4" width="14" height="9.5" rx="1.5" />
+      <path d="M7 16h6" />
+      <path d="M10 13.5V16" />
+      <path d="M6 7.5h8" />
+      <path d="M7.5 10h5" />
+    </svg>
+  );
+}
+
+export function IconSpinner(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <circle cx="10" cy="10" r="7" stroke-dasharray="32" stroke-dashoffset="8" />
     </svg>
   );
 }

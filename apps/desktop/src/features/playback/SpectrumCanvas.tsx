@@ -32,7 +32,11 @@ export function SpectrumCanvas(props: SpectrumCanvasProps) {
     const count = data.length || 64;
     const barWidth = rect.width / count;
     const maxHeight = rect.height;
-    const fill = active ? "rgba(210, 176, 110, 0.9)" : "rgba(120, 120, 120, 0.4)";
+
+    const style = getComputedStyle(canvas);
+    const accent = style.getPropertyValue("--accent-dynamic").trim() || style.getPropertyValue("--accent-base").trim();
+    const muted = style.getPropertyValue("--muted-soft").trim();
+    const fill = active ? (accent || "oklch(0.63 0.22 24)") : (muted || "oklch(0.56 0.008 280 / 0.5)");
 
     context.fillStyle = fill;
     for (let i = 0; i < count; i += 1) {

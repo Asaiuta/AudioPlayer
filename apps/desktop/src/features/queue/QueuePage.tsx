@@ -10,7 +10,7 @@ interface QueuePageProps {
   currentTrackPath: string | null;
   preloadRequested: boolean;
   onPreloadCleared: () => void;
-  onStateRefresh: () => Promise<void>;
+  onStateRefresh: (expectedPath?: string | null) => Promise<void>;
 }
 
 interface QueueFeedback {
@@ -101,7 +101,7 @@ export function QueuePage(props: QueuePageProps) {
     await runWithFeedback(
       async () => {
         await api.load(path);
-        await Promise.all([props.onStateRefresh(), refresh()]);
+        await Promise.all([props.onStateRefresh(path), refresh()]);
         setLoadPath("");
       },
       "queue.feedback.loadingTrack",
@@ -160,7 +160,7 @@ export function QueuePage(props: QueuePageProps) {
     setRawFeedback("neutral", t("queue.feedback.playing", { path: entry.source_path }));
     try {
       await api.playFromQueue(entry.entry_id);
-      await Promise.all([props.onStateRefresh(), refresh()]);
+      await Promise.all([props.onStateRefresh(entry.source_path), refresh()]);
       setKeyedFeedback("success", "queue.feedback.started");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));

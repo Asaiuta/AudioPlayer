@@ -127,12 +127,22 @@ export function applyDynamicAccent(color: OkLch | null) {
   if (!color) {
     root.style.removeProperty("--accent-dynamic");
     root.style.removeProperty("--accent-dynamic-strong");
+    root.style.removeProperty("--surface-container-dynamic");
     return;
   }
-  const clampedL = Math.min(0.74, Math.max(0.5, color.l));
+  const isLight = root.dataset.theme === "light";
+  const clampedL = isLight
+    ? Math.min(0.55, Math.max(0.35, color.l))
+    : Math.min(0.74, Math.max(0.5, color.l));
   const clampedC = Math.min(0.22, Math.max(0.08, color.c));
   const base = `oklch(${clampedL.toFixed(3)} ${clampedC.toFixed(3)} ${color.h.toFixed(1)})`;
-  const strong = `oklch(${Math.min(0.84, clampedL + 0.08).toFixed(3)} ${Math.min(0.26, clampedC + 0.02).toFixed(3)} ${color.h.toFixed(1)})`;
+  const strong = isLight
+    ? `oklch(${Math.max(0.30, clampedL - 0.08).toFixed(3)} ${Math.min(0.26, clampedC + 0.02).toFixed(3)} ${color.h.toFixed(1)})`
+    : `oklch(${Math.min(0.84, clampedL + 0.08).toFixed(3)} ${Math.min(0.26, clampedC + 0.02).toFixed(3)} ${color.h.toFixed(1)})`;
+  const surfaceContainer = isLight
+    ? `oklch(0.94 ${(clampedC * 0.12).toFixed(3)} ${color.h.toFixed(1)} / 0.85)`
+    : `oklch(0.18 ${(clampedC * 0.15).toFixed(3)} ${color.h.toFixed(1)} / 0.85)`;
   root.style.setProperty("--accent-dynamic", base);
   root.style.setProperty("--accent-dynamic-strong", strong);
+  root.style.setProperty("--surface-container-dynamic", surfaceContainer);
 }

@@ -1,26 +1,50 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { RepeatMode, ShuffleMode } from "../shared/api/types";
+import {
+  readSongCommentsPayload,
+  songComments,
+  type NcmSongComment,
+  type NcmSongCommentsPayload
+} from "../shared/api/ncm/comment";
 import { useTranslation } from "../shared/i18n";
 import {
   findActiveLyricIndex,
   findCurrentLyricLine,
+  snapSeekPositionToLyrics,
   type NcmLyricLine,
   type NcmLyricWord
 } from "../features/online/ncmPlayback";
+import { SpectrumCanvas } from "../features/playback/SpectrumCanvas";
 import { CoverArt } from "./CoverArt";
 import {
   IconChevronDown,
+  IconControls,
+  IconDesktopLyric,
+  IconDownload,
+  IconHeart,
+  IconHeartFilled,
   IconMaximize,
+  IconMessage,
   IconPause,
+  IconPlaylist,
   IconPlay,
   IconRepeat,
   IconRepeatOne,
   IconRestore,
   IconShuffle,
   IconSkipNext,
-  IconSkipPrev
+  IconSkipPrev,
+  IconTextPlay,
+  IconVolumeHigh,
+  IconVolumeMute
 } from "./icons";
 import { useUISettings } from "../shared/state/useUISettings";
+
+type CommentsRequestState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "success"; data: NcmSongCommentsPayload }
+  | { status: "error"; error: string };
 
 interface FullPlayerProps {
   isOpen: boolean;
@@ -29,9 +53,11 @@ interface FullPlayerProps {
   title: string;
   subtitle: string;
   detail?: string | null;
+  currentSongId: number | null;
   duration: number;
   currentTime: number;
   isPlaying: boolean;
+  volume: number;
   spectrum: number[];
   lyrics?: readonly NcmLyricLine[];
   lyricStatus?: "idle" | "loading" | "ready" | "error";
@@ -43,10 +69,14 @@ interface FullPlayerProps {
   onPlay: () => void;
   onPause: () => void;
   onSeek: (position: number) => void;
+  onVolumeChange: (volume: number) => void;
   onSkipPrev: () => void;
   onSkipNext: () => void;
   onCycleRepeat: () => void;
   onToggleShuffle: () => void;
+  onOpenQueue: () => void;
+  isLiked?: boolean;
+  onToggleLike?: () => void;
 }
 
 const formatTime = (value: number) => {
@@ -66,6 +96,11 @@ export function FullPlayer(props: FullPlayerProps) {
   const uiSettings = useUISettings();
   const [metaVisible, setMetaVisible] = createSignal(true);
   const [isFullscreen, setIsFullscreen] = createSignal(false);
+  const [pureLyricMode, setPureLyricMode] = createSignal(false);
+  const [showComment, setShowComment] = createSignal(false);
+  const [commentsState, setCommentsState] = createSignal<CommentsRequestState>({ status: "idle" });
+  const [volumePopoverOpen, setVolumePopoverOpen] = createSignal(false);
+  const [controlAreaActive, setControlAreaActive] = createSignal(false);
   let lyricListRef: HTMLDivElement | undefined;
   let rootRef: HTMLDivElement | undefined;
   let hideTimer: number | undefined;
@@ -79,7 +114,7 @@ export function FullPlayer(props: FullPlayerProps) {
 
   const scheduleMetaHide = () => {
     clearHideTimer();
-    if (!props.isOpen) return;
+    if (!props.isOpen || controlAreaActive()) return;
     hideTimer = window.setTimeout(() => {
       setMetaVisible(false);
     }, META_HIDE_DELAY_MS);
@@ -94,6 +129,8 @@ export function FullPlayer(props: FullPlayerProps) {
     if (!props.isOpen) {
       clearHideTimer();
       setMetaVisible(true);
+      setShowComment(false);
+      setPureLyricMode(false);
       return;
     }
 
@@ -127,20 +164,54 @@ export function FullPlayer(props: FullPlayerProps) {
   const lyrics = () => props.lyrics ?? [];
   const lyricStatus = () => props.lyricStatus ?? "idle";
   const lyricError = () => props.lyricError ?? null;
+  const hasLyrics = () => lyrics().length > 0;
+  const canShowPureLyrics = () => hasLyrics();
+  const canShowComments = () => props.currentSongId !== null && !pureLyricMode();
   const progress = () => (props.duration > 0 ? clamp01(props.currentTime / props.duration) : 0);
   const canSeek = () => props.duration > 0;
+  const safeVolume = () => clamp01(props.volume);
   const RepeatIcon = () => (props.repeatMode === "one" ? IconRepeatOne : IconRepeat);
+  const VolumeIcon = () => (safeVolume() <= 0.001 ? IconVolumeMute : IconVolumeHigh);
   const repeatLabel = () => t(`player.repeat.${props.repeatMode}` as const);
   const shuffleLabel = () =>
     props.shuffleMode === "on" ? t("player.shuffle.on") : t("player.shuffle.off");
   const playPauseLabel = () => (props.isPlaying ? t("player.aria.pause") : t("player.aria.play"));
+  const handlePlayPauseClick = () => {
+    if (props.isPlaying) {
+      props.onPause();
+      return;
+    }
+    props.onPlay();
+  };
   const activeLyricIndex = () => findActiveLyricIndex(lyrics(), props.currentTime);
   const compactLyric = () => findCurrentLyricLine(lyrics(), props.currentTime);
-  const layoutClassName = createMemo(() =>
-    uiSettings.fullPlayerLayout === "lyrics"
-      ? "full-player-stage is-lyrics-layout"
-      : "full-player-stage is-balanced-layout"
-  );
+  const layoutClassName = createMemo(() => {
+    const mode = uiSettings.fullPlayerCommentMode;
+    return [
+      "full-player-stage",
+      uiSettings.fullPlayerLayout === "lyrics" ? "is-lyrics-layout" : "is-balanced-layout",
+      pureLyricMode() ? "is-pure-layout" : "",
+      showComment() ? "is-comment-visible" : "",
+      showComment() ? `is-comment-${mode === "fullscreen" ? "fullscreen" : mode === "half-left" ? "half-left" : "half-right"}` : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
+  });
+  const commentPanelClassName = createMemo(() => {
+    const mode = uiSettings.fullPlayerCommentMode;
+    const modeSuffix = mode === "fullscreen" ? "fullscreen" : mode === "half-left" ? "half-left" : "half-right";
+    return `full-player-comment-panel mode-${modeSuffix}${showComment() ? " visible" : ""}`;
+  });
+  const fullPlayerRootClassName = createMemo(() => {
+    return [
+      "full-player",
+      props.isOpen ? "is-open" : "",
+      `cover-mode-${uiSettings.fullPlayerCoverMode === "record" ? "record" : "normal"}`,
+      showComment() && uiSettings.fullPlayerCommentMode === "fullscreen" ? "is-fullscreen-comment" : ""
+    ]
+      .filter(Boolean)
+      .join(" ");
+  });
   const coverBackgroundStyle = createMemo(() =>
     props.coverUrl
       ? {
@@ -182,11 +253,30 @@ export function FullPlayer(props: FullPlayerProps) {
     line.words && line.words.length > 0 ? line.words : null;
   const fullscreenLabel = () =>
     isFullscreen() ? t("fullPlayer.action.fullscreenExit") : t("fullPlayer.action.fullscreenEnter");
+  const pureLyricLabel = () =>
+    pureLyricMode() ? t("fullPlayer.action.pureLyricExit") : t("fullPlayer.action.pureLyricEnter");
+  const comments = () => {
+    const state = commentsState();
+    return state.status === "success" ? state.data : null;
+  };
+  const visibleComments = () => comments()?.comments ?? [];
+  const visibleHotComments = () => comments()?.hotComments ?? [];
+  const commentCount = () => comments()?.total ?? 0;
+  const commentsError = () => {
+    const state = commentsState();
+    return state.status === "error" ? state.error : t("common.error.requestFailed");
+  };
 
   const seekFromClientX = (clientX: number, rect: DOMRect) => {
     if (!canSeek()) return;
     const ratio = clamp01((clientX - rect.left) / rect.width);
-    props.onSeek(ratio * props.duration);
+    props.onSeek(snapSeekPositionToLyrics(lyrics(), ratio * props.duration));
+  };
+
+  const handleLyricSeek = (line: NcmLyricLine) => {
+    if (!canSeek()) return;
+    if (!Number.isFinite(line.time) || line.time < 0) return;
+    props.onSeek(Math.min(props.duration, Math.max(0, line.time)));
   };
 
   const handleProgressClick = (event: MouseEvent) => {
@@ -201,11 +291,46 @@ export function FullPlayer(props: FullPlayerProps) {
     const STEP = 5;
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      props.onSeek(Math.max(0, props.currentTime - STEP));
+      props.onSeek(snapSeekPositionToLyrics(lyrics(), Math.max(0, props.currentTime - STEP)));
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      props.onSeek(Math.min(props.duration, props.currentTime + STEP));
+      props.onSeek(
+        snapSeekPositionToLyrics(lyrics(), Math.min(props.duration, props.currentTime + STEP))
+      );
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      props.onSeek(0);
+    } else if (event.key === "End") {
+      event.preventDefault();
+      props.onSeek(props.duration);
     }
+  };
+
+  const handleVolumeInput = (event: InputEvent) => {
+    const target = event.currentTarget;
+    if (!(target instanceof HTMLInputElement)) return;
+    const next = Number.parseFloat(target.value);
+    if (!Number.isFinite(next)) {
+      return;
+    }
+    props.onVolumeChange(clamp01(next));
+  };
+
+  const togglePureLyricMode = () => {
+    if (!canShowPureLyrics()) {
+      return;
+    }
+    setPureLyricMode((current) => !current);
+    setShowComment(false);
+    revealMeta();
+  };
+
+  const toggleComment = () => {
+    if (!canShowComments()) {
+      return;
+    }
+    setShowComment((current) => !current);
+    revealMeta();
   };
 
   const lyricNow = () => {
@@ -225,6 +350,17 @@ export function FullPlayer(props: FullPlayerProps) {
     setMetaVisible(false);
   };
 
+  const handleControlEnter = () => {
+    setControlAreaActive(true);
+    clearHideTimer();
+    setMetaVisible(true);
+  };
+
+  const handleControlLeave = () => {
+    setControlAreaActive(false);
+    scheduleMetaHide();
+  };
+
   const toggleFullscreen = async () => {
     if (typeof document === "undefined") return;
     try {
@@ -239,7 +375,7 @@ export function FullPlayer(props: FullPlayerProps) {
   };
 
   createEffect(() => {
-    if (!props.isOpen || !uiSettings.fullPlayerAutoFocusLyrics) {
+    if (!props.isOpen || !uiSettings.fullPlayerAutoFocusLyrics || showComment()) {
       return;
     }
 
@@ -272,14 +408,42 @@ export function FullPlayer(props: FullPlayerProps) {
     });
   });
 
+  createEffect(() => {
+    const songId = props.currentSongId;
+    if (!props.isOpen || !showComment() || songId === null) {
+      if (!showComment()) {
+        setCommentsState({ status: "idle" });
+      }
+      return;
+    }
+
+    let cancelled = false;
+    setCommentsState({ status: "loading" });
+    void songComments(songId, 20, 0)
+      .then((payload) => {
+        if (cancelled) return;
+        setCommentsState({ status: "success", data: readSongCommentsPayload(payload) });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setCommentsState({
+          status: "error",
+          error: error instanceof Error ? error.message : t("common.error.requestFailed")
+        });
+      });
+
+    onCleanup(() => {
+      cancelled = true;
+    });
+  });
+
   return (
     <div
       ref={rootRef}
-      class={`full-player${props.isOpen ? " is-open" : ""}`}
+      class={fullPlayerRootClassName()}
       role="dialog"
       aria-label={t("fullPlayer.aria.dialog")}
       aria-modal="true"
-      aria-hidden={!props.isOpen}
       onMouseMove={handleSurfaceMove}
       onClick={handleSurfaceMove}
       onMouseLeave={handleSurfaceLeave}
@@ -288,11 +452,39 @@ export function FullPlayer(props: FullPlayerProps) {
         <div class="full-player-fluid" style={coverBackgroundStyle()} aria-hidden="true" />
       </Show>
       <div class="full-player-vignette" aria-hidden="true" />
+      <Show when={showComment() && compactLyric()}>
+        {(line) => (
+          <div class="full-player-instant-lyric">
+            <span>{line()}</span>
+          </div>
+        )}
+      </Show>
 
       <div class={`full-player-overlay-menu${metaVisible() ? " is-visible" : ""}`}>
-        <div class="full-player-overlay-side" />
+        <div
+          class="full-player-overlay-side"
+          onMouseEnter={handleControlEnter}
+          onMouseLeave={handleControlLeave}
+        >
+          <Show when={canShowPureLyrics()}>
+            <button
+              type="button"
+              class={`full-player-menu-icon${pureLyricMode() ? " is-active" : ""}`}
+              onClick={togglePureLyricMode}
+              aria-label={pureLyricLabel()}
+              aria-pressed={pureLyricMode()}
+              title={pureLyricLabel()}
+            >
+              <IconTextPlay />
+            </button>
+          </Show>
+        </div>
         <div class="full-player-overlay-drag" aria-hidden="true" />
-        <div class="full-player-overlay-side is-right">
+        <div
+          class="full-player-overlay-side is-right"
+          onMouseEnter={handleControlEnter}
+          onMouseLeave={handleControlLeave}
+        >
           <button
             type="button"
             class="full-player-menu-icon"
@@ -318,7 +510,32 @@ export function FullPlayer(props: FullPlayerProps) {
 
       <div class={layoutClassName()}>
         <div class="full-player-primary">
-          <div class="full-player-cover">
+          <div class={`full-player-cover${props.isPlaying ? " is-playing" : ""}`}>
+            <Show when={uiSettings.fullPlayerCoverMode === "record"}>
+              <svg
+                class="full-player-vinyl-needle"
+                viewBox="0 0 100 100"
+                xmlns="http://www.w3.org/2000/svg"
+                aria-hidden="true"
+              >
+                <circle cx="10" cy="10" r="9" fill="#2a2a2a" stroke="#1a1a1a" stroke-width="1" />
+                <circle cx="10" cy="10" r="5" fill="#666" />
+                <circle cx="10" cy="10" r="2" fill="#1a1a1a" />
+                <path d="M 10 10 L 80 80" stroke="#888" stroke-width="4" stroke-linecap="round" />
+                <rect
+                  x="78"
+                  y="78"
+                  width="14"
+                  height="14"
+                  rx="2"
+                  fill="#3a3a3a"
+                  stroke="#1a1a1a"
+                  stroke-width="1"
+                  transform="rotate(45 85 85)"
+                />
+                <circle cx="92" cy="92" r="2.5" fill="#aa6633" />
+              </svg>
+            </Show>
             <CoverArt coverUrl={props.coverUrl} alt={props.title || t("cover.alt")} />
           </div>
 
@@ -330,6 +547,62 @@ export function FullPlayer(props: FullPlayerProps) {
             </Show>
           </div>
         </div>
+
+        <Show when={showComment()}>
+          <div class={commentPanelClassName()}>
+            <div class="full-player-comment-song">
+              <CoverArt coverUrl={props.coverUrl} alt={props.title || t("cover.alt")} />
+              <div class="full-player-comment-song-info">
+                <span class="full-player-comment-song-title">{props.title || t("player.fallback.empty")}</span>
+                <span class="full-player-comment-song-artist">
+                  {props.subtitle || t("player.subtitle.empty")}
+                </span>
+              </div>
+              <button
+                type="button"
+                class="full-player-comment-close"
+                onClick={() => setShowComment(false)}
+                aria-label={t("fullPlayer.comment.backToMusic")}
+                title={t("fullPlayer.comment.backToMusic")}
+              >
+                <IconPlay />
+              </button>
+            </div>
+
+            <div class="full-player-comment-scroll">
+              <Show when={commentsState().status === "loading"}>
+                <div class="full-player-comment-placeholder">{t("fullPlayer.comment.loading")}</div>
+              </Show>
+              <Show when={commentsState().status === "error"}>
+                <div class="full-player-comment-placeholder">{commentsError()}</div>
+              </Show>
+              <Show when={commentsState().status === "success" && commentCount() === 0}>
+                <div class="full-player-comment-placeholder">{t("fullPlayer.comment.empty")}</div>
+              </Show>
+              <Show when={visibleHotComments().length > 0}>
+                <section class="full-player-comment-section">
+                  <h3>{t("fullPlayer.comment.hot")}</h3>
+                  <For each={visibleHotComments()}>
+                    {(comment) => <CommentItem comment={comment} />}
+                  </For>
+                </section>
+              </Show>
+              <Show when={visibleComments().length > 0}>
+                <section class="full-player-comment-section">
+                  <h3>
+                    {t("fullPlayer.comment.all")}
+                    <Show when={commentCount() > 0}>
+                      <span>{commentCount()}</span>
+                    </Show>
+                  </h3>
+                  <For each={visibleComments()}>
+                    {(comment) => <CommentItem comment={comment} />}
+                  </For>
+                </section>
+              </Show>
+            </div>
+          </div>
+        </Show>
 
         <div class="full-player-lyric-panel" style={{ "--lyric-font-size": `${uiSettings.lyricFontSize}px` }}>
           <div class="full-player-lyric-now">{lyricNow()}</div>
@@ -354,6 +627,7 @@ export function FullPlayer(props: FullPlayerProps) {
                       index() === activeLyricIndex() ? " is-active" : ""
                     }`}
                     style={lineVisualStyle(index(), line)}
+                    onClick={() => handleLyricSeek(line)}
                   >
                     <Show
                       when={uiSettings.showWordLyrics && timedWords(line)}
@@ -389,8 +663,65 @@ export function FullPlayer(props: FullPlayerProps) {
         </div>
       </div>
 
-      <div class={`full-player-control-shell${metaVisible() ? " is-visible" : ""}`}>
-        <div class="full-player-control-side" />
+      <div
+        class={`full-player-control-shell${metaVisible() ? " is-visible" : ""}`}
+        onMouseEnter={handleControlEnter}
+        onMouseLeave={handleControlLeave}
+      >
+        <div class="full-player-control-side">
+          <button
+            type="button"
+            class="full-player-menu-icon"
+            onClick={props.onClose}
+            aria-label={t("fullPlayer.aria.close")}
+            title={t("fullPlayer.aria.close")}
+          >
+            <IconChevronDown />
+          </button>
+          <button
+            type="button"
+            class={`full-player-menu-icon${props.isLiked ? " is-active" : ""}`}
+            onClick={() => props.onToggleLike?.()}
+            disabled={!props.onToggleLike}
+            aria-label={t("player.aria.favorite")}
+            aria-pressed={Boolean(props.isLiked)}
+            title={t("player.aria.favorite")}
+          >
+            <Show when={props.isLiked} fallback={<IconHeart />}>
+              <IconHeartFilled />
+            </Show>
+          </button>
+          <button
+            type="button"
+            class="full-player-menu-icon"
+            aria-label={t("fullPlayer.action.addToPlaylist")}
+            title={t("fullPlayer.action.addToPlaylist")}
+          >
+            <IconPlaylist />
+          </button>
+          <button
+            type="button"
+            class="full-player-menu-icon"
+            aria-label={t("fullPlayer.action.download")}
+            title={t("fullPlayer.action.download")}
+          >
+            <IconDownload />
+          </button>
+          <button
+            type="button"
+            class={`full-player-menu-icon${showComment() ? " is-active" : ""}`}
+            onClick={toggleComment}
+            disabled={!canShowComments()}
+            aria-label={t("fullPlayer.comment.toggle")}
+            aria-pressed={showComment()}
+            title={t("fullPlayer.comment.toggle")}
+          >
+            <IconMessage />
+            <Show when={commentCount() > 0}>
+              <span class="full-player-icon-badge">{commentCount() > 999 ? "999+" : commentCount()}</span>
+            </Show>
+          </button>
+        </div>
 
         <div class="full-player-control-center">
           <div class="full-player-transport" role="group" aria-label={t("player.aria.transport")}>
@@ -417,7 +748,7 @@ export function FullPlayer(props: FullPlayerProps) {
             <button
               type="button"
               class="transport-button transport-primary"
-              onClick={props.isPlaying ? props.onPause : props.onPlay}
+              onClick={handlePlayPauseClick}
               aria-label={playPauseLabel()}
               title={playPauseLabel()}
             >
@@ -469,8 +800,102 @@ export function FullPlayer(props: FullPlayerProps) {
           </div>
         </div>
 
-        <div class="full-player-control-side is-right" />
+        <div class="full-player-control-side is-right">
+          <span class="full-player-quality-tag">
+            {props.currentSongId === null ? t("player.quality.source") : t("settings.ncm.songLevel")}
+          </span>
+          <button
+            type="button"
+            class="full-player-menu-icon full-player-utility-hidden"
+            aria-label={t("fullPlayer.action.desktopLyric")}
+            title={t("fullPlayer.action.desktopLyric")}
+          >
+            <IconDesktopLyric />
+          </button>
+          <button
+            type="button"
+            class="full-player-menu-icon full-player-utility-hidden"
+            aria-label={t("player.aria.more")}
+            title={t("player.aria.more")}
+          >
+            <IconControls />
+          </button>
+          <div class="full-player-volume">
+            <button
+              type="button"
+              class="full-player-menu-icon"
+              onClick={() => setVolumePopoverOpen((open) => !open)}
+              aria-label={t("player.aria.volumePopover")}
+              aria-expanded={volumePopoverOpen()}
+              aria-haspopup="dialog"
+              title={t("player.aria.volumePopover")}
+            >
+              {(() => {
+                const Icon = VolumeIcon();
+                return <Icon />;
+              })()}
+            </button>
+            <Show when={volumePopoverOpen()}>
+              <div class="full-player-volume-popover" role="dialog" aria-label={t("player.aria.volume")}>
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={safeVolume()}
+                  onInput={handleVolumeInput}
+                  class="volume-slider"
+                  aria-label={t("player.aria.volume")}
+                />
+                <span>{Math.round(safeVolume() * 100)}%</span>
+              </div>
+            </Show>
+          </div>
+          <button
+            type="button"
+            class="full-player-menu-icon"
+            onClick={props.onOpenQueue}
+            aria-label={t("sidebar.nav.queue.label")}
+            title={t("sidebar.nav.queue.label")}
+          >
+            <IconPlaylist />
+          </button>
+        </div>
       </div>
+
+      <Show when={props.spectrum.length > 0}>
+        <div class={`full-player-spectrum${metaVisible() ? "" : " is-visible"}`} aria-hidden="true">
+          <SpectrumCanvas data={props.spectrum} active={props.isPlaying} />
+        </div>
+      </Show>
     </div>
+  );
+}
+
+function CommentItem(props: { comment: NcmSongComment }) {
+  const timeLabel = () =>
+    props.comment.time === null ? "" : new Date(props.comment.time).toLocaleDateString();
+
+  return (
+    <article class="full-player-comment-item">
+      <Show
+        when={props.comment.user.avatarUrl}
+        fallback={<div class="full-player-comment-avatar" aria-hidden="true" />}
+      >
+        {(avatarUrl) => (
+          <img class="full-player-comment-avatar" src={avatarUrl()} alt={props.comment.user.nickname} />
+        )}
+      </Show>
+      <div class="full-player-comment-body">
+        <div class="full-player-comment-meta">
+          <span>{props.comment.user.nickname}</span>
+          <span>{timeLabel()}</span>
+        </div>
+        <p>{props.comment.content}</p>
+        <Show when={props.comment.likedCount > 0}>
+          <span class="full-player-comment-like">{props.comment.likedCount}</span>
+        </Show>
+      </div>
+    </article>
   );
 }

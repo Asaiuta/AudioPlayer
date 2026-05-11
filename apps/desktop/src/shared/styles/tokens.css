@@ -12,6 +12,7 @@
   --space-0: 0;
   --space-1: 4px;
   --space-2: 8px;
+  --space-2h: 10px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 24px;
@@ -23,9 +24,14 @@
   /* ---------- Radius ---------- */
   --radius-xs: 4px;
   --radius-sm: 8px;
+  --radius-smd: 10px;
   --radius-md: 14px;
+  --radius-md-lg: 12px;
   --radius-lg: 18px;
+  --radius-lg-xl: 20px;
   --radius-xl: 24px;
+  --radius-xl-plus: 25px;
+  --radius-2xl: 28px;
   --radius-pill: 999px;
 
   /* ---------- Color: surface ladder (SPlayer near-neutral desktop skin) ---------- */
@@ -34,6 +40,7 @@
   --surface-2: oklch(0.215 0.006 280);
   --surface-3: oklch(0.255 0.008 280);
   --surface-4: oklch(0.295 0.01 280);
+  --surface-container: var(--surface-container-dynamic, oklch(0.175 0.005 280 / 0.85));
 
   /* alpha companions used for translucent panels / chips. */
   --surface-1-soft: oklch(0.16 0.006 280 / 0.7);
@@ -49,6 +56,15 @@
   --text-soft: oklch(0.86 0.006 280);
   --muted: oklch(0.70 0.008 280);
   --muted-soft: oklch(0.56 0.01 280);
+
+  /* ---------- Color: semantic surface/border/text aliases ---------- */
+  --border-faint: oklch(1 0 0 / 0.04);
+  --border-overlay: oklch(1 0 0 / 0.06);
+  --surface-hover: oklch(1 0 0 / 0.08);
+  --surface-pressed: oklch(1 0 0 / 0.12);
+  --text-placeholder: oklch(1 0 0 / 0.42);
+  --text-secondary: oklch(1 0 0 / 0.72);
+  --overlay: oklch(0 0 0 / 0.45);
 
   /* ---------- Color: accent — SPlayer red ---------- */
   /* --accent-dynamic is overwritten at runtime from cover art when available. */
@@ -153,6 +169,7 @@
   --surface-2: oklch(0.93 0.004 280);
   --surface-3: oklch(0.90 0.005 280);
   --surface-4: oklch(0.87 0.006 280);
+  --surface-container: var(--surface-container-dynamic, oklch(0.96 0.003 280 / 0.85));
 
   --surface-1-soft: oklch(0.97 0.003 280 / 0.8);
   --surface-2-soft: oklch(0.94 0.004 280 / 0.8);
@@ -169,6 +186,18 @@
 
   --accent-base: oklch(0.55 0.22 24);
   --accent-base-strong: oklch(0.50 0.23 24);
+
+  /* Override the dark-only white-with-alpha aliases with black-with-alpha
+     so subtle backgrounds, borders, and secondary text stay visible on a
+     light surface. Without these, elements like sidebar section labels,
+     icon-button backgrounds, and top-nav borders disappear into the bg
+     and only become visible on hover (which switches them to var(--text)). */
+  --border-faint: oklch(0 0 0 / 0.06);
+  --border-overlay: oklch(0 0 0 / 0.09);
+  --surface-hover: oklch(0 0 0 / 0.05);
+  --surface-pressed: oklch(0 0 0 / 0.09);
+  --text-placeholder: oklch(0 0 0 / 0.45);
+  --text-secondary: oklch(0 0 0 / 0.72);
 
   --success: oklch(0.55 0.14 140);
   --warning: oklch(0.55 0.13 90);

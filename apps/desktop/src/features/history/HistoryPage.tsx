@@ -10,7 +10,7 @@ const api = createApiClient();
 const HISTORY_LIMIT = 500;
 
 interface HistoryPageProps {
-  onStateRefresh: () => Promise<void>;
+  onStateRefresh: (expectedPath?: string | null) => Promise<void>;
 }
 
 interface Feedback {
@@ -41,12 +41,15 @@ const toHistorySongItems = (entries: PlaybackHistoryEntry[]): HistorySongItem[] 
     items.push({
       id: entry.media_id ?? entry.source_path,
       source_path: entry.source_path,
-      title: displayNameFromSourcePath(entry.source_path),
-      artist: null,
-      album: null,
-      duration_secs: null,
+      title: entry.title ?? displayNameFromSourcePath(entry.source_path),
+      artist: entry.artist,
+      album: entry.album,
+      duration_secs: entry.duration_secs,
       size_bytes: null,
-      artworkUrl: entry.media_id ? api.getCoverArtUrl(entry.media_id) : null,
+      artworkUrl:
+        entry.media_id && entry.has_cover_art
+          ? api.getCoverArtUrl(entry.media_id)
+          : entry.external_artwork_url,
       eventAtEpochSecs: entry.event_at_epoch_secs
     });
     return items;
@@ -107,7 +110,7 @@ export function HistoryPage(props: HistoryPageProps) {
     setRawFeedback("neutral", t("history.feedback.playing", { path: item.source_path }));
     try {
       await api.load(item.source_path, { autoplay: true });
-      await props.onStateRefresh();
+      await props.onStateRefresh(item.source_path);
       setRawFeedback("success", t("history.feedback.reloaded", { path: item.source_path }));
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
@@ -125,7 +128,7 @@ export function HistoryPage(props: HistoryPageProps) {
     try {
       await api.replaceQueue(songs.map((item) => item.source_path));
       await api.playFromQueue();
-      await props.onStateRefresh();
+      await props.onStateRefresh(first.source_path);
       setKeyedFeedback("success", "history.feedback.started");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));

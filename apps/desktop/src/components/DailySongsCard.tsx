@@ -1,5 +1,7 @@
 import { For, Show } from "solid-js";
 import { IconPlayCircle } from "./icons";
+import { SImage } from "./SImage";
+import { coverSizeUrl } from "../shared/ui/coverSize";
 
 export interface DailySongsCardCover {
   id: number | string;
@@ -41,7 +43,13 @@ export function DailySongsCard(props: DailySongsCardProps) {
               {(cover, index) => (
                 <div class={`daily-songs-card-stack-slot stack-slot-${index()}`}>
                   <Show when={cover.url} fallback={<span>{fallback()}</span>}>
-                    {(url) => <img src={url()} alt="" loading="lazy" />}
+                    {(url) => (
+                      <SImage
+                        src={coverSizeUrl(url(), "s")}
+                        observeVisibility={true}
+                        releaseOnHide={false}
+                      />
+                    )}
                   </Show>
                 </div>
               )}

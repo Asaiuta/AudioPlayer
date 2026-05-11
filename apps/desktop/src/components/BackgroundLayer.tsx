@@ -55,6 +55,12 @@ export function BackgroundLayer(props: BackgroundLayerProps) {
   const maskOpacity = () => props.maskOpacity ?? 0.5;
   const hasLayer = () => props.enabled && (currentUrl() !== null || previousUrl() !== null);
 
+  const isLight = () => document.documentElement.dataset.theme === "light";
+  const brightness = () => isLight() ? 1.1 : 0.5;
+  const maskColor = () => isLight()
+    ? `rgba(255, 255, 255, ${maskOpacity()})`
+    : `rgba(0, 0, 0, ${maskOpacity()})`;
+
   return (
     <div class="bg-layer" aria-hidden="true">
       <Show when={hasLayer()}>
@@ -66,7 +72,7 @@ export function BackgroundLayer(props: BackgroundLayerProps) {
               alt=""
               draggable={false}
               style={{
-                filter: `blur(${blur()}px) brightness(0.5)`,
+                filter: `blur(${blur()}px) brightness(${brightness()})`,
                 opacity: fading() ? 1 : 0
               }}
             />
@@ -80,13 +86,13 @@ export function BackgroundLayer(props: BackgroundLayerProps) {
               alt=""
               draggable={false}
               style={{
-                filter: `blur(${blur()}px) brightness(0.5)`,
+                filter: `blur(${blur()}px) brightness(${brightness()})`,
                 opacity: 1
               }}
             />
           )}
         </Show>
-        <div class="bg-layer-mask" style={{ background: `rgba(0, 0, 0, ${maskOpacity()})` }} />
+        <div class="bg-layer-mask" style={{ background: maskColor() }} />
       </Show>
     </div>
   );
