@@ -124,6 +124,7 @@ export interface PlayerState {
   genre: string | null;
   year: number | null;
   has_cover_art: boolean;
+  external_artwork_url: string | null;
   media_id: string | null;
   repeat_mode: RepeatMode;
   shuffle_mode: ShuffleMode;
@@ -160,6 +161,7 @@ export interface MediaItem {
   sample_rate: number | null;
   channels: number | null;
   has_cover_art: boolean;
+  external_artwork_url: string | null;
   size_bytes: number | null;
   updated_at_epoch_secs: number;
 }
@@ -194,6 +196,12 @@ export interface PlaybackHistoryEntry {
   event_at_epoch_secs: number;
   position_secs: number | null;
   payload: unknown | null;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  duration_secs: number | null;
+  has_cover_art: boolean;
+  external_artwork_url: string | null;
 }
 
 export interface WebDavBrowseEntry {
@@ -205,8 +213,31 @@ export interface WebDavBrowseEntry {
 
 export interface ScanResult {
   root_id: number;
+  task_id: number;
   scanned_files: number;
   indexed_files: number;
+}
+
+export interface LibraryScanTaskPayload {
+  root_id?: number;
+  source_kind?: string;
+  source_key?: string | null;
+  display_name?: string;
+  scanned_files?: number;
+  indexed_files?: number;
+  removed_files?: number;
+}
+
+export interface LibraryScanTask {
+  task_id: number;
+  task_type: "library_scan";
+  source_path: string;
+  status: "scanning" | "success" | "error" | string;
+  store_result: boolean;
+  created_at_epoch_secs: number;
+  updated_at_epoch_secs: number;
+  result: LibraryScanTaskPayload | null;
+  error: string | null;
 }
 
 export interface ApiEnvelope {

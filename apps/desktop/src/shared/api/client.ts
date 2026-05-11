@@ -5,6 +5,7 @@ import type {
   DevicesResponse,
   PlaybackHistoryEntry,
   LibraryRoot,
+  LibraryScanTask,
   MediaItem,
   PersistentSettings,
   PersistentSettingsUpdate,
@@ -21,9 +22,9 @@ import { invalidateApiToken, peekApiToken, resolveApiToken, resolveBaseUrl } fro
 
 export interface ApiClient {
   getState: () => Promise<PlayerState>;
-  play: () => Promise<void>;
-  pause: () => Promise<void>;
-  stop: () => Promise<void>;
+  play: () => Promise<PlayerState>;
+  pause: () => Promise<PlayerState>;
+  stop: () => Promise<PlayerState>;
   load: (path: string, options?: LoadOptions) => Promise<PlayerState>;
   seek: (position: number) => Promise<PlayerState>;
   setVolume: (volume: number) => Promise<PlayerState>;
@@ -39,7 +40,9 @@ export interface ApiClient {
   // Library
   getLibraryRoots: () => Promise<LibraryRoot[]>;
   scanLibraryRoot: (path: string, displayName?: string, sourceKey?: string) => Promise<ScanResult>;
-  getMediaItems: (limit?: number) => Promise<MediaItem[]>;
+  getLibraryScanTask: (taskId: number) => Promise<LibraryScanTask>;
+  getMediaItems: (limit?: number, all?: boolean) => Promise<MediaItem[]>;
+  saveExternalMediaMetadata: (metadata: ExternalMediaMetadataInput) => Promise<string>;
   // Persistent Queue
   getPersistentQueue: () => Promise<QueueEntry[]>;
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
@@ -55,12 +58,22 @@ export interface ApiClient {
   browseWebDav: (path?: string) => Promise<{ path: string; entries: WebDavBrowseEntry[] }>;
   // Playback History
   getPlaybackHistory: (limit?: number) => Promise<PlaybackHistoryEntry[]>;
+  getCurrentLyrics: () => Promise<{ lyrics: string | null; source: string | null }>;
   // Cover Art
   getCoverArtUrl: (mediaId: string) => string;
 }
 
 interface LoadOptions {
   autoplay?: boolean;
+}
+
+export interface ExternalMediaMetadataInput {
+  source_path: string;
+  title?: string | null;
+  artist?: string | null;
+  album?: string | null;
+  duration_secs?: number | null;
+  external_artwork_url?: string | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -216,7 +229,8 @@ const playerStateNullableStringFields = [
   "artist",
   "album",
   "genre",
-  "media_id"
+  "media_id",
+  "external_artwork_url"
 ] as const;
 
 const parsePlayerState = (value: unknown): PlayerState | null => {
@@ -426,6 +440,22 @@ const parseQueueStatusResponse = (value: unknown): QueueStatus => {
   return queue;
 };
 
+const parseCurrentLyricsResponse = (value: unknown): { lyrics: string | null; source: string | null } => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid current lyrics response shape");
+  }
+
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to fetch current lyrics");
+  }
+
+  return {
+    lyrics: isNullableString(value.lyrics) ? value.lyrics : null,
+    source: isNullableString(value.source) ? value.source : null
+  };
+};
+
 const requestJson = async (baseUrl: string, path: string, init?: RequestInit) => {
   const runRequest = async (forceTokenRefresh: boolean) => {
     const token = await resolveApiToken(forceTokenRefresh);
@@ -481,18 +511,30 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     if (envelope.status === "error") {
       throw new Error(envelope.message ?? "Failed to play");
     }
+    if (!envelope.state) {
+      throw new Error("State missing from response");
+    }
+    return envelope.state;
   },
   pause: async () => {
     const envelope = await requestEnvelope(baseUrl, "/pause", { method: "POST" });
     if (envelope.status === "error") {
       throw new Error(envelope.message ?? "Failed to pause");
     }
+    if (!envelope.state) {
+      throw new Error("State missing from response");
+    }
+    return envelope.state;
   },
   stop: async () => {
     const envelope = await requestEnvelope(baseUrl, "/stop", { method: "POST" });
     if (envelope.status === "error") {
       throw new Error(envelope.message ?? "Failed to stop");
     }
+    if (!envelope.state) {
+      throw new Error("State missing from response");
+    }
+    return envelope.state;
   },
   load: async (path: string, options?: LoadOptions) => {
     const envelope = await requestEnvelope(baseUrl, "/load", {
@@ -638,14 +680,37 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     if (!isRecord(json) || json.status !== "success") {
       throw new Error(typeof json === "object" && json !== null && "message" in json ? String(json.message) : "Failed to scan library");
     }
-    return { root_id: json.root_id as number, scanned_files: json.scanned_files as number, indexed_files: json.indexed_files as number };
+    return {
+      root_id: json.root_id as number,
+      task_id: json.task_id as number,
+      scanned_files: json.scanned_files as number,
+      indexed_files: json.indexed_files as number
+    };
   },
-  getMediaItems: async (limit = 100) => {
-    const json = await requestJson(baseUrl, `/domain/media_items?limit=${limit}`);
+  getLibraryScanTask: async (taskId: number) => {
+    const json = await requestJson(baseUrl, `/domain/library/scan_tasks/${taskId}`);
+    if (!isRecord(json) || json.status !== "success" || !isRecord(json.task)) {
+      throw new Error("Invalid library scan task response");
+    }
+    return json.task as unknown as LibraryScanTask;
+  },
+  getMediaItems: async (limit = 100, all = false) => {
+    const query = all ? "all=true" : `limit=${limit}`;
+    const json = await requestJson(baseUrl, `/domain/media_items?${query}`);
     if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.media_items)) {
       throw new Error("Invalid media items response");
     }
     return json.media_items as MediaItem[];
+  },
+  saveExternalMediaMetadata: async (metadata: ExternalMediaMetadataInput) => {
+    const json = await requestJson(baseUrl, "/domain/media_items/metadata", {
+      method: "POST",
+      body: JSON.stringify(metadata)
+    });
+    if (!isRecord(json) || json.status !== "success" || !isString(json.media_id)) {
+      throw new Error("Failed to save external media metadata");
+    }
+    return json.media_id;
   },
   getPersistentQueue: async () => {
     const json = await requestJson(baseUrl, "/domain/queue");
@@ -762,6 +827,10 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       throw new Error("Invalid playback history response");
     }
     return json.history as PlaybackHistoryEntry[];
+  },
+  getCurrentLyrics: async () => {
+    const json = await requestJson(baseUrl, "/domain/current_lyrics");
+    return parseCurrentLyricsResponse(json);
   },
   getCoverArtUrl: (mediaId: string) => {
     const token = peekApiToken();

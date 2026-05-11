@@ -10,6 +10,7 @@ export type WsEvent =
       title: string | null;
       artist: string | null;
       album: string | null;
+      external_artwork_url: string | null;
     }
   | { type: "playback_ended"; position: number }
   | { type: "needs_preload"; remaining_secs: number }
@@ -81,7 +82,8 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
         media_id: readNullableString(raw.media_id),
         title: readNullableString(raw.title),
         artist: readNullableString(raw.artist),
-        album: readNullableString(raw.album)
+        album: readNullableString(raw.album),
+        external_artwork_url: readNullableString(raw.external_artwork_url)
       };
     }
     case "playback_ended": {
