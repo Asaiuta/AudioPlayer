@@ -253,7 +253,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
 
   createEffect(() => {
     const account = accountStore.activeAccount();
-    const userId = account?.cookie ? account.userId : null;
+    const userId = account?.hasCookie ? account.userId : null;
     let cancelled = false;
 
     if (userId === null) {

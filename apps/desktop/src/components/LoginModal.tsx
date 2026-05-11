@@ -10,7 +10,7 @@ import { SegmentedTabs } from "./page/SegmentedTabs";
 import {
   buildNcmAccountFromStatus,
   useNcmAccount,
-  type NcmAccount
+  type NcmAccountInput
 } from "../shared/state/NcmAccountContext";
 import {
   checkLoginQr,
@@ -274,25 +274,23 @@ export function LoginModal(props: LoginModalProps) {
     try {
       // Anonymous probe: pass an empty cookieOverride so the request
       // explicitly opts out of the global active cookie.
-      const detail = await userDetail(uid);
+      const detail = await userDetail(uid, { suppressActiveCookie: true });
       const profile = isRecord(detail.profile) ? detail.profile : null;
       const userId = readNumber(profile?.userId);
       if (userId === null) {
         setFeedback({ tone: "error", message: t("ncm.loginModal.error.uidNotFound") });
         return;
       }
-      const account: NcmAccount = {
+      const account: NcmAccountInput = {
         userId,
         nickname: readString(profile?.nickname),
         avatarUrl: readString(profile?.avatarUrl),
         cookie: "", // Read-only: anonymous proxy access.
         vipType: readNumber(profile?.vipType),
         level: readNumber(profile?.level),
-        signinAt: null,
-        addedAt: Date.now(),
-        refreshedAt: Date.now()
+        signinAt: null
       };
-      accountStore.upsertAccount(account);
+      await accountStore.upsertAccount(account);
       setFeedback({
         tone: "success",
         message: t("ncm.loginModal.success.uidAdded", { userId })
@@ -317,16 +315,15 @@ export function LoginModal(props: LoginModalProps) {
     }
     setIsSubmittingCookie(true);
     try {
-      // Validate the cookie BEFORE storing it so we don't pollute the account
-      // list with a dud. Use the per-request cookieOverride to keep the global
-      // slot untouched until we know it's good.
+      // Validate the cookie before storing it so we don't pollute the backend
+      // account store with a dud. The cookie is sent only for this probe.
       const probe = await getLoginStatusWithCookie(cookie);
       const account = buildNcmAccountFromStatus(probe, cookie);
       if (!account) {
         setFeedback({ tone: "error", message: t("ncm.loginModal.error.cookieInvalid") });
         return;
       }
-      accountStore.upsertAccount(account);
+      await accountStore.upsertAccount(account);
       setFeedback({
         tone: "success",
         message: t("ncm.loginModal.success.signedIn", {
@@ -342,12 +339,9 @@ export function LoginModal(props: LoginModalProps) {
   };
 
   /**
-   * Shared completion path for QR + phone logins. Uses the *just-captured*
-   * cookie as a per-request override (the global slot still holds whatever
-   * was active before this login flow), validates against /login/status when
-   * needed, then commits to the account list — `upsertAccount` flips active
-   * to this user, the cookie-sync effect picks it up, and subsequent calls
-   * route through the normal global-slot path.
+   * Shared completion path for QR + phone logins. Uses the just-captured
+   * cookie only for validation when needed, then hands it to Rust storage.
+   * Subsequent NCM calls use the backend-owned active session.
    */
   const onCookieCaptured = async (cookie: string, primaryEnvelope?: unknown): Promise<void> => {
     if (!cookie) {
@@ -357,14 +351,13 @@ export function LoginModal(props: LoginModalProps) {
     // Try the response we already have first — loginCellphone returns
     // account+profile inline, and the proxy mirrors the joined cookie into
     // the body when Set-Cookie is present.
-    let account: NcmAccount | null = primaryEnvelope
+    let account: NcmAccountInput | null = primaryEnvelope
       ? buildNcmAccountFromStatus(primaryEnvelope, cookie)
       : null;
 
     // Fallback: probe /login/status with the captured cookie as a per-request
-    // override. Critically, do NOT call `userAccount()` here — that uses the
-    // global slot, which still points at the previous account (or null on a
-    // first login).
+    // override. Do not use the active backend session here; it may still point
+    // at the previous account.
     if (!account) {
       const probe = await getLoginStatusWithCookie(cookie);
       account = buildNcmAccountFromStatus(probe, cookie);
@@ -374,7 +367,7 @@ export function LoginModal(props: LoginModalProps) {
       throw new Error(t("ncm.loginModal.error.cookieInvalid"));
     }
 
-    accountStore.upsertAccount(account);
+    await accountStore.upsertAccount(account);
     setFeedback({
       tone: "success",
       message: t("ncm.loginModal.success.signedIn", {

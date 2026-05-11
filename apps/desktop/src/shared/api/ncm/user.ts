@@ -88,10 +88,14 @@ export const userAccount = (): Promise<NcmResponseEnvelope<NcmAccountInfo>> =>
  * Detailed profile for an arbitrary user (level, listen count, location, etc.).
  * Backend route: `/user/detail` → `user_detail`.
  */
-export const userDetail = (uid: number): Promise<NcmResponseEnvelope<NcmUserDetailData>> =>
+export const userDetail = (
+  uid: number,
+  options: { suppressActiveCookie?: boolean } = {}
+): Promise<NcmResponseEnvelope<NcmUserDetailData>> =>
   requestNcm<NcmUserDetailData>("user/detail", {
     method: "POST",
     data: { uid },
+    cookieOverride: options.suppressActiveCookie ? "" : undefined,
     noCache: true
   });
 

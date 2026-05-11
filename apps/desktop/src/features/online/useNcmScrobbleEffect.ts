@@ -56,9 +56,9 @@ export function useNcmScrobbleEffect(options: ScrobbleEffectOptions): void {
 
   const isWriteCapableLogin = (): boolean => {
     const acct = accountStore.activeAccount();
-    // Read-only UID accounts have an empty cookie — scrobbling those would
+    // Read-only UID accounts have no stored backend cookie — scrobbling those would
     // either be rejected by upstream or attributed to a phantom session.
-    return acct !== null && acct.cookie.length > 0;
+    return acct !== null && acct.hasCookie;
   };
 
   const startSegment = (): void => {

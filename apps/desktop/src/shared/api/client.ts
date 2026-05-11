@@ -19,7 +19,6 @@ import type {
   WebDavSource
 } from "./types";
 import { invalidateApiToken, peekApiToken, resolveApiToken, resolveBaseUrl } from "./env";
-import { getActiveNcmCookie } from "./ncm/base";
 
 export interface ApiClient {
   getState: () => Promise<PlayerState>;
@@ -46,6 +45,13 @@ export interface ApiClient {
   saveExternalMediaMetadata: (metadata: ExternalMediaMetadataInput) => Promise<string>;
   resolveNcmTrack: (input: ResolveNcmTrackInput) => Promise<ResolvedNcmTrack>;
   resolveNcmTrackSupplement: (songId: number) => Promise<ResolvedNcmTrackSupplement>;
+  getNcmAccounts: () => Promise<NcmAccountState>;
+  upsertNcmAccount: (input: NcmAccountUpsertInput) => Promise<NcmAccountState>;
+  setActiveNcmAccount: (userId: number) => Promise<NcmAccountState>;
+  refreshActiveNcmAccount: () => Promise<NcmAccountState>;
+  logoutActiveNcmAccount: () => Promise<NcmAccountState>;
+  dailySigninActiveNcmAccount: () => Promise<NcmAccountState>;
+  deleteNcmAccount: (userId: number) => Promise<NcmAccountState>;
   // Persistent Queue
   getPersistentQueue: () => Promise<QueueEntry[]>;
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
@@ -115,6 +121,33 @@ export interface ResolvedNcmTrackSupplement {
   lyricsPayload: unknown | null;
   detailError: string | null;
   lyricsError: string | null;
+}
+
+export interface NcmAccountSummary {
+  userId: number;
+  nickname: string | null;
+  avatarUrl: string | null;
+  hasCookie: boolean;
+  vipType: number | null;
+  level: number | null;
+  signinAt: number | null;
+  addedAt: number;
+  refreshedAt: number;
+}
+
+export interface NcmAccountState {
+  accounts: NcmAccountSummary[];
+  activeUserId: number | null;
+}
+
+export interface NcmAccountUpsertInput {
+  userId: number;
+  nickname?: string | null;
+  avatarUrl?: string | null;
+  cookie: string;
+  vipType?: number | null;
+  level?: number | null;
+  signinAt?: number | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -570,6 +603,65 @@ const parseResolvedNcmTrackSupplementResponse = (value: unknown): ResolvedNcmTra
   };
 };
 
+const parseNcmAccountSummary = (value: unknown): NcmAccountSummary | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (
+    !isInteger(value.user_id) ||
+    !isNullableString(value.nickname) ||
+    !isNullableString(value.avatar_url) ||
+    !isBoolean(value.has_cookie) ||
+    !isNullableInteger(value.vip_type) ||
+    !isNullableInteger(value.level) ||
+    !isNullableInteger(value.signin_at_ms) ||
+    !isInteger(value.added_at_ms) ||
+    !isInteger(value.refreshed_at_ms)
+  ) {
+    return null;
+  }
+
+  if ("cookie" in value) {
+    throw new Error("Invalid NCM account payload");
+  }
+
+  return {
+    userId: value.user_id,
+    nickname: value.nickname,
+    avatarUrl: value.avatar_url,
+    hasCookie: value.has_cookie,
+    vipType: value.vip_type,
+    level: value.level,
+    signinAt: value.signin_at_ms,
+    addedAt: value.added_at_ms,
+    refreshedAt: value.refreshed_at_ms
+  };
+};
+
+const parseNcmAccountStateResponse = (value: unknown): NcmAccountState => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM account response shape");
+  }
+
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to read NCM accounts");
+  }
+
+  if (!Array.isArray(value.accounts) || !isNullableInteger(value.active_user_id)) {
+    throw new Error("Invalid NCM account payload");
+  }
+  const accounts = value.accounts.map(parseNcmAccountSummary);
+  if (accounts.some((account) => account === null)) {
+    throw new Error("Invalid NCM account payload");
+  }
+
+  return {
+    accounts: accounts as NcmAccountSummary[],
+    activeUserId: value.active_user_id
+  };
+};
+
 const requestJson = async (baseUrl: string, path: string, init?: RequestInit) => {
   const runRequest = async (forceTokenRefresh: boolean) => {
     const token = await resolveApiToken(forceTokenRefresh);
@@ -827,13 +919,11 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     return json.media_id;
   },
   resolveNcmTrack: async (input: ResolveNcmTrackInput) => {
-    const activeCookie = getActiveNcmCookie();
     const json = await requestJson(baseUrl, "/domain/ncm/track/resolve", {
       method: "POST",
       body: JSON.stringify({
         song_id: input.songId,
         level: input.level ?? null,
-        cookie: activeCookie,
         source_page_url: input.sourcePageUrl,
         title: input.title ?? null,
         artist: input.artist ?? null,
@@ -845,15 +935,63 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     return parseResolvedNcmTrackResponse(json);
   },
   resolveNcmTrackSupplement: async (songId: number) => {
-    const activeCookie = getActiveNcmCookie();
     const json = await requestJson(baseUrl, "/domain/ncm/track/supplement", {
       method: "POST",
       body: JSON.stringify({
-        song_id: songId,
-        cookie: activeCookie
+        song_id: songId
       })
     });
     return parseResolvedNcmTrackSupplementResponse(json);
+  },
+  getNcmAccounts: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/accounts");
+    return parseNcmAccountStateResponse(json);
+  },
+  upsertNcmAccount: async (input: NcmAccountUpsertInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/accounts", {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: input.userId,
+        nickname: input.nickname ?? null,
+        avatar_url: input.avatarUrl ?? null,
+        cookie: input.cookie,
+        vip_type: input.vipType ?? null,
+        level: input.level ?? null,
+        signin_at_ms: input.signinAt ?? null
+      })
+    });
+    return parseNcmAccountStateResponse(json);
+  },
+  setActiveNcmAccount: async (userId: number) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/accounts/active", {
+      method: "POST",
+      body: JSON.stringify({ user_id: userId })
+    });
+    return parseNcmAccountStateResponse(json);
+  },
+  refreshActiveNcmAccount: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/accounts/refresh", {
+      method: "POST"
+    });
+    return parseNcmAccountStateResponse(json);
+  },
+  logoutActiveNcmAccount: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/accounts/logout", {
+      method: "POST"
+    });
+    return parseNcmAccountStateResponse(json);
+  },
+  dailySigninActiveNcmAccount: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/accounts/daily_signin", {
+      method: "POST"
+    });
+    return parseNcmAccountStateResponse(json);
+  },
+  deleteNcmAccount: async (userId: number) => {
+    const json = await requestJson(baseUrl, `/domain/ncm/accounts/${userId}`, {
+      method: "DELETE"
+    });
+    return parseNcmAccountStateResponse(json);
   },
   getPersistentQueue: async () => {
     const json = await requestJson(baseUrl, "/domain/queue");

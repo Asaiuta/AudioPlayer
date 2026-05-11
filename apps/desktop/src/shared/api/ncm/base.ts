@@ -6,10 +6,10 @@ export interface NcmRequestOptions {
   data?: object | undefined;
   noCache?: boolean;
   /**
-   * Per-request cookie override. Takes precedence over the global
-   * `activeNcmCookie` slot. Pass an explicit empty string to suppress
-   * the cookie for this request only (rare — useful for login probes).
-   * `undefined` falls back to the global slot.
+   * Per-request cookie override for login validation flows. `undefined`
+   * lets the Rust proxy inject the active backend-owned cookie. A non-empty
+   * string is sent once for this request. An explicit empty string suppresses
+   * backend active-cookie injection for anonymous probes.
    */
   cookieOverride?: string;
 }
@@ -22,31 +22,7 @@ export interface NcmResponseEnvelope<T = unknown> {
 }
 
 const NCM_BASE_PATH = "/api/netease";
-
-/**
- * Module-level injection slot for the active NCM session cookie.
- *
- * The `NcmAccountProvider` keeps this in sync with `activeAccount().cookie`
- * via a `createEffect`. When non-null, every subsequent `requestNcm` call
- * carries `cookie=<value>` (POST → JSON body, GET → query string) so the
- * backend `apply_query_overrides` can lift it into `Query.cookie` and
- * authoritatively override the HTTP `Cookie` header. That mechanism is what
- * makes multi-account switching work without juggling `document.cookie`.
- *
- * Why a module-level mutable instead of threading a cookie param through
- * every wrapper signature: the cookie is cross-cutting (every call needs
- * it) and the alternative would touch ~20 wrapper signatures + every call
- * site. The trade-off is "global mutable" but only one writer (the
- * provider effect) and one reader (this file) — well-contained.
- */
-let activeNcmCookie: string | null = null;
-
-export const setActiveNcmCookie = (cookie: string | null): void => {
-  const trimmed = typeof cookie === "string" ? cookie.trim() : "";
-  activeNcmCookie = trimmed.length > 0 ? trimmed : null;
-};
-
-export const getActiveNcmCookie = (): string | null => activeNcmCookie;
+const SUPPRESS_ACTIVE_COOKIE_KEY = "_ncm_no_active_cookie";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -99,31 +75,37 @@ export const requestNcm = async <T = unknown>(
       headers.set("Authorization", `Bearer ${token}`);
     }
 
-    // Snapshot the active cookie at request time. Concurrent calls during a
-    // switch get whatever value is set when they hit this line — acceptable
-    // because the provider's `switchActive` awaits a refresh before resolving.
-    const cookieToInject = (() => {
+    const cookieOverride = (() => {
       if (typeof options.cookieOverride === "string") {
         const trimmed = options.cookieOverride.trim();
-        return trimmed.length > 0 ? trimmed : null;
+        return {
+          cookie: trimmed.length > 0 ? trimmed : null,
+          suppressActiveCookie: trimmed.length === 0
+        };
       }
-      return activeNcmCookie;
+      return { cookie: null, suppressActiveCookie: false };
     })();
 
     let body: string | undefined;
     if (method === "POST") {
       headers.set("Content-Type", "application/json");
       const dataPayload = isRecord(options.data) ? options.data : {};
-      const merged: Record<string, unknown> = cookieToInject
-        ? { ...dataPayload, cookie: cookieToInject }
-        : dataPayload;
+      const merged: Record<string, unknown> = {
+        ...dataPayload,
+        ...(cookieOverride.cookie ? { cookie: cookieOverride.cookie } : {}),
+        ...(cookieOverride.suppressActiveCookie ? { [SUPPRESS_ACTIVE_COOKIE_KEY]: true } : {})
+      };
       body = JSON.stringify(merged);
     }
 
     const finalParams: Record<string, string | number | boolean | null | undefined> | undefined =
-      method === "POST" || cookieToInject === null
+      method === "POST" || (!cookieOverride.cookie && !cookieOverride.suppressActiveCookie)
         ? options.params
-        : { ...(options.params ?? {}), cookie: cookieToInject };
+        : {
+            ...(options.params ?? {}),
+            ...(cookieOverride.cookie ? { cookie: cookieOverride.cookie } : {}),
+            ...(cookieOverride.suppressActiveCookie ? { [SUPPRESS_ACTIVE_COOKIE_KEY]: true } : {})
+          };
 
     return fetch(buildUrl(endpoint, finalParams, options.noCache), {
       method,

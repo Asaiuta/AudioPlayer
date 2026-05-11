@@ -34,6 +34,9 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), String> {
     if current < 6 {
         apply_external_artwork_url_migration(conn)?;
     }
+    if current < 7 {
+        apply_ncm_accounts_migration(conn)?;
+    }
 
     Ok(())
 }
@@ -139,6 +142,42 @@ fn apply_external_artwork_url_migration(conn: &mut Connection) -> Result<(), Str
         tx.execute_batch("ALTER TABLE media_items ADD COLUMN external_artwork_url TEXT")
             .map_err(|e| format!("Failed to add media_items.external_artwork_url: {}", e))?;
     }
+
+    record_version_tx(&tx, version)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit migration {}: {}", version, e))?;
+    log::info!("Applied app database migration {}", version);
+    Ok(())
+}
+
+fn apply_ncm_accounts_migration(conn: &mut Connection) -> Result<(), String> {
+    let version = 7;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start migration {} transaction: {}", version, e))?;
+
+    tx.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS ncm_accounts (
+            user_id         INTEGER PRIMARY KEY,
+            nickname        TEXT,
+            avatar_url      TEXT,
+            cookie          TEXT NOT NULL,
+            vip_type        INTEGER,
+            level           INTEGER,
+            signin_at_ms    INTEGER,
+            added_at_ms     INTEGER NOT NULL,
+            refreshed_at_ms INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS ncm_account_state (
+            state_key       TEXT PRIMARY KEY,
+            active_user_id  INTEGER,
+            updated_at_ms   INTEGER NOT NULL
+        );
+        "#,
+    )
+    .map_err(|e| format!("Failed to create NCM account tables: {}", e))?;
 
     record_version_tx(&tx, version)?;
     tx.commit()
@@ -370,5 +409,31 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, 4);
+    }
+
+    #[test]
+    fn ncm_accounts_migration_creates_session_tables() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at) VALUES (6, 100);
+            "#,
+        )
+        .unwrap();
+
+        apply_ncm_accounts_migration(&mut conn).unwrap();
+
+        assert!(column_exists(&conn, "ncm_accounts", "cookie").unwrap());
+        assert!(column_exists(&conn, "ncm_account_state", "active_user_id").unwrap());
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 7);
     }
 }
