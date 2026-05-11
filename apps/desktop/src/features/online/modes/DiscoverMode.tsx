@@ -1,5 +1,6 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, on, onMount } from "solid-js";
+import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
+import { Portal } from "solid-js/web";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { SegmentedTabs } from "../../../components/page/SegmentedTabs";
 import { useTranslation } from "../../../shared/i18n";
@@ -57,6 +58,7 @@ import { SearchMode } from "./SearchMode";
 
 const SEARCH_LIMIT = 30;
 const DISCOVER_PAGE_LIMIT = 50;
+const ALL_PLAYLIST_CATEGORY = "全部歌单";
 
 const ARTIST_INITIALS: readonly DiscoverArtistInitial[] = [
   { key: -1, label: "ncm.discover.artists.hot" },
@@ -128,8 +130,11 @@ export function DiscoverMode(props: DiscoverModeProps) {
   const [discoverNewKind, setDiscoverNewKind] = createSignal<DiscoverNewKind>("albums");
   const [discoverNewAreaIndex, setDiscoverNewAreaIndex] = createSignal<number>(0);
 
-  const [catName, setCatName] = createSignal("全部歌单");
+  const [catName, setCatName] = createSignal(ALL_PLAYLIST_CATEGORY);
   const [catModalOpen, setCatModalOpen] = createSignal(false);
+  const [catModalRendered, setCatModalRendered] = createSignal(false);
+  const [catModalVisible, setCatModalVisible] = createSignal(false);
+  const [catModalClosing, setCatModalClosing] = createSignal(false);
   const [catTypes, setCatTypes] = createSignal<Record<number, string>>({});
   const [catEntries, setCatEntries] = createSignal<CatEntry[]>([]);
   const [hqCatNames, setHqCatNames] = createSignal<Set<string>>(new Set());
@@ -349,7 +354,7 @@ export function DiscoverMode(props: DiscoverModeProps) {
 
   const hasHqPlaylist = createMemo(() => {
     if (hqCatNames().size === 0) return false;
-    if (catName() === "全部歌单") return true;
+    if (catName() === ALL_PLAYLIST_CATEGORY) return true;
     return hqCatNames().has(catName());
   });
 
@@ -360,6 +365,40 @@ export function DiscoverMode(props: DiscoverModeProps) {
 
 
   const pageTitle = () => t("ncm.title.discover");
+
+  createEffect(() => {
+    let closeTimer: number | undefined;
+    let openFrame: number | undefined;
+
+    if (catModalOpen()) {
+      setCatModalRendered(true);
+      setCatModalClosing(false);
+      openFrame = window.requestAnimationFrame(() => setCatModalVisible(true));
+    } else if (catModalRendered()) {
+      setCatModalVisible(false);
+      setCatModalClosing(true);
+      closeTimer = window.setTimeout(() => {
+        setCatModalRendered(false);
+        setCatModalClosing(false);
+      }, 140);
+    }
+
+    onCleanup(() => {
+      if (openFrame !== undefined) window.cancelAnimationFrame(openFrame);
+      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
+    });
+  });
+
+  createEffect(() => {
+    if (!catModalOpen()) return;
+
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setCatModalOpen(false);
+    };
+
+    window.addEventListener("keydown", handleKey);
+    onCleanup(() => window.removeEventListener("keydown", handleKey));
+  });
 
   return (
     <>
@@ -376,44 +415,51 @@ export function DiscoverMode(props: DiscoverModeProps) {
           }
         />
       </Show>
-      <Show when={catModalOpen()}>
-        <div class="cat-modal-overlay" onClick={() => setCatModalOpen(false)}>
-          <div class="cat-modal" onClick={(e) => e.stopPropagation()}>
-            <div class="cat-modal-header">
-              <strong>{t("ncm.discover.cat.title")}</strong>
-              <button
-                type="button"
-                class={`cat-modal-tag${catName() === "全部歌单" ? " is-active" : ""}`}
-                onClick={() => { setCatName("全部歌单"); setCatModalOpen(false); }}
-              >
-                {t("ncm.discover.cat.all")}
-              </button>
-            </div>
-            <div class="cat-modal-tabs">
-              <For each={catTypesList()}>
-                {(typeItem) => (
-                  <div class="cat-modal-group">
-                    <div class="cat-modal-group-label">{typeItem.label}</div>
-                    <div class="cat-modal-tags">
-                      <For each={catEntries().filter((c) => c.category === typeItem.key)}>
-                        {(cat) => (
-                          <button
-                            type="button"
-                            class={`cat-modal-tag${catName() === cat.name ? " is-active" : ""}`}
-                            onClick={() => { setCatName(cat.name); setCatModalOpen(false); }}
-                          >
-                            {cat.hot ? <span class="cat-modal-hot" aria-hidden="true" /> : null}
-                            {cat.name}
-                          </button>
-                        )}
-                      </For>
+      <Show when={catModalRendered() && typeof document !== "undefined"}>
+        <Portal mount={document.body}>
+          <div
+            class={`cat-modal-overlay${catModalVisible() && !catModalClosing() ? " is-open" : ""}${catModalClosing() ? " is-closing" : ""}`}
+            onClick={() => {
+              if (catModalOpen()) setCatModalOpen(false);
+            }}
+          >
+            <div class="cat-modal" role="dialog" aria-modal="true" aria-label={t("ncm.discover.cat.title")} onClick={(e) => e.stopPropagation()}>
+              <div class="cat-modal-header">
+                <strong>{t("ncm.discover.cat.title")}</strong>
+                <button
+                  type="button"
+                  class={`cat-modal-tag${catName() === ALL_PLAYLIST_CATEGORY ? " is-active" : ""}`}
+                  onClick={() => { setCatName(ALL_PLAYLIST_CATEGORY); setCatModalOpen(false); }}
+                >
+                  {t("ncm.discover.cat.all")}
+                </button>
+              </div>
+              <div class="cat-modal-tabs">
+                <For each={catTypesList()}>
+                  {(typeItem) => (
+                    <div class="cat-modal-group">
+                      <div class="cat-modal-group-label">{typeItem.label}</div>
+                      <div class="cat-modal-tags">
+                        <For each={catEntries().filter((c) => c.category === typeItem.key)}>
+                          {(cat) => (
+                            <button
+                              type="button"
+                              class={`cat-modal-tag${catName() === cat.name ? " is-active" : ""}`}
+                              onClick={() => { setCatName(cat.name); setCatModalOpen(false); }}
+                            >
+                              {cat.hot ? <span class="cat-modal-hot" aria-hidden="true" /> : null}
+                              {cat.name}
+                            </button>
+                          )}
+                        </For>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </For>
+                  )}
+                </For>
+              </div>
             </div>
           </div>
-        </div>
+        </Portal>
       </Show>
 
       <Show

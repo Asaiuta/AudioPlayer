@@ -10,6 +10,7 @@ const api = createApiClient();
 const HISTORY_LIMIT = 500;
 
 interface HistoryPageProps {
+  refreshVersion: number;
   onStateRefresh: (expectedPath?: string | null) => Promise<void>;
 }
 
@@ -66,6 +67,7 @@ export function HistoryPage(props: HistoryPageProps) {
     tone: "neutral",
     message: t("history.feedback.initial")
   });
+  let lastSeenRefreshVersion: number | null = null;
 
   const readErrorMessage = (error: unknown): string =>
     error instanceof Error ? error.message : t("common.error.requestFailed");
@@ -103,15 +105,28 @@ export function HistoryPage(props: HistoryPageProps) {
     void refresh();
   });
 
+  createEffect(() => {
+    const refreshVersion = props.refreshVersion;
+    if (lastSeenRefreshVersion === null) {
+      lastSeenRefreshVersion = refreshVersion;
+      return;
+    }
+    if (refreshVersion === lastSeenRefreshVersion) {
+      return;
+    }
+    lastSeenRefreshVersion = refreshVersion;
+    void refresh();
+  });
+
   const historySongs = createMemo<HistorySongItem[]>(() => toHistorySongItems(entries()));
 
   const handlePlay = async (item: HistorySongItem) => {
     setIsSubmitting(true);
-    setRawFeedback("neutral", t("history.feedback.playing", { path: item.source_path }));
+    setKeyedFeedback("neutral", "history.feedback.initial");
     try {
       await api.load(item.source_path, { autoplay: true });
       await props.onStateRefresh(item.source_path);
-      setRawFeedback("success", t("history.feedback.reloaded", { path: item.source_path }));
+      setKeyedFeedback("neutral", "history.feedback.initial");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
     } finally {
@@ -124,12 +139,12 @@ export function HistoryPage(props: HistoryPageProps) {
     const first = songs[0];
     if (!first) return;
     setIsSubmitting(true);
-    setRawFeedback("neutral", t("history.feedback.playing", { path: first.source_path }));
+    setKeyedFeedback("neutral", "history.feedback.initial");
     try {
       await api.replaceQueue(songs.map((item) => item.source_path));
       await api.playFromQueue();
       await props.onStateRefresh(first.source_path);
-      setKeyedFeedback("success", "history.feedback.started");
+      setKeyedFeedback("neutral", "history.feedback.initial");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
     } finally {
@@ -188,7 +203,9 @@ export function HistoryPage(props: HistoryPageProps) {
         </Show>
       </div>
 
-      <div class={feedback().tone === "error" ? "history-page-feedback status-error" : "history-page-feedback status-line"}>{feedback().message}</div>
+      <Show when={feedback().message && feedback().message !== t("history.feedback.initial")}>
+        <div class={feedback().tone === "error" ? "history-page-feedback status-error" : "history-page-feedback status-line"}>{feedback().message}</div>
+      </Show>
     </section>
   );
 }

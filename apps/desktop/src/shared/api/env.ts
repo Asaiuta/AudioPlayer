@@ -36,8 +36,15 @@ export const resolveWsUrl = () => {
 // `get_api_token` invoke handler. Both HTTP fetches and WebSocket upgrades must
 // present this token, so we cache it once per session and provide a synchronous
 // peek helper for callers (e.g. `<img src>` URLs) that cannot await.
+//
+// The cache is backed by a Solid signal so reactive consumers (cover-art URL
+// memos) re-run when the token resolves. Without this, a memo evaluated before
+// the Tauri RPC returns would bake an unauthenticated URL into `<img src>` and
+// never recompute — manifesting as covers that silently 401 on cold start.
 
-let cachedApiToken = "";
+import { createSignal, untrack } from "solid-js";
+
+const [apiTokenSignal, setApiTokenSignal] = createSignal("");
 let apiTokenPromise: Promise<string> | null = null;
 
 const fetchTokenFromTauri = async (): Promise<string> => {
@@ -59,7 +66,7 @@ const fetchTokenFromTauri = async (): Promise<string> => {
 };
 
 export const invalidateApiToken = () => {
-  cachedApiToken = "";
+  setApiTokenSignal("");
   apiTokenPromise = null;
 };
 
@@ -72,14 +79,15 @@ export const resolveApiToken = (forceRefresh = false): Promise<string> => {
     invalidateApiToken();
   }
 
-  if (cachedApiToken) {
-    return Promise.resolve(cachedApiToken);
+  const cached = untrack(apiTokenSignal);
+  if (cached) {
+    return Promise.resolve(cached);
   }
 
   if (apiTokenPromise === null) {
     apiTokenPromise = fetchTokenFromTauri().then((token) => {
       if (token) {
-        cachedApiToken = token;
+        setApiTokenSignal(token);
       } else {
         // Avoid pinning the app into an unauthenticated state when the Tauri
         // bridge is temporarily unavailable during startup.
@@ -95,5 +103,8 @@ export const resolveApiToken = (forceRefresh = false): Promise<string> => {
  * Synchronous accessor for the cached token. Returns an empty string until
  * {@link resolveApiToken} has resolved at least once; callers that must await
  * (HTTP fetches, WebSocket connect) should use `resolveApiToken()` instead.
+ *
+ * Reads the underlying Solid signal so callers used inside `createMemo`/
+ * `createEffect` automatically re-run when the token becomes available.
  */
-export const peekApiToken = (): string => cachedApiToken;
+export const peekApiToken = (): string => apiTokenSignal();

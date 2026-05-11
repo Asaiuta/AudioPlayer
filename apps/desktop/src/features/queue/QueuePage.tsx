@@ -157,11 +157,11 @@ export function QueuePage(props: QueuePageProps) {
 
   const handlePlay = async (entry: QueueEntry) => {
     setIsSubmitting(true);
-    setRawFeedback("neutral", t("queue.feedback.playing", { path: entry.source_path }));
+    setKeyedFeedback("neutral", "queue.feedback.initial");
     try {
-      await api.playFromQueue(entry.entry_id);
+      await api.playFromQueue({ entryId: entry.entry_id, sourcePath: entry.source_path });
       await Promise.all([props.onStateRefresh(entry.source_path), refresh()]);
-      setKeyedFeedback("success", "queue.feedback.started");
+      setKeyedFeedback("neutral", "queue.feedback.initial");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
     } finally {
@@ -322,7 +322,9 @@ export function QueuePage(props: QueuePageProps) {
             ? t("queue.status.current", { path: resolvedCurrentTrack() ?? "" })
             : t("queue.status.noTrack")}
         </div>
-        <div class={feedback().tone === "error" ? "status-error" : "status-line"}>{feedback().message}</div>
+        <Show when={feedback().message && feedback().message !== t("queue.feedback.initial")}>
+          <div class={feedback().tone === "error" ? "status-error" : "status-line"}>{feedback().message}</div>
+        </Show>
         <Show when={queueError()}>
           {(error) => <div class="status-error">{error()}</div>}
         </Show>

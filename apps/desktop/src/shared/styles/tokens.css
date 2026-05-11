@@ -21,18 +21,25 @@
   --space-8: 64px;
   --space-9: 96px;
 
-  /* ---------- Radius ---------- */
-  --radius-xs: 4px;
-  --radius-sm: 8px;
-  --radius-smd: 10px;
-  --radius-md: 14px;
-  --radius-md-lg: 12px;
-  --radius-lg: 18px;
-  --radius-lg-xl: 20px;
-  --radius-xl: 24px;
-  --radius-xl-plus: 25px;
-  --radius-2xl: 28px;
-  --radius-pill: 999px;
+  /* ---------- Radius ----------
+     Primitive scale (6 levels) — keep gaps perceptible.
+     Use semantic aliases below for component styling. */
+  --radius-xs: 4px;     /* tight indicators, accent strips */
+  --radius-sm: 8px;     /* compact controls, sidebar items, list covers */
+  --radius-md: 12px;    /* default cards, media rows */
+  --radius-lg: 18px;    /* prominent cards, modals, popovers */
+  --radius-xl: 24px;    /* hero blocks, full-player surfaces */
+  --radius-pill: 999px; /* circles, pills, search bars, icon buttons */
+
+  /* Track radius for slider / progress bars (1/2 of 4px track height). */
+  --radius-track: 2px;
+
+  /* Semantic aliases — components should reference these, not primitives. */
+  --radius-button: var(--radius-sm);          /* primary / ghost / page-action */
+  --radius-input: var(--radius-sm);           /* text input, textarea */
+  --radius-card: var(--radius-md);            /* cards, list rows */
+  --radius-card-prominent: var(--radius-lg);  /* hero / large cards */
+  --radius-icon-btn: var(--radius-pill);      /* icon buttons, transport, search bars */
 
   /* ---------- Color: surface ladder (SPlayer near-neutral desktop skin) ---------- */
   --bg: oklch(0.135 0.004 280);
@@ -65,6 +72,10 @@
   --text-placeholder: oklch(1 0 0 / 0.42);
   --text-secondary: oklch(1 0 0 / 0.72);
   --overlay: oklch(0 0 0 / 0.45);
+  --floating-surface: var(--surface-2);
+  --floating-border: var(--border-overlay);
+  --floating-radius: var(--radius-lg);
+  --floating-shadow: var(--elev-4);
 
   /* ---------- Color: accent — SPlayer red ---------- */
   /* --accent-dynamic is overwritten at runtime from cover art when available. */
@@ -76,6 +87,18 @@
   --accent-strong: var(--accent-dynamic-strong);
   --accent-soft: color-mix(in oklch, var(--accent-dynamic) 16%, transparent);
   --accent-foreground: oklch(0.99 0.005 25);
+
+  /* Accent-on-transparent alpha scale. Replaces ad-hoc
+     `color-mix(in oklch, var(--accent) N%, transparent)` percentages
+     scattered through component CSS so all "accent tinted" surfaces /
+     borders / fills draw from one canonical ladder. */
+  --accent-a08: color-mix(in oklch, var(--accent-dynamic) 8%, transparent);
+  --accent-a12: color-mix(in oklch, var(--accent-dynamic) 12%, transparent);
+  --accent-a20: color-mix(in oklch, var(--accent-dynamic) 20%, transparent);
+  --accent-a28: color-mix(in oklch, var(--accent-dynamic) 28%, transparent);
+  --accent-a45: color-mix(in oklch, var(--accent-dynamic) 45%, transparent);
+  --accent-a58: color-mix(in oklch, var(--accent-dynamic) 58%, transparent);
+  --accent-a85: color-mix(in oklch, var(--accent-dynamic) 85%, transparent);
 
   /* ---------- Semantic ---------- */
   --success: oklch(0.78 0.13 140);
@@ -147,6 +170,7 @@
   --z-toast: 40;
   --z-context-menu: 50;
   --z-modal: 60;
+  --z-modal-popover: 70;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -164,16 +188,21 @@
 [data-theme="light"] {
   color-scheme: light;
 
-  --bg: oklch(0.98 0.002 280);
-  --surface-1: oklch(0.96 0.003 280);
-  --surface-2: oklch(0.93 0.004 280);
-  --surface-3: oklch(0.90 0.005 280);
-  --surface-4: oklch(0.87 0.006 280);
-  --surface-container: var(--surface-container-dynamic, oklch(0.96 0.003 280 / 0.85));
+  /* Light-mode elevation direction matches SPlayer: page sits slightly
+     off-white and surfaces step up toward pure white as they elevate,
+     so cards and floating panels read as "lifted" against the page
+     (the opposite of dark mode, where higher surfaces are lighter
+     against a near-black page). */
+  --bg: oklch(0.96 0.003 280);
+  --surface-1: oklch(0.98 0.002 280);
+  --surface-2: oklch(0.99 0.002 280);
+  --surface-3: oklch(0.995 0.001 280);
+  --surface-4: oklch(1 0 0);
+  --surface-container: var(--surface-container-dynamic, oklch(0.99 0.002 280 / 0.92));
 
-  --surface-1-soft: oklch(0.97 0.003 280 / 0.8);
-  --surface-2-soft: oklch(0.94 0.004 280 / 0.8);
-  --surface-3-soft: oklch(0.91 0.005 280 / 0.8);
+  --surface-1-soft: oklch(0.98 0.002 280 / 0.85);
+  --surface-2-soft: oklch(0.99 0.002 280 / 0.85);
+  --surface-3-soft: oklch(0.995 0.001 280 / 0.85);
 
   --border-subtle: oklch(0.86 0.006 280 / 0.6);
   --border: oklch(0.80 0.008 280);
@@ -184,8 +213,11 @@
   --muted: oklch(0.50 0.008 280);
   --muted-soft: oklch(0.62 0.008 280);
 
-  --accent-base: oklch(0.55 0.22 24);
-  --accent-base-strong: oklch(0.50 0.23 24);
+  /* Light-mode accent approximates HCT tone-10 of the SPlayer coral —
+     a dark, low-chroma warm red used as brand colour on a light page,
+     same role SPlayer plays via Material You tone-mapping. */
+  --accent-base: oklch(0.42 0.13 24);
+  --accent-base-strong: oklch(0.36 0.15 24);
 
   /* Override the dark-only white-with-alpha aliases with black-with-alpha
      so subtle backgrounds, borders, and secondary text stay visible on a

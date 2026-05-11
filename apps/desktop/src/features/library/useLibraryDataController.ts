@@ -308,6 +308,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   };
 
   const playItem = async (item: LibraryListItem, contextItems: readonly LibraryListItem[] = filteredItems()) => {
+    setKeyedFeedback("neutral", "library.feedback.initial");
     try {
       const paths = contextItems.map((contextItem) => contextItem.source_path);
       const queue = await api.replaceQueue(paths.length > 0 ? paths : [item.source_path]);
@@ -316,8 +317,8 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
       if (!entry) {
         throw new Error(t("common.error.requestFailed"));
       }
-      await api.playFromQueue(entry.entry_id);
-      setRawFeedback("success", t("library.feedback.playing", { title: item.title ?? item.source_path }));
+      await api.playFromQueue({ entryId: entry.entry_id, sourcePath: entry.source_path });
+      setKeyedFeedback("neutral", "library.feedback.initial");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
       throw error;

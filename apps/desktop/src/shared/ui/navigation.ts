@@ -9,7 +9,6 @@ export const ACTIVE_PAGES = [
   "streaming",
   "library",
   "recent",
-  "queue",
   "created-playlists",
   "collected-playlists"
 ] as const;

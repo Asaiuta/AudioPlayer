@@ -241,15 +241,17 @@ export function LibraryPage(props: LibraryPageProps) {
         </Show>
       </div>
 
-      <div
-        class={
-          controller.feedback().tone === "error"
-            ? "local-library-feedback status-error"
-            : "local-library-feedback status-line"
-        }
-      >
-        {controller.feedback().message}
-      </div>
+      <Show when={controller.feedback().message && controller.feedback().message !== t("library.feedback.initial")}>
+        <div
+          class={
+            controller.feedback().tone === "error"
+              ? "local-library-feedback status-error"
+              : "local-library-feedback status-line"
+          }
+        >
+          {controller.feedback().message}
+        </div>
+      </Show>
       <Show when={controller.scanProgress()}>
         {(progress) => (
           <div class="local-library-scan-progress" role="status">

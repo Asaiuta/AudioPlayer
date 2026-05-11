@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
+import { useDismissibleOverlay } from "../../../shared/ui/useDismissibleOverlay";
 
 export interface SelectOption {
   value: string;
@@ -23,18 +24,19 @@ export function SelectInput(props: SelectInputProps) {
   const selectedLabel = () =>
     props.options.find((o) => o.value === props.value)?.label ?? "";
 
+  useDismissibleOverlay(open, {
+    isInside: (target) =>
+      (!!containerRef && containerRef.contains(target)) ||
+      (!!dropdownRef && dropdownRef.contains(target)),
+    onDismiss: () => setOpen(false),
+    escape: false, // own keydown handler below covers Escape + arrow nav
+    scroll: true,
+    blur: true
+  });
+
   createEffect(() => {
     if (!open()) return;
-    
-    const onClick = (e: MouseEvent) => {
-      if (!containerRef) return;
-      // Check if click is inside the trigger button
-      if (e.target instanceof Node && containerRef.contains(e.target)) return;
-      // Check if click is inside the dropdown (which is now in Portal)
-      if (dropdownRef && e.target instanceof Node && dropdownRef.contains(e.target)) return;
-      setOpen(false);
-    };
-    
+
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setOpen(false);
@@ -54,24 +56,13 @@ export function SelectInput(props: SelectInputProps) {
         }
       }
     };
-    
-    const onScroll = () => {
-      setOpen(false);
-    };
-    
-    const onResize = () => {
-      updatePosition();
-    };
-    
-    window.addEventListener("mousedown", onClick);
+
+    const onResize = () => updatePosition();
+
     window.addEventListener("keydown", onKey);
-    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", onResize);
-    
     onCleanup(() => {
-      window.removeEventListener("mousedown", onClick);
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", onResize);
     });
   });
@@ -142,7 +133,7 @@ export function SelectInput(props: SelectInputProps) {
         <Portal mount={document.body}>
           <div
             ref={dropdownRef}
-            class="select-input-dropdown fixed z-[100] min-w-[200px] rounded-lg border border-[color-mix(in_oklch,var(--border-subtle)_80%,transparent)] p-1 shadow-[0_3px_6px_-4px_rgba(0,0,0,0.2),0_6px_16px_0_rgba(0,0,0,0.12),0_9px_28px_8px_rgba(0,0,0,0.08)] backdrop-blur-[20px] bg-[color-mix(in_oklch,var(--surface-1)_92%,transparent)] animate-[select-dropdown-enter_0.15s_ease-out]"
+            class="select-input-dropdown fixed min-w-[200px] p-1"
             style={{
               top: `${dropdownPosition().top}px`,
               left: `${dropdownPosition().left}px`,
@@ -159,7 +150,7 @@ export function SelectInput(props: SelectInputProps) {
                     type="button"
                     role="option"
                     aria-selected={isSelected()}
-                    class={`select-input-option flex items-center w-full h-[34px] px-3 rounded-[3px] border-0 bg-transparent text-left text-[14px] transition-colors duration-fast ease-standard cursor-pointer ${
+                    class={`select-input-option flex items-center w-full h-[34px] px-3 rounded-xs border-0 bg-transparent text-left text-[14px] transition-colors duration-fast ease-standard cursor-pointer ${
                       isSelected()
                         ? "text-accent bg-[color-mix(in_oklch,var(--accent)_12%,transparent)]"
                         : isActive()

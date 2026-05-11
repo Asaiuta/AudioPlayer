@@ -144,7 +144,7 @@ const isOption = <T extends string>(value: string, options: readonly T[]): value
   options.includes(value as T);
 
 const eqBandsGridClass =
-  "eq-bands grid grid-cols-[repeat(auto-fit,minmax(54px,1fr))] items-end gap-2 rounded-[var(--radius-lg-xl)] border border-[var(--border-overlay)] bg-[color-mix(in_oklch,var(--surface-2)_62%,transparent)] p-4";
+  "eq-bands grid grid-cols-[repeat(auto-fit,minmax(54px,1fr))] items-end gap-2 rounded-lg border border-[var(--border-overlay)] bg-[color-mix(in_oklch,var(--surface-2)_62%,transparent)] p-4";
 
 const eqBandClass = "eq-band flex flex-col items-center gap-[10px]";
 
@@ -173,6 +173,27 @@ export function AudioEngineSection(props: AudioEngineSectionProps) {
   const isHi = (id: string) => props.highlightId === id;
   let itemIndex = 0;
   const nextIndex = () => itemIndex++;
+
+  const settingsData = () => {
+    const state = settingsState();
+    return state.status === "success" ? state.data : null;
+  };
+  const settingsError = () => {
+    const state = settingsState();
+    return state.status === "error" ? state.error : null;
+  };
+  const devicesData = () => {
+    const state = devicesState();
+    return state.status === "success" ? state.data : null;
+  };
+  const devicesError = () => {
+    const state = devicesState();
+    return state.status === "error" ? state.error : null;
+  };
+  const devices = (): AudioDeviceInfo[] => {
+    const data = devicesData();
+    return data ? [...data.preferred, ...data.other] : [];
+  };
 
   const deviceOptions = createMemo<SelectOption[]>(() => {
     const devList = devices();
@@ -355,27 +376,6 @@ export function AudioEngineSection(props: AudioEngineSectionProps) {
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const settingsData = () => {
-    const state = settingsState();
-    return state.status === "success" ? state.data : null;
-  };
-  const settingsError = () => {
-    const state = settingsState();
-    return state.status === "error" ? state.error : null;
-  };
-  const devicesData = () => {
-    const state = devicesState();
-    return state.status === "success" ? state.data : null;
-  };
-  const devicesError = () => {
-    const state = devicesState();
-    return state.status === "error" ? state.error : null;
-  };
-  const devices = (): AudioDeviceInfo[] => {
-    const data = devicesData();
-    return data ? [...data.preferred, ...data.other] : [];
   };
 
   const numField = (id: string, label: string, value: () => string, setValue: (next: string) => void, disabled = false) => (

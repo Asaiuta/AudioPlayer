@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import type { JSX } from "solid-js";
 import { Portal } from "solid-js/web";
+import { useDismissibleOverlay } from "../../shared/ui/useDismissibleOverlay";
 
 export interface ContextMenuItem {
   key: string;
@@ -52,32 +53,11 @@ export function ContextMenu(props: ContextMenuProps) {
     onCleanup(() => window.cancelAnimationFrame(frame));
   });
 
-  createEffect(() => {
-    if (!props.open) {
-      return;
-    }
-
-    const handlePointer = (event: MouseEvent) => {
-      if (!menuRef) return;
-      if (event.target instanceof Node && menuRef.contains(event.target)) return;
-      props.onClose();
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose();
-    };
-    const handleScroll = () => props.onClose();
-    const handleBlur = () => props.onClose();
-
-    window.addEventListener("mousedown", handlePointer);
-    window.addEventListener("keydown", handleKey);
-    window.addEventListener("scroll", handleScroll, true);
-    window.addEventListener("blur", handleBlur);
-    onCleanup(() => {
-      window.removeEventListener("mousedown", handlePointer);
-      window.removeEventListener("keydown", handleKey);
-      window.removeEventListener("scroll", handleScroll, true);
-      window.removeEventListener("blur", handleBlur);
-    });
+  useDismissibleOverlay(() => props.open, {
+    isInside: (target) => !!menuRef && menuRef.contains(target),
+    onDismiss: () => props.onClose(),
+    scroll: true,
+    blur: true
   });
 
   return (

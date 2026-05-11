@@ -22,7 +22,6 @@ import {
   IconLogo,
   IconPlus,
   IconPlaylist,
-  IconQueue,
   IconQueueAdd,
   IconRefresh,
   IconSparkle,
@@ -65,8 +64,7 @@ const SECTIONS: ReadonlyArray<NavSection> = [
       { key: "download", icon: IconQueueAdd, labelKey: "sidebar.nav.download.label" },
       { key: "streaming", icon: IconPlaylist, labelKey: "sidebar.nav.streaming.label" },
       { key: "library", icon: IconFolder, labelKey: "sidebar.nav.library.label" },
-      { key: "recent", icon: IconHistory, labelKey: "sidebar.nav.recent.label" },
-      { key: "queue", icon: IconQueue, labelKey: "sidebar.nav.queue.label" }
+      { key: "recent", icon: IconHistory, labelKey: "sidebar.nav.recent.label" }
     ]
   },
   {
@@ -123,13 +121,11 @@ const isNarrowViewport = (): boolean => {
 interface SidebarProps {
   activePage: ActivePage;
   onChange: (page: ActivePage) => void;
-  onRefresh: () => void;
   selectedPlaylistId?: number | null;
   onSelectPlaylist?: (page: UserPlaylistMode, playlistId: number) => void;
 }
 
 export function Sidebar(props: SidebarProps) {
-  void props.onRefresh;
   const { t, td } = useTranslation();
   const accountStore = useNcmAccount();
   const [collapsedPersisted, setCollapsedPersisted] = createSignal(readPersistedCollapse());

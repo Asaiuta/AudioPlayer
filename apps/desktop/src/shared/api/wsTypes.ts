@@ -10,6 +10,7 @@ export type WsEvent =
       title: string | null;
       artist: string | null;
       album: string | null;
+      has_cover_art: boolean;
       external_artwork_url: string | null;
     }
   | { type: "playback_ended"; position: number }
@@ -20,7 +21,8 @@ export type WsEvent =
   | { type: "pause"; position: number; timestamp: number }
   | { type: "stop"; position: number; timestamp: number }
   | { type: "seek"; position: number; timestamp: number }
-  | { type: "position"; position: number; timestamp: number };
+  | { type: "position"; position: number; timestamp: number }
+  | { type: "playback_history_updated"; timestamp: number };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -83,6 +85,7 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
         title: readNullableString(raw.title),
         artist: readNullableString(raw.artist),
         album: readNullableString(raw.album),
+        has_cover_art: raw.has_cover_art === true,
         external_artwork_url: readNullableString(raw.external_artwork_url)
       };
     }
@@ -113,6 +116,10 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
         return null;
       }
       return { type: eventType, position, timestamp };
+    }
+    case "playback_history_updated": {
+      const timestamp = readNumber(raw.timestamp);
+      return timestamp === null ? null : { type: eventType, timestamp };
     }
     default:
       return null;

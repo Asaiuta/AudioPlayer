@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import type { PlayerState, RepeatMode, RequestState, ShuffleMode } from "../shared/api/types";
 import { useTranslation } from "../shared/i18n";
+import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import { snapSeekPositionToLyrics, type NcmLyricLine } from "../features/online/ncmPlayback";
 import { CoverArt } from "./CoverArt";
 import { MarqueeText } from "./MarqueeText";
@@ -45,7 +46,6 @@ interface PlayerBarProps {
   isPlayLoading?: boolean;
   onPlay: () => void;
   onPause: () => void;
-  onStop: () => void;
   onSeek: (position: number) => void;
   onVolumeChange: (volume: number) => void;
   onSkipPrev: () => void;
@@ -84,7 +84,6 @@ const splitArtists = (raw: string | null | undefined): string[] => {
 };
 
 export function PlayerBar(props: PlayerBarProps) {
-  void props.onStop;
   const { t } = useTranslation();
   const [showRemaining, setShowRemaining] = createSignal(false);
   const [volumePopoverOpen, setVolumePopoverOpen] = createSignal(false);
@@ -120,86 +119,24 @@ export function PlayerBar(props: PlayerBarProps) {
     }
   });
 
-  createEffect(() => {
-    if (!volumePopoverOpen()) return;
-
-    const handlePointer = (event: MouseEvent) => {
-      if (!volumeRef) return;
-      if (event.target instanceof Node && volumeRef.contains(event.target)) {
-        return;
-      }
-      setVolumePopoverOpen(false);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setVolumePopoverOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", handlePointer);
-    window.addEventListener("keydown", handleKey);
-    onCleanup(() => {
-      window.removeEventListener("mousedown", handlePointer);
-      window.removeEventListener("keydown", handleKey);
-    });
+  useDismissibleOverlay(volumePopoverOpen, {
+    isInside: (target) => !!volumeRef && volumeRef.contains(target),
+    onDismiss: () => setVolumePopoverOpen(false)
   });
 
-  createEffect(() => {
-    if (!moreOpen()) return;
-
-    const handlePointer = (event: MouseEvent) => {
-      if (!moreRef) return;
-      if (event.target instanceof Node && moreRef.contains(event.target)) {
-        return;
-      }
-      setMoreOpen(false);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setMoreOpen(false);
-      }
-    };
-    window.addEventListener("mousedown", handlePointer);
-    window.addEventListener("keydown", handleKey);
-    onCleanup(() => {
-      window.removeEventListener("mousedown", handlePointer);
-      window.removeEventListener("keydown", handleKey);
-    });
+  useDismissibleOverlay(moreOpen, {
+    isInside: (target) => !!moreRef && moreRef.contains(target),
+    onDismiss: () => setMoreOpen(false)
   });
 
-  createEffect(() => {
-    if (!qualityOpen()) return;
-    const handlePointer = (event: MouseEvent) => {
-      if (!qualityRef) return;
-      if (event.target instanceof Node && qualityRef.contains(event.target)) return;
-      setQualityOpen(false);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setQualityOpen(false);
-    };
-    window.addEventListener("mousedown", handlePointer);
-    window.addEventListener("keydown", handleKey);
-    onCleanup(() => {
-      window.removeEventListener("mousedown", handlePointer);
-      window.removeEventListener("keydown", handleKey);
-    });
+  useDismissibleOverlay(qualityOpen, {
+    isInside: (target) => !!qualityRef && qualityRef.contains(target),
+    onDismiss: () => setQualityOpen(false)
   });
 
-  createEffect(() => {
-    if (!controlsOpen()) return;
-    const handlePointer = (event: MouseEvent) => {
-      if (!controlsRef) return;
-      if (event.target instanceof Node && controlsRef.contains(event.target)) return;
-      setControlsOpen(false);
-    };
-    const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setControlsOpen(false);
-    };
-    window.addEventListener("mousedown", handlePointer);
-    window.addEventListener("keydown", handleKey);
-    onCleanup(() => {
-      window.removeEventListener("mousedown", handlePointer);
-      window.removeEventListener("keydown", handleKey);
-    });
+  useDismissibleOverlay(controlsOpen, {
+    isInside: (target) => !!controlsRef && controlsRef.contains(target),
+    onDismiss: () => setControlsOpen(false)
   });
 
   createEffect(() => {
@@ -474,7 +411,7 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
           <Show when={canSeek() && hoverRatio() !== null && hoverTime() !== null}>
               <div
-                class="player-progress-tooltip absolute inline-flex items-center gap-1.5 max-w-320px text-xs whitespace-nowrap pointer-events-none z-4"
+                class="player-progress-tooltip absolute inline-flex items-center gap-1.5 max-w-320px text-xs whitespace-nowrap pointer-events-none"
                 role="tooltip"
               style={{ left: `${(hoverRatio() ?? 0) * 100}%` }}
             >
@@ -696,7 +633,7 @@ export function PlayerBar(props: PlayerBarProps) {
                 {qualityLabel()}
               </button>
               <Show when={qualityOpen()}>
-                <div class="player-quality-popover absolute right-0 min-w-220px flex flex-col gap-2 z-5" role="dialog" aria-label={t("player.quality.title")}>
+                <div class="player-quality-popover absolute right-0 min-w-220px flex flex-col gap-2" role="dialog" aria-label={t("player.quality.title")}>
                   <div class="player-popover-title text-13px font-semibold">{t("player.quality.title")}</div>
                   <dl class="player-popover-grid grid gap-x-3 gap-y-1 text-xs">
                     <dt>{t("player.quality.target")}</dt>
@@ -742,7 +679,7 @@ export function PlayerBar(props: PlayerBarProps) {
                 <IconControls />
               </button>
               <Show when={controlsOpen()}>
-                <div class="player-controls-popover absolute right-0 min-w-220px flex flex-col gap-2 z-5" role="menu" aria-label={t("player.controls.title")}>
+                <div class="player-controls-popover absolute right-0 min-w-220px flex flex-col gap-2" role="menu" aria-label={t("player.controls.title")}>
                   <div class="player-popover-title text-13px font-semibold">{t("player.controls.title")}</div>
                   <button
                     type="button"

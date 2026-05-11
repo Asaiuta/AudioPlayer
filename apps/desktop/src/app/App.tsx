@@ -10,7 +10,7 @@ import { WindowControls } from "../components/WindowControls";
 import { HistoryPage } from "../features/history/HistoryPage";
 import { LibraryPage } from "../features/library/LibraryPage";
 import { NeteasePage } from "../features/online/NeteasePage";
-import { QueuePage } from "../features/queue/QueuePage";
+import { QueueDrawer } from "../features/queue/QueueDrawer";
 import { SettingsPage } from "../features/settings/SettingsPage";
 import { createApiClient } from "../shared/api/client";
 import { useTranslation } from "../shared/i18n";
@@ -42,7 +42,6 @@ function AppContent() {
             <Sidebar
               activePage={controller.activePage()}
               onChange={controller.handleActivePageChange}
-              onRefresh={() => void controller.refreshState()}
               selectedPlaylistId={controller.selectedPlaylistId()}
               onSelectPlaylist={controller.handleSidebarPlaylistSelect}
             />
@@ -86,7 +85,6 @@ function AppContent() {
               isLiked={controller.currentIsLiked()}
               onPlay={controller.handlePlay}
               onPause={controller.handlePause}
-              onStop={controller.handleStop}
               onSeek={controller.handleSeek}
               onVolumeChange={controller.handleVolumeChange}
               onSkipPrev={controller.handleSkipPrev}
@@ -95,7 +93,7 @@ function AppContent() {
               onToggleShuffle={controller.handleToggleShuffle}
               onToggleLike={controller.handleToggleLike}
               onCoverClick={() => controller.setFullPlayerOpen(true)}
-              onOpenQueue={() => controller.handleActivePageChange("queue")}
+              onOpenQueue={controller.handleOpenQueue}
               onOpenSettings={() => controller.setSettingsOpen(true)}
             />
           }
@@ -106,14 +104,6 @@ function AppContent() {
           >
             {(displayedPage) => (
               <Switch>
-                <Match when={displayedPage() === "queue"}>
-                  <QueuePage
-                    currentTrackPath={controller.currentTrackPath()}
-                    preloadRequested={controller.preloadRequested()}
-                    onPreloadCleared={() => controller.setPreloadRequested(false)}
-                    onStateRefresh={refreshPlayback}
-                  />
-                </Match>
                 <Match when={displayedPage() === "library"}>
                   <LibraryPage
                     onStateRefresh={refreshPlayback}
@@ -150,7 +140,10 @@ function AppContent() {
                   />
                 </Match>
                 <Match when={displayedPage() === "recent"}>
-                  <HistoryPage onStateRefresh={refreshPlayback} />
+                  <HistoryPage
+                    refreshVersion={controller.playbackHistoryVersion()}
+                    onStateRefresh={refreshPlayback}
+                  />
                 </Match>
                 <Match when={controller.isPlaceholderPage(displayedPage() as any)}>
                   <div class="panel panel-placeholder">
@@ -196,6 +189,16 @@ function AppContent() {
           onOpenQueue={controller.handleOpenQueueFromFullPlayer}
           isLiked={controller.currentIsLiked()}
           onToggleLike={controller.handleToggleLike}
+        />
+        <QueueDrawer
+          open={controller.queueDrawerOpen()}
+          entries={controller.queueEntries()}
+          currentTrackPath={controller.currentTrackPath()}
+          currentMediaId={controller.currentMediaId()}
+          onClose={() => controller.setQueueDrawerOpen(false)}
+          onPlayEntry={controller.handlePlayQueueEntry}
+          onRemoveEntry={controller.handleRemoveQueueEntry}
+          onClear={controller.handleClearQueue}
         />
         <SettingsPage
           isOpen={controller.settingsOpen()}

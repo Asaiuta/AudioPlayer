@@ -48,7 +48,7 @@ export interface ApiClient {
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
   removeQueueEntry: (entryId: number) => Promise<QueueEntry[]>;
   clearPersistentQueue: () => Promise<void>;
-  playFromQueue: (entryId?: number) => Promise<PlayerState>;
+  playFromQueue: (options?: PlayQueueOptions) => Promise<PlayerState>;
   replaceQueue: (paths: string[]) => Promise<QueueEntry[]>;
   // WebDAV
   listWebDavSources: () => Promise<WebDavSource[]>;
@@ -65,6 +65,11 @@ export interface ApiClient {
 
 interface LoadOptions {
   autoplay?: boolean;
+}
+
+export interface PlayQueueOptions {
+  entryId?: number;
+  sourcePath?: string;
 }
 
 export interface ExternalMediaMetadataInput {
@@ -746,9 +751,10 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       throw new Error("Failed to clear queue");
     }
   },
-  playFromQueue: async (entryId?: number) => {
+  playFromQueue: async (options?: PlayQueueOptions) => {
     const body: Record<string, unknown> = {};
-    if (entryId !== undefined) body.entry_id = entryId;
+    if (options?.entryId !== undefined) body.entry_id = options.entryId;
+    if (options?.sourcePath) body.source_path = options.sourcePath;
     const envelope = await requestEnvelope(baseUrl, "/domain/queue/play", {
       method: "POST",
       body: JSON.stringify(body)
@@ -834,8 +840,11 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
   },
   getCoverArtUrl: (mediaId: string) => {
     const token = peekApiToken();
-    const suffix = token ? `?token=${encodeURIComponent(token)}` : "";
-    return `${baseUrl}/domain/media_items/${encodeURIComponent(mediaId)}/cover_art${suffix}`;
+    const params = new URLSearchParams({ media_id: mediaId });
+    if (token) {
+      params.set("token", token);
+    }
+    return `${baseUrl}/domain/media_items/cover_art?${params.toString()}`;
   }
   };
 };

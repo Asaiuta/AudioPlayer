@@ -1,18 +1,12 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
-import {
-  findCurrentLyricLine,
-  mergeNcmTrackReference,
-  readLyricLines,
-  readSongDetailSupplement,
-  type NcmLyricLine,
-  type NcmTrackReference,
-  type NcmTrackSupplement
+import type {
+  NcmLyricLine,
+  NcmTrackReference,
+  NcmTrackSupplement
 } from "../features/online/ncmPlayback";
 import type { UserPlaylistMode } from "../features/online/ncmPlaylistSummary";
 import { useNcmScrobbleEffect } from "../features/online/useNcmScrobbleEffect";
-import { likeSong, userLikelist } from "../shared/api/ncm/user";
-import { lyricNew, songDetail } from "../shared/api/ncm/search";
 import type {
   PlayerState,
   QueueEntry,
@@ -21,15 +15,17 @@ import type {
   ShuffleMode
 } from "../shared/api/types";
 import { useEngineSocket } from "../shared/api/useEngineSocket";
-import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useUISettings } from "../shared/state/useUISettings";
-import {
-  isPlaceholderPage,
-  isPlaylistPage,
-  type ActivePage
-} from "../shared/ui/navigation";
+import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
 import { applyDynamicAccent, extractAccent } from "../shared/styles/dynamicAccent";
 import type { ApiClient } from "../shared/api/client";
+import {
+  firstNonEmpty,
+  readErrorMessage,
+  sameMediaPath
+} from "./controllerHelpers";
+import { useNavigationController } from "./useNavigationController";
+import { useNcmTrackEnrichment } from "./useNcmTrackEnrichment";
 
 type WsStatus = "connected" | "connecting" | "disconnected";
 
@@ -37,32 +33,7 @@ const REPEAT_CYCLE: ReadonlyArray<RepeatMode> = ["off", "all", "one"];
 const TRACK_STATE_SETTLE_TIMEOUT_MS = 2500;
 const TRACK_STATE_POLL_INTERVAL_MS = 120;
 const PLAYER_STATE_POLL_MS = 1500;
-
-const mediaKeyForPath = (path: string | null | undefined): string | null => {
-  if (!path) return null;
-  return path
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/")
-    .toLowerCase();
-};
-
-const sameMediaPath = (left: string | null | undefined, right: string | null | undefined) => {
-  const leftKey = mediaKeyForPath(left);
-  const rightKey = mediaKeyForPath(right);
-  return leftKey !== null && rightKey !== null && leftKey === rightKey;
-};
-
-const readErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "Request failed";
-
-const readNumberArray = (value: unknown): number[] | null => {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const numbers = value.filter((item): item is number => typeof item === "number" && Number.isFinite(item));
-  return numbers.length === value.length ? numbers : null;
-};
+const SEEK_REMOTE_SUPPRESS_MS = 900;
 
 const nextRepeatMode = (current: RepeatMode): RepeatMode => {
   const index = REPEAT_CYCLE.indexOf(current);
@@ -78,6 +49,7 @@ export interface AppController {
   commandError: Accessor<string | null>;
   activePage: Accessor<ActivePage>;
   queueEntries: Accessor<QueueEntry[]>;
+  queueDrawerOpen: Accessor<boolean>;
   livePosition: Accessor<number | null>;
   fullPlayerOpen: Accessor<boolean>;
   settingsOpen: Accessor<boolean>;
@@ -106,12 +78,12 @@ export interface AppController {
   lyricStatus: Accessor<"idle" | "loading" | "ready" | "error">;
   currentNcmSupplement: Accessor<NcmTrackSupplement | null>;
   currentIsLiked: Accessor<boolean>;
+  playbackHistoryVersion: Accessor<number>;
   uiSettings: ReturnType<typeof useUISettings>;
   refreshState: (expectedPath?: string | null) => Promise<void>;
   refreshQueue: () => Promise<void>;
   handlePlay: () => Promise<void>;
   handlePause: () => Promise<void>;
-  handleStop: () => Promise<void>;
   handleSeek: (position: number) => Promise<void>;
   handleVolumeChange: (volume: number) => Promise<void>;
   handleSkipPrev: () => Promise<void> | undefined;
@@ -120,7 +92,11 @@ export interface AppController {
   handleToggleShuffle: () => Promise<void>;
   handleToggleLike: () => Promise<void>;
   handleActivePageChange: (page: ActivePage) => void;
+  handleOpenQueue: () => void;
   handleOpenQueueFromFullPlayer: () => void;
+  handlePlayQueueEntry: (entryId: number) => Promise<void>;
+  handleRemoveQueueEntry: (entryId: number) => Promise<void>;
+  handleClearQueue: () => Promise<void>;
   handleSidebarPlaylistSelect: (page: UserPlaylistMode, playlistId: number) => void;
   handleSelectedPlaylistChange: (playlistId: number | null) => void;
   handleNavigateToDiscover: (tab: string) => void;
@@ -128,6 +104,7 @@ export interface AppController {
   handleGoForward: () => void;
   registerNcmPlayback: (track: NcmTrackReference) => void;
   setFullPlayerOpen: (value: boolean) => void;
+  setQueueDrawerOpen: (value: boolean) => void;
   setSettingsOpen: (value: boolean) => void;
   setPreloadRequested: (value: boolean) => void;
   isPlaceholderPage: typeof isPlaceholderPage;
@@ -145,8 +122,8 @@ export function AppScrobbleBridge(props: {
 }
 
 export function useAppController(api: ApiClient): AppController {
-  const accountStore = useNcmAccount();
   const uiSettings = useUISettings();
+  const navigation = useNavigationController();
 
   const [state, setState] = createSignal<RequestState<PlayerState>>({ status: "idle" });
   const [spectrum, setSpectrum] = createSignal<number[]>([]);
@@ -154,25 +131,45 @@ export function useAppController(api: ApiClient): AppController {
   const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
   const [preloadRequested, setPreloadRequested] = createSignal(false);
   const [commandError, setCommandError] = createSignal<string | null>(null);
-  const [activePage, setActivePage] = createSignal<ActivePage>("recommend");
   const [queueEntries, setQueueEntries] = createSignal<QueueEntry[]>([]);
+  const [queueDrawerOpen, setQueueDrawerOpen] = createSignal(false);
   const [livePosition, setLivePosition] = createSignal<number | null>(null);
   const [fullPlayerOpen, setFullPlayerOpen] = createSignal(false);
   const [settingsOpen, setSettingsOpen] = createSignal(false);
-  const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<number | null>(null);
-  const [discoverTabRequest, setDiscoverTabRequest] = createSignal<{ tab: string; version: number }>({
-    tab: "playlists",
-    version: 0
-  });
-  const [historyStack, setHistoryStack] = createSignal<ActivePage[]>(["recommend"]);
-  const [historyIndex, setHistoryIndex] = createSignal(0);
-  const [ncmTrackRefs, setNcmTrackRefs] = createSignal<Record<string, NcmTrackReference>>({});
-  const [currentNcmSupplement, setCurrentNcmSupplement] =
-    createSignal<NcmTrackSupplement | null>(null);
-  const [likedSongIds, setLikedSongIds] = createSignal<Set<number>>(new Set());
+  const [playbackHistoryVersion, setPlaybackHistoryVersion] = createSignal<number>(0);
   let lastRefreshAt = 0;
+  let seekCommandId = 0;
+  let volumeCommandId = 0;
+  let suppressRemotePositionUntil = 0;
+
+  const notifyPlaybackHistoryChanged = () => {
+    setPlaybackHistoryVersion((version) => version + 1);
+  };
 
   const applyPlayerState = (next: PlayerState) => {
+    const current = state();
+    if (
+      current.status === "success" &&
+      sameMediaPath(current.data.file_path, next.file_path)
+    ) {
+      setState({
+        status: "success",
+        data: {
+          ...next,
+          media_id: next.media_id ?? current.data.media_id,
+          title: firstNonEmpty(next.title, current.data.title),
+          artist: firstNonEmpty(next.artist, current.data.artist),
+          album: firstNonEmpty(next.album, current.data.album),
+          has_cover_art: next.has_cover_art || current.data.has_cover_art,
+          external_artwork_url: firstNonEmpty(
+            next.external_artwork_url,
+            current.data.external_artwork_url
+          )
+        }
+      });
+      return;
+    }
+
     setState({ status: "success", data: next });
   };
 
@@ -261,13 +258,13 @@ export function useAppController(api: ApiClient): AppController {
     void refreshQueue();
   });
 
-  const scheduleRefresh = () => {
+  const scheduleRefresh = (expectedPath?: string | null) => {
     const now = Date.now();
     if (now - lastRefreshAt < 300) {
       return;
     }
     lastRefreshAt = now;
-    void refreshState();
+    void refreshState(expectedPath);
   };
 
   useEngineSocket({
@@ -307,20 +304,31 @@ export function useAppController(api: ApiClient): AppController {
           scheduleRefresh();
           break;
         case "track_changed":
-          patchPlayerState({
-            file_path: event.file_path,
-            duration: event.duration,
-            media_id: event.media_id,
-            title: event.title,
-            artist: event.artist,
-            album: event.album,
-            external_artwork_url: event.external_artwork_url,
-            current_time: 0,
-            is_loading: false
-          });
+          {
+            const currentRequest = state();
+            const base =
+              currentRequest.status === "success" ? currentRequest.data : null;
+            if (!base) {
+              scheduleRefresh(event.file_path);
+              break;
+            }
+            applyPlayerState({
+              ...base,
+              file_path: event.file_path,
+              duration: event.duration,
+              media_id: event.media_id,
+              title: event.title,
+              artist: event.artist,
+              album: event.album,
+              has_cover_art: event.has_cover_art,
+              external_artwork_url: event.external_artwork_url,
+              current_time: 0,
+              is_loading: false
+            });
+          }
           setPreloadRequested(false);
           setLivePosition(0);
-          scheduleRefresh();
+          scheduleRefresh(event.file_path);
           void refreshQueue();
           break;
         case "playback_ended":
@@ -362,6 +370,9 @@ export function useAppController(api: ApiClient): AppController {
           scheduleRefresh();
           break;
         case "seek":
+          if (Date.now() < suppressRemotePositionUntil) {
+            break;
+          }
           patchPlayerState({
             current_time: event.position
           });
@@ -369,10 +380,16 @@ export function useAppController(api: ApiClient): AppController {
           scheduleRefresh();
           break;
         case "position":
+          if (Date.now() < suppressRemotePositionUntil) {
+            break;
+          }
           patchPlayerState({
             current_time: event.position
           });
           setLivePosition(event.position);
+          break;
+        case "playback_history_updated":
+          notifyPlaybackHistoryChanged();
           break;
         default: {
           const _exhaustive: never = event;
@@ -397,9 +414,62 @@ export function useAppController(api: ApiClient): AppController {
 
   const handlePlay = () => runPlayerCommand(() => api.play());
   const handlePause = () => runPlayerCommand(() => api.pause());
-  const handleStop = () => runPlayerCommand(() => api.stop());
-  const handleSeek = (position: number) => runPlayerCommand(() => api.seek(position));
-  const handleVolumeChange = (volume: number) => runPlayerCommand(() => api.setVolume(volume));
+  const handleSeek = async (position: number) => {
+    const commandId = ++seekCommandId;
+    const target = Math.max(0, position);
+    suppressRemotePositionUntil = Date.now() + SEEK_REMOTE_SUPPRESS_MS;
+    setCommandError(null);
+    patchPlayerState({ current_time: target });
+    setLivePosition(target);
+
+    try {
+      const next = await api.seek(target);
+      if (commandId !== seekCommandId) {
+        return;
+      }
+      applyPlayerState({
+        ...next,
+        current_time: target
+      });
+      setLivePosition(target);
+      suppressRemotePositionUntil = 0;
+      window.setTimeout(() => {
+        if (commandId === seekCommandId) {
+          void refreshState();
+        }
+      }, TRACK_STATE_POLL_INTERVAL_MS);
+    } catch (error) {
+      if (commandId !== seekCommandId) {
+        return;
+      }
+      suppressRemotePositionUntil = 0;
+      setCommandError(readErrorMessage(error));
+      void refreshState();
+    }
+  };
+  const handleVolumeChange = async (volume: number) => {
+    const commandId = ++volumeCommandId;
+    const target = Math.max(0, Math.min(1, volume));
+    setCommandError(null);
+    patchPlayerState({ volume: target });
+
+    try {
+      const next = await api.setVolume(target);
+      if (commandId !== volumeCommandId) {
+        return;
+      }
+      applyPlayerState({
+        ...next,
+        volume: target
+      });
+    } catch (error) {
+      if (commandId !== volumeCommandId) {
+        return;
+      }
+      setCommandError(readErrorMessage(error));
+      void refreshState();
+    }
+  };
 
   createEffect(() => {
     const shouldPoll = Boolean(player()?.is_playing || player()?.is_loading);
@@ -427,15 +497,18 @@ export function useAppController(api: ApiClient): AppController {
     const mediaId = currentMediaId();
     return mediaId && hasCoverArt() ? api.getCoverArtUrl(mediaId) : null;
   });
-  const playQueueEntry = async (entryId: number) => {
+  const playQueueEntry = async (entryId: number, options?: { rethrow?: boolean }) => {
     const entry = queueEntries().find((item) => item.entry_id === entryId);
     setCommandError(null);
     try {
-      const next = await api.playFromQueue(entryId);
+      const next = await api.playFromQueue({ entryId, sourcePath: entry?.source_path });
       applyPlayerState(next);
       await Promise.all([refreshState(entry?.source_path ?? null), refreshQueue()]);
     } catch (error) {
       setCommandError(readErrorMessage(error));
+      if (options?.rethrow) {
+        throw error;
+      }
     }
   };
 
@@ -473,6 +546,26 @@ export function useAppController(api: ApiClient): AppController {
     if (entryId === null) return;
     return playQueueEntry(entryId);
   };
+  const handlePlayQueueEntry = (entryId: number) => playQueueEntry(entryId, { rethrow: true });
+  const handleRemoveQueueEntry = async (entryId: number) => {
+    setCommandError(null);
+    try {
+      const entries = await api.removeQueueEntry(entryId);
+      setQueueEntries(entries);
+    } catch (error) {
+      setCommandError(readErrorMessage(error));
+    }
+  };
+  const handleClearQueue = async () => {
+    if (queueEntries().length === 0) return;
+    setCommandError(null);
+    try {
+      await api.clearPersistentQueue();
+      setQueueEntries([]);
+    } catch (error) {
+      setCommandError(readErrorMessage(error));
+    }
+  };
   const repeatMode = createMemo<RepeatMode>(() => player()?.repeat_mode ?? "off");
   const shuffleMode = createMemo<ShuffleMode>(() => player()?.shuffle_mode ?? "off");
   const handleCycleRepeat = () => {
@@ -484,238 +577,25 @@ export function useAppController(api: ApiClient): AppController {
     return runPlayerCommand(() => api.setShuffleMode(target));
   };
 
-  const commitPageChange = (page: ActivePage) => {
-    setActivePage(page);
-    if (!isPlaylistPage(page)) {
-      setSelectedPlaylistId(null);
-    }
-  };
-
-  const pushNavigation = (page: ActivePage) => {
-    const current = activePage();
-    if (page === current) {
-      if (!isPlaylistPage(page)) {
-        setSelectedPlaylistId(null);
-      }
-      return;
-    }
-
-    const nextIndex = historyIndex() + 1;
-    setHistoryStack((prev) => [...prev.slice(0, nextIndex), page]);
-    setHistoryIndex(nextIndex);
-    commitPageChange(page);
-  };
-
-  const handleActivePageChange = (page: ActivePage) => {
-    pushNavigation(page);
+  const handleOpenQueue = () => {
+    setQueueDrawerOpen(true);
+    void refreshQueue();
   };
 
   const handleOpenQueueFromFullPlayer = () => {
     setFullPlayerOpen(false);
-    handleActivePageChange("queue");
+    handleOpenQueue();
   };
 
-  const handleSidebarPlaylistSelect = (page: UserPlaylistMode, playlistId: number) => {
-    if (activePage() !== page) {
-      const nextIndex = historyIndex() + 1;
-      setHistoryStack((prev) => [...prev.slice(0, nextIndex), page]);
-      setHistoryIndex(nextIndex);
-    }
-    commitPageChange(page);
-    setSelectedPlaylistId(playlistId);
-  };
-
-  const handleSelectedPlaylistChange = (playlistId: number | null) => {
-    setSelectedPlaylistId(playlistId);
-  };
-
-  const handleNavigateToDiscover = (tab: string) => {
-    setDiscoverTabRequest((prev) => ({ tab, version: prev.version + 1 }));
-    pushNavigation("discover");
-  };
-
-  const handleGoBack = () => {
-    const nextIndex = historyIndex() - 1;
-    if (nextIndex < 0) return;
-    const target = historyStack()[nextIndex];
-    if (!target) return;
-    setHistoryIndex(nextIndex);
-    commitPageChange(target);
-  };
-
-  const handleGoForward = () => {
-    const nextIndex = historyIndex() + 1;
-    const target = historyStack()[nextIndex];
-    if (!target) return;
-    setHistoryIndex(nextIndex);
-    commitPageChange(target);
-  };
-
-  const canGoBack = createMemo(() => historyIndex() > 0);
-  const canGoForward = createMemo(() => historyIndex() < historyStack().length - 1);
-
-  const currentTrackRef = createMemo(() => {
-    const path = player()?.file_path;
-    return path ? ncmTrackRefs()[path] : undefined;
-  });
-  const currentNcmSongId = createMemo(() => currentTrackRef()?.songId ?? null);
-  const currentNcmCoverUrl = createMemo(
-    () => currentNcmSupplement()?.coverUrl ?? currentTrackRef()?.coverUrl ?? null
-  );
-  const resolvedCoverUrl = createMemo(() => currentNcmCoverUrl() ?? player()?.external_artwork_url ?? coverUrl());
-  const currentLyricLines = createMemo(() => currentNcmSupplement()?.lyrics ?? []);
-  const currentInlineLyric = createMemo(() =>
-    findCurrentLyricLine(currentLyricLines(), livePosition() ?? player()?.current_time ?? 0)
-  );
-  const fullPlayerTitle = createMemo(
-    () =>
-      currentNcmSupplement()?.title ??
-      currentTrackRef()?.title ??
-      player()?.title ??
-      player()?.file_path ??
-      ""
-  );
-  const fullPlayerSubtitle = createMemo(() =>
-    [
-      currentNcmSupplement()?.artist ?? currentTrackRef()?.artist ?? player()?.artist,
-      currentNcmSupplement()?.album ?? currentTrackRef()?.album ?? player()?.album
-    ]
-      .filter(Boolean)
-      .join(" · ")
-  );
-  const fullPlayerDetail = createMemo(() =>
-    currentTrackRef() && currentNcmSongId() !== null ? `NCM · ID ${currentNcmSongId()}` : null
-  );
-  const lyricStatus = createMemo<"idle" | "loading" | "ready" | "error">(() => {
-    const supplement = currentNcmSupplement();
-    if (supplement === null) return "idle";
-    if (supplement.status === "loading") return "loading";
-    if (supplement.status === "error") return "error";
-    return "ready";
-  });
-
-  const registerNcmPlayback = (track: NcmTrackReference) => {
-    setNcmTrackRefs((current) => ({
-      ...current,
-      [track.streamUrl]: mergeNcmTrackReference(current[track.streamUrl], track)
-    }));
-  };
-
-  createEffect(() => {
-    const trackRef = currentTrackRef();
-    let cancelled = false;
-    const playerState = player();
-    if (!trackRef && !playerState?.file_path) {
-      setCurrentNcmSupplement(null);
-      return;
-    }
-    const baseTitle = trackRef?.title ?? playerState?.title ?? null;
-    const baseArtist = trackRef?.artist ?? playerState?.artist ?? null;
-    const baseAlbum = trackRef?.album ?? playerState?.album ?? null;
-    const baseCover = trackRef?.coverUrl ?? null;
-
-    setCurrentNcmSupplement({
-      status: "loading",
-      title: baseTitle,
-      artist: baseArtist,
-      album: baseAlbum,
-      coverUrl: baseCover,
-      lyrics: [],
-      error: null
-    });
-
-    const request = trackRef
-      ? Promise.allSettled([
-          songDetail(trackRef.songId),
-          lyricNew(trackRef.songId),
-          api.getCurrentLyrics()
-        ])
-      : Promise.allSettled([api.getCurrentLyrics()]);
-
-    void request.then((results) => {
-      if (cancelled) {
-        return;
-      }
-
-      if (trackRef) {
-        const [detailResult, lyricResult, localLyricResult] = results as [
-          PromiseSettledResult<unknown>,
-          PromiseSettledResult<unknown>,
-          PromiseSettledResult<{ lyrics: string | null; source: string | null }>
-        ];
-
-        const detailPayload =
-          detailResult.status === "fulfilled"
-            ? readSongDetailSupplement(detailResult.value, trackRef.songId)
-            : null;
-        const onlineLyrics =
-          lyricResult.status === "fulfilled" ? readLyricLines(lyricResult.value) : [];
-        const localLyrics =
-          localLyricResult.status === "fulfilled" && localLyricResult.value.lyrics
-            ? readLyricLines({
-                [localLyricResult.value.source === "ttml"
-                  ? "ttml"
-                  : localLyricResult.value.source === "yrc"
-                    ? "yrc"
-                    : "lrc"]: { lyric: localLyricResult.value.lyrics }
-              })
-            : [];
-        const lyrics = onlineLyrics.length > 0 ? onlineLyrics : localLyrics;
-        const error =
-          detailResult.status === "rejected"
-            ? readErrorMessage(detailResult.reason)
-            : lyricResult.status === "rejected"
-              ? readErrorMessage(lyricResult.reason)
-              : localLyricResult.status === "rejected"
-                ? readErrorMessage(localLyricResult.reason)
-                : null;
-
-        setCurrentNcmSupplement({
-          status: error && !detailPayload && lyrics.length === 0 ? "error" : "success",
-          title: detailPayload?.title ?? trackRef.title,
-          artist: detailPayload?.artist ?? trackRef.artist,
-          album: detailPayload?.album ?? trackRef.album,
-          coverUrl: detailPayload?.coverUrl ?? trackRef.coverUrl,
-          lyrics,
-          error
-        });
-        return;
-      }
-
-      const [localLyricResult] = results as [
-        PromiseSettledResult<{ lyrics: string | null; source: string | null }>
-      ];
-      const localLyrics =
-        localLyricResult.status === "fulfilled" && localLyricResult.value.lyrics
-          ? readLyricLines({
-              [localLyricResult.value.source === "ttml"
-                ? "ttml"
-                : localLyricResult.value.source === "yrc"
-                  ? "yrc"
-                  : "lrc"]: { lyric: localLyricResult.value.lyrics }
-            })
-          : [];
-      const error =
-        localLyricResult.status === "rejected" ? readErrorMessage(localLyricResult.reason) : null;
-
-      setCurrentNcmSupplement({
-        status: error && localLyrics.length === 0 ? "error" : "success",
-        title: baseTitle,
-        artist: baseArtist,
-        album: baseAlbum,
-        coverUrl: baseCover,
-        lyrics: localLyrics,
-        error
-      });
-    });
-
-    onCleanup(() => {
-      cancelled = true;
-    });
+  const ncm = useNcmTrackEnrichment({
+    api,
+    player,
+    livePosition,
+    coverUrl
   });
 
   createEffect(() => {
-    const url = resolvedCoverUrl();
+    const url = ncm.resolvedCoverUrl();
     let cancelled = false;
     if (!url) {
       applyDynamicAccent(null);
@@ -730,65 +610,6 @@ export function useAppController(api: ApiClient): AppController {
     });
   });
 
-  createEffect(() => {
-    const account = accountStore.activeAccount();
-    const userId = account?.cookie ? account.userId : null;
-    let cancelled = false;
-
-    if (userId === null) {
-      setLikedSongIds(new Set<number>());
-      return;
-    }
-
-    void (async () => {
-      try {
-        const likelistResp = await userLikelist(userId);
-        const ids = (likelistResp as Record<string, unknown>).data as
-          | Record<string, unknown>
-          | undefined;
-        const idList = readNumberArray(ids?.ids);
-        if (idList && !cancelled) {
-          setLikedSongIds(new Set(idList));
-        } else if (!cancelled) {
-          setLikedSongIds(new Set<number>());
-        }
-      } catch {
-        if (!cancelled) {
-          setLikedSongIds(new Set<number>());
-        }
-      }
-    })();
-
-    onCleanup(() => {
-      cancelled = true;
-    });
-  });
-
-  const currentIsLiked = createMemo(() => {
-    const songId = currentNcmSongId();
-    return songId !== null && likedSongIds().has(songId);
-  });
-
-  const handleToggleLike = async () => {
-    const songId = currentNcmSongId();
-    if (songId === null) return;
-    const wasLiked = likedSongIds().has(songId);
-    try {
-      await likeSong(songId, !wasLiked);
-      setLikedSongIds((prev) => {
-        const next = new Set(prev);
-        if (wasLiked) {
-          next.delete(songId);
-        } else {
-          next.add(songId);
-        }
-        return next;
-      });
-    } catch {
-      // Best effort.
-    }
-  };
-
   return {
     state,
     spectrum,
@@ -796,13 +617,14 @@ export function useAppController(api: ApiClient): AppController {
     wsStatus,
     preloadRequested,
     commandError,
-    activePage,
+    activePage: navigation.activePage,
     queueEntries,
+    queueDrawerOpen,
     livePosition,
     fullPlayerOpen,
     settingsOpen,
-    selectedPlaylistId,
-    discoverTabRequest,
+    selectedPlaylistId: navigation.selectedPlaylistId,
+    discoverTabRequest: navigation.discoverTabRequest,
     player,
     currentTrackPath,
     currentMediaId,
@@ -812,42 +634,47 @@ export function useAppController(api: ApiClient): AppController {
     nextEntryId,
     repeatMode,
     shuffleMode,
-    canGoBack,
-    canGoForward,
-    currentTrackRef,
-    currentNcmSongId,
-    currentNcmCoverUrl,
-    resolvedCoverUrl,
-    currentLyricLines,
-    currentInlineLyric,
-    fullPlayerTitle,
-    fullPlayerSubtitle,
-    fullPlayerDetail,
-    lyricStatus,
-    currentNcmSupplement,
-    currentIsLiked,
+    canGoBack: navigation.canGoBack,
+    canGoForward: navigation.canGoForward,
+    currentTrackRef: ncm.currentTrackRef,
+    currentNcmSongId: ncm.currentNcmSongId,
+    currentNcmCoverUrl: ncm.currentNcmCoverUrl,
+    resolvedCoverUrl: ncm.resolvedCoverUrl,
+    currentLyricLines: ncm.currentLyricLines,
+    currentInlineLyric: ncm.currentInlineLyric,
+    fullPlayerTitle: ncm.fullPlayerTitle,
+    fullPlayerSubtitle: ncm.fullPlayerSubtitle,
+    fullPlayerDetail: ncm.fullPlayerDetail,
+    lyricStatus: ncm.lyricStatus,
+    currentNcmSupplement: ncm.currentNcmSupplement,
+    currentIsLiked: ncm.currentIsLiked,
+    playbackHistoryVersion,
     uiSettings,
     refreshState,
     refreshQueue,
     handlePlay,
     handlePause,
-    handleStop,
     handleSeek,
     handleVolumeChange,
     handleSkipPrev,
     handleSkipNext,
     handleCycleRepeat,
     handleToggleShuffle,
-    handleToggleLike,
-    handleActivePageChange,
+    handleToggleLike: ncm.handleToggleLike,
+    handleActivePageChange: navigation.handleActivePageChange,
+    handleOpenQueue,
     handleOpenQueueFromFullPlayer,
-    handleSidebarPlaylistSelect,
-    handleSelectedPlaylistChange,
-    handleNavigateToDiscover,
-    handleGoBack,
-    handleGoForward,
-    registerNcmPlayback,
+    handlePlayQueueEntry,
+    handleRemoveQueueEntry,
+    handleClearQueue,
+    handleSidebarPlaylistSelect: navigation.handleSidebarPlaylistSelect,
+    handleSelectedPlaylistChange: navigation.handleSelectedPlaylistChange,
+    handleNavigateToDiscover: navigation.handleNavigateToDiscover,
+    handleGoBack: navigation.handleGoBack,
+    handleGoForward: navigation.handleGoForward,
+    registerNcmPlayback: ncm.registerNcmPlayback,
     setFullPlayerOpen,
+    setQueueDrawerOpen,
     setSettingsOpen,
     setPreloadRequested,
     isPlaceholderPage

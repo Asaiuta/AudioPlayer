@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { RepeatMode, ShuffleMode } from "../shared/api/types";
+import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import {
   readSongCommentsPayload,
   songComments,
@@ -103,6 +104,7 @@ export function FullPlayer(props: FullPlayerProps) {
   const [controlAreaActive, setControlAreaActive] = createSignal(false);
   let lyricListRef: HTMLDivElement | undefined;
   let rootRef: HTMLDivElement | undefined;
+  let fullVolumeRef: HTMLDivElement | undefined;
   let hideTimer: number | undefined;
 
   const clearHideTimer = () => {
@@ -139,6 +141,10 @@ export function FullPlayer(props: FullPlayerProps) {
 
     const handleKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        if (volumePopoverOpen()) {
+          setVolumePopoverOpen(false);
+          return;
+        }
         if (typeof document !== "undefined" && document.fullscreenElement) {
           void document.exitFullscreen();
           return;
@@ -159,6 +165,12 @@ export function FullPlayer(props: FullPlayerProps) {
     onCleanup(() => window.removeEventListener("keydown", handleKey));
     onCleanup(() => document.removeEventListener("fullscreenchange", handleFullscreenChange));
     onCleanup(() => clearHideTimer());
+  });
+
+  useDismissibleOverlay(volumePopoverOpen, {
+    isInside: (target) => !!fullVolumeRef && fullVolumeRef.contains(target),
+    onDismiss: () => setVolumePopoverOpen(false),
+    escape: false
   });
 
   const lyrics = () => props.lyrics ?? [];
@@ -820,7 +832,7 @@ export function FullPlayer(props: FullPlayerProps) {
           >
             <IconControls />
           </button>
-          <div class="full-player-volume">
+          <div class="full-player-volume" ref={fullVolumeRef}>
             <button
               type="button"
               class="full-player-menu-icon"

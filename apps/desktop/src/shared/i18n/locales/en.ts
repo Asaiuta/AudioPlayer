@@ -163,6 +163,8 @@ export const en = {
   "queue.persistent.placeholder": "Add path or URL to persistent queue",
   "queue.persistent.add": "Add to Queue",
   "queue.persistent.clear": "Clear All",
+  "queue.drawer.close": "Close queue",
+  "queue.drawer.current": "Now playing",
   "queue.entry.nowPlaying": "now playing",
   "queue.entry.play": "Play",
   "queue.entry.remove": "Remove",

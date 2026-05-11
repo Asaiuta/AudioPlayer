@@ -72,7 +72,13 @@ export default defineConfig({
       md: "var(--radius-md)",
       lg: "var(--radius-lg)",
       xl: "var(--radius-xl)",
-      pill: "var(--radius-pill)"
+      pill: "var(--radius-pill)",
+      track: "var(--radius-track)",
+      button: "var(--radius-button)",
+      input: "var(--radius-input)",
+      card: "var(--radius-card)",
+      "card-prominent": "var(--radius-card-prominent)",
+      "icon-btn": "var(--radius-icon-btn)"
     },
     boxShadow: {
       "elev-1": "var(--elev-1)",

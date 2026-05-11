@@ -165,6 +165,8 @@ export const zhCN: TranslationDict = {
   "queue.persistent.placeholder": "添加路径或 URL 到持久队列",
   "queue.persistent.add": "添加到队列",
   "queue.persistent.clear": "清空全部",
+  "queue.drawer.close": "关闭播放队列",
+  "queue.drawer.current": "当前播放",
   "queue.entry.nowPlaying": "正在播放",
   "queue.entry.play": "播放",
   "queue.entry.remove": "移除",

@@ -18,10 +18,10 @@ interface SettingsPageProps {
 const HIGHLIGHT_DURATION_MS = 2500;
 
 const settingsModalClass =
-  "settings-modal is-open fixed inset-0 z-modal flex items-center justify-center p-5 bg-[var(--overlay)] backdrop-blur-[6px] opacity-100 pointer-events-auto transition-opacity duration-base ease-standard";
+  "settings-modal fixed inset-0 z-modal flex items-center justify-center p-5";
 
 const settingsModalCardClass =
-  "settings-modal-card relative grid grid-cols-[280px_minmax(0,1fr)] w-full max-w-[1024px] h-[75vh] min-h-[75vh] overflow-hidden rounded-lg border border-border-subtle bg-surface-1 text-text shadow-[0_24px_80px_var(--overlay)] scale-100 transition-transform duration-base ease-standard";
+  "settings-modal-card relative grid grid-cols-[280px_minmax(0,1fr)] w-full max-w-[1024px] h-[75vh] min-h-[75vh] overflow-hidden text-text scale-100 transition-transform duration-base ease-standard";
 
 const settingsModalCloseClass =
   "settings-modal-close absolute right-[14px] top-[14px] z-2 inline-flex h-9 w-9 items-center justify-center rounded-full border-0 bg-[color-mix(in_oklch,var(--surface-2)_60%,transparent)] text-text-soft transition-colors duration-fast ease-standard hover:bg-[color-mix(in_oklch,var(--surface-2)_90%,transparent)] hover:text-text";
@@ -56,6 +56,9 @@ export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation();
   const [activeCategory, setActiveCategory] = createSignal<SettingsCategoryKey>("appearance");
   const [highlightId, setHighlightId] = createSignal<string | null>(null);
+  const [rendered, setRendered] = createSignal<boolean>(props.isOpen);
+  const [visible, setVisible] = createSignal<boolean>(false);
+  const [closing, setClosing] = createSignal<boolean>(false);
   let contentRef: HTMLDivElement | undefined;
   let highlightTimer: number | undefined;
 
@@ -81,6 +84,29 @@ export function SettingsPage(props: SettingsPageProps) {
     };
     window.addEventListener("keydown", onKey);
     onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
+
+  createEffect(() => {
+    let closeTimer: number | undefined;
+    let openFrame: number | undefined;
+
+    if (props.isOpen) {
+      setRendered(true);
+      setClosing(false);
+      openFrame = window.requestAnimationFrame(() => setVisible(true));
+    } else if (rendered()) {
+      setVisible(false);
+      setClosing(true);
+      closeTimer = window.setTimeout(() => {
+        setRendered(false);
+        setClosing(false);
+      }, 140);
+    }
+
+    onCleanup(() => {
+      if (openFrame !== undefined) window.cancelAnimationFrame(openFrame);
+      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
+    });
   });
 
   const handleSelect = (key: SettingsCategoryKey) => {
@@ -109,13 +135,13 @@ export function SettingsPage(props: SettingsPageProps) {
   };
 
   const handleBackdropClick = (event: MouseEvent) => {
-    if (event.target === event.currentTarget) props.onClose();
+    if (props.isOpen && event.target === event.currentTarget) props.onClose();
   };
 
   return (
-    <Show when={props.isOpen}>
+    <Show when={rendered()}>
       <div
-        class={settingsModalClass}
+        class={`${settingsModalClass}${visible() && !closing() ? " is-open" : ""}${closing() ? " is-closing" : ""}`}
         role="dialog"
         aria-label={t("settings.nav.title")}
         aria-modal="true"

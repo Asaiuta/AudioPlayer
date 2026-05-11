@@ -1,6 +1,7 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import type { TranslationKey } from "../../../shared/i18n";
 import { useTranslation } from "../../../shared/i18n";
+import { useDismissibleOverlay } from "../../../shared/ui/useDismissibleOverlay";
 import { SETTINGS_CATALOG, type SettingsCatalogEntry } from "../search/catalog";
 import { SETTINGS_CATEGORIES } from "./SettingsCategoryNav";
 import type { SettingsCategoryKey } from "./SettingsCategoryNav";
@@ -23,7 +24,7 @@ const settingsSearchInputClass =
   "settings-search-input h-9 w-full rounded-md border border-border-subtle bg-[color-mix(in_oklch,var(--surface-2)_70%,transparent)] px-[14px] text-sm text-text outline-none transition-[border-color,box-shadow] duration-fast ease-standard focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_25%,transparent)]";
 
 const settingsSearchResultsClass =
-  "settings-search-results absolute left-0 right-0 top-[calc(100%+6px)] z-10 flex max-h-80 flex-col gap-[2px] overflow-y-auto rounded-md border border-border-subtle bg-surface-1 p-[6px] shadow-[0_12px_32px_oklch(0_0_0_/_0.25)]";
+  "settings-search-results absolute left-0 right-0 top-[calc(100%+6px)] flex max-h-80 flex-col gap-[2px] overflow-y-auto p-[6px]";
 
 const settingsSearchResultBaseClass =
   "settings-search-result flex items-center justify-between gap-3 rounded-sm border-0 bg-transparent px-3 py-3 text-left text-sm text-text transition-colors duration-fast ease-standard hover:bg-[color-mix(in_oklch,var(--accent)_18%,transparent)]";
@@ -70,22 +71,9 @@ export function SettingsSearchBox(props: SettingsSearchBoxProps) {
       .map(({ entry }) => entry);
   });
 
-  createEffect(() => {
-    if (!open()) return;
-    const handler = (event: MouseEvent) => {
-      if (!containerRef) return;
-      if (event.target instanceof Node && containerRef.contains(event.target)) return;
-      setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", handler);
-    window.addEventListener("keydown", onKey);
-    onCleanup(() => {
-      window.removeEventListener("mousedown", handler);
-      window.removeEventListener("keydown", onKey);
-    });
+  useDismissibleOverlay(open, {
+    isInside: (target) => !!containerRef && containerRef.contains(target),
+    onDismiss: () => setOpen(false)
   });
 
   const handleSelect = (entry: SettingsCatalogEntry) => {

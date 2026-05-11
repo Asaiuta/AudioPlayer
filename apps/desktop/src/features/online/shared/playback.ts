@@ -43,6 +43,7 @@ export function createPlaybackController(ctx: PlaybackContext): PlaybackControll
     const url = readSongUrl(songUrlResponse);
     if (!url) throw new Error(t("ncm.error.songUrlUnavailable"));
     const detail = readSongDetailSupplement(detailResponse, item.songId);
+    const coverUrl = detail?.coverUrl ?? item.artworkUrl ?? null;
     onRegisterPlayback({
       songId: item.songId,
       streamUrl: url,
@@ -50,7 +51,7 @@ export function createPlaybackController(ctx: PlaybackContext): PlaybackControll
       title: detail?.title ?? item.title,
       artist: detail?.artist ?? item.artist,
       album: detail?.album ?? item.album,
-      coverUrl: detail?.coverUrl ?? null,
+      coverUrl,
       durationSecs: item.duration_secs
     });
     try {
@@ -60,7 +61,7 @@ export function createPlaybackController(ctx: PlaybackContext): PlaybackControll
         artist: detail?.artist ?? item.artist,
         album: detail?.album ?? item.album,
         duration_secs: item.duration_secs,
-        external_artwork_url: detail?.coverUrl ?? null
+        external_artwork_url: coverUrl
       });
     } catch {
       // Metadata persistence is a cache warmup; playback should not depend on it.
@@ -69,11 +70,12 @@ export function createPlaybackController(ctx: PlaybackContext): PlaybackControll
   };
 
   const playOnlineTrack = async (item: OnlineTrackItem) => {
+    setFeedback("neutral", t("ncm.feedback.initial"));
     try {
       const url = await registerAndResolveTrack(item);
       await api.load(url, { autoplay: true });
       await onStateRefresh(url);
-      setFeedback("success", t("ncm.feedback.trackLoaded", { title: item.title ?? item.songId }));
+      setFeedback("neutral", t("ncm.feedback.initial"));
     } catch (error) {
       setFeedback("error", readErrorMessage(error));
     }

@@ -2,7 +2,10 @@ import { render } from "solid-js/web";
 import App from "./app/App";
 import { I18nProvider } from "./shared/i18n";
 import "./shared/styles/global.css";
-import "./shared/styles/components.css";
+import "./shared/styles/components/shell.css";
+import "./shared/styles/components/pages.css";
+import "./shared/styles/components/player.css";
+import "./shared/styles/components/modals.css";
 import "./shared/styles/transitions.css";
 import "virtual:uno.css";
 
