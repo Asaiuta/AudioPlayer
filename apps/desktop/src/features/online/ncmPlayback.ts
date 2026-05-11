@@ -42,20 +42,8 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const asRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
 
-const asArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-
 const readString = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value : null;
-
-const readNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const readArtists = (value: unknown): string | null => {
-  const names = asArray(value)
-    .map((item) => readString(asRecord(item)?.name))
-    .filter((name): name is string => name !== null);
-  return names.length > 0 ? names.join(", ") : null;
-};
 
 export const mergeNcmTrackReference = (
   previous: NcmTrackReference | undefined,
@@ -69,34 +57,6 @@ export const mergeNcmTrackReference = (
   coverUrl: next.coverUrl ?? previous?.coverUrl ?? null,
   durationSecs: next.durationSecs ?? previous?.durationSecs ?? null
 });
-
-export const readSongDetailSupplement = (
-  payload: unknown,
-  fallbackSongId: number
-): Pick<NcmTrackSupplement, "title" | "artist" | "album" | "coverUrl"> | null => {
-  const root = asRecord(payload);
-  const songs = asArray(root?.songs);
-  const target =
-    songs
-      .map(asRecord)
-      .find((song) => readNumber(song?.id) === fallbackSongId) ??
-    asRecord(songs[0]);
-
-  if (!target) {
-    return null;
-  }
-
-  const album = asRecord(target.al) ?? asRecord(target.album);
-  return {
-    title: readString(target.name),
-    artist:
-      readArtists(target.ar) ??
-      readArtists(target.artists) ??
-      readString(asRecord(target.artist)?.name),
-    album: readString(album?.name),
-    coverUrl: readString(album?.picUrl) ?? readString(target.picUrl)
-  };
-};
 
 const parseTimestampFraction = (rawFraction: string | undefined): number => {
   if (!rawFraction) {

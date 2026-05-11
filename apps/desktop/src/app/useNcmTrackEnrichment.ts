@@ -3,13 +3,11 @@ import {
   findCurrentLyricLine,
   mergeNcmTrackReference,
   readLyricLines,
-  readSongDetailSupplement,
   type NcmLyricLine,
   type NcmTrackReference,
   type NcmTrackSupplement
 } from "../features/online/ncmPlayback";
 import { likeSong, userLikelist } from "../shared/api/ncm/user";
-import { lyricNew, songDetail } from "../shared/api/ncm/search";
 import type { ApiClient } from "../shared/api/client";
 import type { PlayerState } from "../shared/api/types";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
@@ -162,8 +160,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
 
     const request = trackRef
       ? Promise.allSettled([
-          songDetail(trackRef.songId),
-          lyricNew(trackRef.songId),
+          api.resolveNcmTrackSupplement(trackRef.songId),
           api.getCurrentLyrics()
         ])
       : Promise.allSettled([api.getCurrentLyrics()]);
@@ -174,18 +171,15 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       }
 
       if (trackRef) {
-        const [detailResult, lyricResult, localLyricResult] = results as [
-          PromiseSettledResult<unknown>,
-          PromiseSettledResult<unknown>,
+        const [supplementResult, localLyricResult] = results as [
+          PromiseSettledResult<Awaited<ReturnType<ApiClient["resolveNcmTrackSupplement"]>>>,
           PromiseSettledResult<{ lyrics: string | null; source: string | null }>
         ];
 
-        const detailPayload =
-          detailResult.status === "fulfilled"
-            ? readSongDetailSupplement(detailResult.value, trackRef.songId)
-            : null;
         const onlineLyrics =
-          lyricResult.status === "fulfilled" ? readLyricLines(lyricResult.value) : [];
+          supplementResult.status === "fulfilled" && supplementResult.value.lyricsPayload
+            ? readLyricLines(supplementResult.value.lyricsPayload)
+            : [];
         const localLyrics =
           localLyricResult.status === "fulfilled" && localLyricResult.value.lyrics
             ? readLyricLines({
@@ -198,20 +192,27 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
             : [];
         const lyrics = onlineLyrics.length > 0 ? onlineLyrics : localLyrics;
         const error =
-          detailResult.status === "rejected"
-            ? readErrorMessage(detailResult.reason)
-            : lyricResult.status === "rejected"
-              ? readErrorMessage(lyricResult.reason)
-              : localLyricResult.status === "rejected"
+          supplementResult.status === "rejected"
+            ? readErrorMessage(supplementResult.reason)
+            : supplementResult.value.detailError ??
+              supplementResult.value.lyricsError ??
+              (localLyricResult.status === "rejected"
                 ? readErrorMessage(localLyricResult.reason)
-                : null;
+                : null);
+        const resolvedSupplement =
+          supplementResult.status === "fulfilled" ? supplementResult.value : null;
+        const hasRemoteSupplement =
+          Boolean(resolvedSupplement?.title) ||
+          Boolean(resolvedSupplement?.artist) ||
+          Boolean(resolvedSupplement?.album) ||
+          Boolean(resolvedSupplement?.coverUrl);
 
         setCurrentNcmSupplement({
-          status: error && !detailPayload && lyrics.length === 0 ? "error" : "success",
-          title: detailPayload?.title ?? trackRef.title,
-          artist: detailPayload?.artist ?? trackRef.artist,
-          album: detailPayload?.album ?? trackRef.album,
-          coverUrl: detailPayload?.coverUrl ?? trackRef.coverUrl,
+          status: error && !hasRemoteSupplement && lyrics.length === 0 ? "error" : "success",
+          title: resolvedSupplement?.title ?? trackRef.title,
+          artist: resolvedSupplement?.artist ?? trackRef.artist,
+          album: resolvedSupplement?.album ?? trackRef.album,
+          coverUrl: resolvedSupplement?.coverUrl ?? trackRef.coverUrl,
           lyrics,
           error
         });

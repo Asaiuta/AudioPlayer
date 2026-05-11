@@ -45,6 +45,7 @@ export interface ApiClient {
   getMediaItems: (limit?: number, all?: boolean) => Promise<MediaItem[]>;
   saveExternalMediaMetadata: (metadata: ExternalMediaMetadataInput) => Promise<string>;
   resolveNcmTrack: (input: ResolveNcmTrackInput) => Promise<ResolvedNcmTrack>;
+  resolveNcmTrackSupplement: (songId: number) => Promise<ResolvedNcmTrackSupplement>;
   // Persistent Queue
   getPersistentQueue: () => Promise<QueueEntry[]>;
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
@@ -103,6 +104,17 @@ export interface ResolvedNcmTrack {
   album: string | null;
   coverUrl: string | null;
   durationSecs: number | null;
+}
+
+export interface ResolvedNcmTrackSupplement {
+  songId: number;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  coverUrl: string | null;
+  lyricsPayload: unknown | null;
+  detailError: string | null;
+  lyricsError: string | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -522,6 +534,42 @@ const parseResolvedNcmTrackResponse = (value: unknown): ResolvedNcmTrack => {
   };
 };
 
+const parseResolvedNcmTrackSupplementResponse = (value: unknown): ResolvedNcmTrackSupplement => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM supplement response shape");
+  }
+
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to resolve NCM supplement");
+  }
+
+  const supplement = isRecord(value.supplement) ? value.supplement : null;
+  if (
+    !supplement ||
+    !isInteger(supplement.song_id) ||
+    !isNullableString(supplement.title) ||
+    !isNullableString(supplement.artist) ||
+    !isNullableString(supplement.album) ||
+    !isNullableString(supplement.cover_url) ||
+    !isNullableString(supplement.detail_error) ||
+    !isNullableString(supplement.lyrics_error)
+  ) {
+    throw new Error("Invalid NCM supplement payload");
+  }
+
+  return {
+    songId: supplement.song_id,
+    title: supplement.title,
+    artist: supplement.artist,
+    album: supplement.album,
+    coverUrl: supplement.cover_url,
+    lyricsPayload: supplement.lyrics_payload ?? null,
+    detailError: supplement.detail_error,
+    lyricsError: supplement.lyrics_error
+  };
+};
+
 const requestJson = async (baseUrl: string, path: string, init?: RequestInit) => {
   const runRequest = async (forceTokenRefresh: boolean) => {
     const token = await resolveApiToken(forceTokenRefresh);
@@ -795,6 +843,17 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       })
     });
     return parseResolvedNcmTrackResponse(json);
+  },
+  resolveNcmTrackSupplement: async (songId: number) => {
+    const activeCookie = getActiveNcmCookie();
+    const json = await requestJson(baseUrl, "/domain/ncm/track/supplement", {
+      method: "POST",
+      body: JSON.stringify({
+        song_id: songId,
+        cookie: activeCookie
+      })
+    });
+    return parseResolvedNcmTrackSupplementResponse(json);
   },
   getPersistentQueue: async () => {
     const json = await requestJson(baseUrl, "/domain/queue");

@@ -23,6 +23,10 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         "/domain/ncm/track/resolve",
         web::post().to(resolve_ncm_track),
     )
+    .route(
+        "/domain/ncm/track/supplement",
+        web::post().to(resolve_ncm_track_supplement),
+    )
     .route("/api/netease/{tail:.*}", web::get().to(handle_request))
     .route("/api/netease/{tail:.*}", web::post().to(handle_request));
 }
@@ -40,6 +44,12 @@ struct ResolveNcmTrackRequest {
     artwork_url: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct ResolveNcmTrackSupplementRequest {
+    song_id: i64,
+    cookie: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 struct ResolvedNcmTrack {
     song_id: i64,
@@ -50,6 +60,18 @@ struct ResolvedNcmTrack {
     album: Option<String>,
     cover_url: Option<String>,
     duration_secs: Option<f64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct ResolvedNcmTrackSupplement {
+    song_id: i64,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    cover_url: Option<String>,
+    lyrics_payload: Option<Value>,
+    detail_error: Option<String>,
+    lyrics_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -179,6 +201,85 @@ async fn resolve_ncm_track(
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
         "track": track
+    }))
+}
+
+async fn resolve_ncm_track_supplement(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<ResolveNcmTrackSupplementRequest>,
+) -> HttpResponse {
+    let request = body.into_inner();
+    if request.song_id <= 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM song id must be positive"
+        }));
+    }
+
+    let cookie = request
+        .cookie
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let mut detail_query = Query::new().param("ids", &request.song_id.to_string());
+    let mut lyrics_query = Query::new().param("id", &request.song_id.to_string());
+    if let Some(cookie) = cookie {
+        detail_query.cookie = Some(cookie.to_string());
+        lyrics_query.cookie = Some(cookie.to_string());
+    }
+
+    let start = std::time::Instant::now();
+    let (detail_result, lyrics_result) = tokio::join!(
+        data.ncm_client.song_detail(&detail_query),
+        data.ncm_client.lyric_new(&lyrics_query)
+    );
+
+    let (detail, detail_error) = match detail_result {
+        Ok(response) => (read_song_detail(&response.body, request.song_id), None),
+        Err(err) => {
+            let message = err.to_string();
+            log::warn!(
+                "NCM supplement track {} detail -> ERROR: {} ({:.1?})",
+                request.song_id,
+                message,
+                start.elapsed()
+            );
+            (None, Some(message))
+        }
+    };
+    let (lyrics_payload, lyrics_error) = match lyrics_result {
+        Ok(response) => (Some(response.body), None),
+        Err(err) => {
+            let message = err.to_string();
+            log::warn!(
+                "NCM supplement track {} lyrics -> ERROR: {} ({:.1?})",
+                request.song_id,
+                message,
+                start.elapsed()
+            );
+            (None, Some(message))
+        }
+    };
+    let detail = detail.unwrap_or_default();
+
+    log::info!(
+        "NCM supplement track {} -> OK ({:.1?})",
+        request.song_id,
+        start.elapsed()
+    );
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "supplement": ResolvedNcmTrackSupplement {
+            song_id: request.song_id,
+            title: detail.title,
+            artist: detail.artist,
+            album: detail.album,
+            cover_url: detail.cover_url,
+            lyrics_payload,
+            detail_error,
+            lyrics_error,
+        }
     }))
 }
 
