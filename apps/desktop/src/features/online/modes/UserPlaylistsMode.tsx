@@ -4,18 +4,16 @@ import { AlbumCard } from "../../../components/AlbumCard";
 import { IconPlayCircle } from "../../../components/icons";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { useTranslation } from "../../../shared/i18n";
-import { userPlaylist } from "../../../shared/api/ncm";
-import {
-  filterUserPlaylists,
-  readUserPlaylists,
-  type OnlinePlaylistSummary
-} from "../ncmPlaylistSummary";
+import { createApiClient } from "../../../shared/api/client";
+import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { PlaylistDetail } from "../details/PlaylistDetail";
 import type { PlaybackController } from "../shared/playback";
 import type { Feedback, NcmProfile } from "../shared/types";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
 export type UserPlaylistsKind = "created-playlists" | "collected-playlists";
+
+const api = createApiClient();
 
 export interface UserPlaylistsModeProps {
   kind: UserPlaylistsKind;
@@ -78,10 +76,13 @@ export function UserPlaylistsMode(props: UserPlaylistsModeProps) {
     const run = async () => {
       setIsLoadingUserPlaylists(true);
       try {
-        const response = await userPlaylist({ uid: profile.userId, limit: 100 });
+        const playlists = await api.listNcmUserPlaylists({
+          uid: profile.userId,
+          limit: 100,
+          mode: kind
+        });
         if (cancelled) return;
-        const allPlaylists = readUserPlaylists(response);
-        setUserPlaylistsState(filterUserPlaylists(allPlaylists, kind));
+        setUserPlaylistsState(playlists);
       } catch (error) {
         if (!cancelled) {
           setUserPlaylistsState([]);

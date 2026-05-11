@@ -47,6 +47,10 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         web::post().to(daily_signin_active_ncm_account),
     )
     .route(
+        "/domain/ncm/user/playlists",
+        web::post().to(list_ncm_user_playlists),
+    )
+    .route(
         "/domain/ncm/accounts/{user_id}",
         web::delete().to(delete_ncm_account),
     )
@@ -94,6 +98,14 @@ struct NcmAccountPath {
     user_id: i64,
 }
 
+#[derive(Deserialize)]
+struct UserPlaylistsRequest {
+    uid: i64,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    mode: Option<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 struct ResolvedNcmTrack {
     song_id: i64,
@@ -133,6 +145,16 @@ struct NcmProfileSnapshot {
     avatar_url: Option<String>,
     vip_type: Option<i64>,
     level: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct NcmPlaylistSummary {
+    id: i64,
+    name: String,
+    creator: Option<String>,
+    cover_url: Option<String>,
+    track_count: Option<i64>,
+    subscribed: bool,
 }
 
 async fn list_ncm_accounts(data: web::Data<Arc<AppState>>) -> HttpResponse {
@@ -286,6 +308,45 @@ async fn delete_ncm_account(
             "status": "error",
             "message": err
         })),
+    }
+}
+
+async fn list_ncm_user_playlists(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<UserPlaylistsRequest>,
+) -> HttpResponse {
+    let request = body.into_inner();
+    if request.uid <= 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM user id must be positive"
+        }));
+    }
+
+    let mut query = Query::new().param("uid", &request.uid.to_string());
+    if let Some(limit) = request.limit.filter(|value| *value > 0) {
+        query = query.param("limit", &limit.to_string());
+    }
+    if let Some(offset) = request.offset.filter(|value| *value >= 0) {
+        query = query.param("offset", &offset.to_string());
+    }
+    if let Some(cookie) = active_ncm_cookie(&data) {
+        query.cookie = Some(cookie);
+    }
+
+    match data.ncm_client.user_playlist(&query).await {
+        Ok(response) => {
+            let mode =
+                request.mode.as_deref().map(str::trim).filter(|value| {
+                    *value == "created-playlists" || *value == "collected-playlists"
+                });
+            let playlists = filter_playlist_summaries(read_user_playlists(&response.body), mode);
+            HttpResponse::Ok().json(serde_json::json!({
+                "status": "success",
+                "playlists": playlists
+            }))
+        }
+        Err(err) => build_error_response(err),
     }
 }
 
@@ -1071,6 +1132,53 @@ fn read_profile_snapshot(payload: &Value) -> Option<NcmProfileSnapshot> {
     })
 }
 
+fn read_user_playlists(payload: &Value) -> Vec<NcmPlaylistSummary> {
+    payload
+        .get("playlist")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_playlist_summary)
+        .collect()
+}
+
+fn read_playlist_summary(value: &Value) -> Option<NcmPlaylistSummary> {
+    let item = value.as_object()?;
+    let id = item.get("id").and_then(Value::as_i64)?;
+    let name = item.get("name").and_then(read_non_empty_string)?;
+    Some(NcmPlaylistSummary {
+        id,
+        name,
+        creator: item
+            .get("creator")
+            .and_then(|creator| creator.get("nickname"))
+            .and_then(read_non_empty_string),
+        cover_url: item.get("coverImgUrl").and_then(read_non_empty_string),
+        track_count: item.get("trackCount").and_then(Value::as_i64),
+        subscribed: item
+            .get("subscribed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false),
+    })
+}
+
+fn filter_playlist_summaries(
+    playlists: Vec<NcmPlaylistSummary>,
+    mode: Option<&str>,
+) -> Vec<NcmPlaylistSummary> {
+    match mode {
+        Some("created-playlists") => playlists
+            .into_iter()
+            .filter(|playlist| !playlist.subscribed)
+            .collect(),
+        Some("collected-playlists") => playlists
+            .into_iter()
+            .filter(|playlist| playlist.subscribed)
+            .collect(),
+        _ => playlists,
+    }
+}
+
 fn non_empty_cookie(cookie: &str) -> Option<String> {
     let trimmed = cookie.trim();
     if trimmed.is_empty() {
@@ -1485,6 +1593,45 @@ mod tests {
                 vip_type: Some(11),
                 level: Some(8),
             })
+        );
+    }
+
+    #[test]
+    fn read_user_playlists_returns_sanitized_summaries() {
+        let payload = json!({
+            "playlist": [
+                {
+                    "id": 1,
+                    "name": "Created",
+                    "creator": { "nickname": "Ada" },
+                    "coverImgUrl": "cover-a.jpg",
+                    "trackCount": 12,
+                    "subscribed": false
+                },
+                {
+                    "id": 2,
+                    "name": "Collected",
+                    "creator": { "nickname": "Grace" },
+                    "coverImgUrl": "cover-b.jpg",
+                    "trackCount": 34,
+                    "subscribed": true
+                }
+            ]
+        });
+
+        let playlists = read_user_playlists(&payload);
+        assert_eq!(playlists.len(), 2);
+        assert_eq!(playlists[0].name, "Created");
+        assert_eq!(
+            filter_playlist_summaries(playlists.clone(), Some("collected-playlists")),
+            vec![NcmPlaylistSummary {
+                id: 2,
+                name: "Collected".to_string(),
+                creator: Some("Grace".to_string()),
+                cover_url: Some("cover-b.jpg".to_string()),
+                track_count: Some(34),
+                subscribed: true,
+            }]
         );
     }
 

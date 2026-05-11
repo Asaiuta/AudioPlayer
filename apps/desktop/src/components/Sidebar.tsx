@@ -1,12 +1,10 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import type { Component, JSX } from "solid-js";
 import type { ActivePage } from "../shared/ui/navigation";
-import { userPlaylist } from "../shared/api/ncm";
+import { createApiClient } from "../shared/api/client";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useTranslation } from "../shared/i18n";
 import {
-  filterUserPlaylists,
-  readUserPlaylists,
   type OnlinePlaylistSummary,
   type UserPlaylistMode
 } from "../features/online/ncmPlaylistSummary";
@@ -30,6 +28,8 @@ import {
 } from "./icons";
 
 type IconComponent = Component<JSX.SvgSVGAttributes<SVGSVGElement>>;
+
+const api = createApiClient();
 
 interface NavItem {
   key: ActivePage;
@@ -165,11 +165,21 @@ export function Sidebar(props: SidebarProps) {
     let cancelled = false;
     void (async () => {
       try {
-        const response = await userPlaylist({ uid: activeAccount.userId, limit: 100 });
+        const [created, collected] = await Promise.all([
+          api.listNcmUserPlaylists({
+            uid: activeAccount.userId,
+            limit: 100,
+            mode: "created-playlists"
+          }),
+          api.listNcmUserPlaylists({
+            uid: activeAccount.userId,
+            limit: 100,
+            mode: "collected-playlists"
+          })
+        ]);
         if (cancelled) return;
-        const playlists = readUserPlaylists(response);
-        setCreatedPlaylists(filterUserPlaylists(playlists, "created-playlists"));
-        setCollectedPlaylists(filterUserPlaylists(playlists, "collected-playlists"));
+        setCreatedPlaylists(created);
+        setCollectedPlaylists(collected);
       } catch (error) {
         if (cancelled) return;
         setCreatedPlaylists([]);

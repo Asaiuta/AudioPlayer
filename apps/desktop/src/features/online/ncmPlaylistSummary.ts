@@ -1,3 +1,5 @@
+import type { NcmPlaylistSummary } from "../../shared/api/client";
+
 interface OnlinePlaylistSummaryRecord extends Record<string, unknown> {
   id?: unknown;
   name?: unknown;
@@ -9,14 +11,7 @@ interface OnlinePlaylistSummaryRecord extends Record<string, unknown> {
 
 export type UserPlaylistMode = "created-playlists" | "collected-playlists";
 
-export interface OnlinePlaylistSummary {
-  id: number;
-  name: string;
-  creator: string | null;
-  coverUrl: string | null;
-  trackCount: number | null;
-  subscribed: boolean;
-}
+export type OnlinePlaylistSummary = NcmPlaylistSummary;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
