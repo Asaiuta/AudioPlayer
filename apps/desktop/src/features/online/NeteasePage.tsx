@@ -15,7 +15,7 @@ const api = createApiClient();
 
 interface NeteasePageProps {
   mode: NeteasePageMode;
-  onStateRefresh: () => Promise<void>;
+  onStateRefresh: (expectedPath?: string | null) => Promise<void>;
   currentTrackPath: string | null;
   currentSongId: number | null;
   isPlaying: boolean;

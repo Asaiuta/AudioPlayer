@@ -362,6 +362,10 @@ async fn dispatch(
             .likelist(query)
             .await
             .map_err(DispatchError::Ncm),
+        "like" => client
+            .like(query)
+            .await
+            .map_err(DispatchError::Ncm),
         "daily_signin" => client
             .daily_signin(query)
             .await

@@ -129,6 +129,19 @@ export const userLikelist = (uid: number): Promise<NcmResponseEnvelope<NcmLikeli
   });
 
 /**
+ * Like or unlike a song.
+ * @param id - NCM song ID
+ * @param like - `true` to like, `false` to unlike
+ * Backend route: `/like` → `like`.
+ */
+export const likeSong = (id: number, like: boolean = true): Promise<NcmResponseEnvelope> =>
+  requestNcm("like", {
+    method: "POST",
+    data: { id, like },
+    noCache: true
+  });
+
+/**
  * Daily sign-in. `type` 0 = mobile (default, awards more points), 1 = PC.
  * Backend route: `/daily_signin` → `daily_signin`.
  *

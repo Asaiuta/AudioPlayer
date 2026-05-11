@@ -4,4 +4,5 @@ export * from "./playlist";
 export * from "./recommend";
 export * from "./search";
 export * from "./song";
+export * from "./comment";
 export * from "./user";

@@ -3,6 +3,7 @@ export interface NcmLyricLine {
   endTime: number | null;
   text: string;
   translatedText?: string | null;
+  romanText?: string | null;
   words?: readonly NcmLyricWord[];
 }
 
@@ -507,15 +508,49 @@ const mergeTranslatedLyricLines = (
   });
 };
 
+const mergeExtraLyricLines = (
+  baseLines: readonly NcmLyricLine[],
+  extraLines: readonly NcmLyricLine[],
+  key: "translatedText" | "romanText"
+): NcmLyricLine[] => {
+  if (baseLines.length === 0 || extraLines.length === 0) {
+    return [...baseLines];
+  }
+
+  return baseLines.map((line) => {
+    const nearest = extraLines.reduce<NcmLyricLine | null>((current, candidate) => {
+      if (current === null) {
+        return candidate;
+      }
+      return Math.abs(candidate.time - line.time) < Math.abs(current.time - line.time)
+        ? candidate
+        : current;
+    }, null);
+
+    if (!nearest || Math.abs(nearest.time - line.time) > 0.3) {
+      return line;
+    }
+
+    return {
+      ...line,
+      [key]: nearest.text
+    };
+  });
+};
+
 export const readLyricLines = (payload: unknown): NcmLyricLine[] => {
   const root = asRecord(payload);
-  const yrc = readString(asRecord(root?.yrc)?.lyric);
-  const klyric = readString(asRecord(root?.klyric)?.lyric);
-  const lrc = readString(asRecord(root?.lrc)?.lyric);
-  const tlyric = readString(asRecord(root?.tlyric)?.lyric);
-  const ttml = readString(root?.ttml) ?? readString(asRecord(root?.ttml)?.lyric);
-  const lys = readString(root?.lys) ?? readString(asRecord(root?.lys)?.lyric);
-  const eslrc = readString(root?.eslrc) ?? readString(asRecord(root?.eslrc)?.lyric);
+  const body = asRecord(root?.data) ?? root;
+  const yrc = readString(asRecord(body?.yrc)?.lyric);
+  const klyric = readString(asRecord(body?.klyric)?.lyric);
+  const lrc = readString(asRecord(body?.lrc)?.lyric) ?? readString(body?.lrc);
+  const tlyric = readString(asRecord(body?.tlyric)?.lyric) ?? readString(body?.tlyric);
+  const romalrc = readString(asRecord(body?.romalrc)?.lyric) ?? readString(body?.romalrc);
+  const ytlrc = readString(asRecord(body?.ytlrc)?.lyric) ?? readString(body?.ytlrc);
+  const yromalrc = readString(asRecord(body?.yromalrc)?.lyric) ?? readString(body?.yromalrc);
+  const ttml = readString(body?.ttml) ?? readString(asRecord(body?.ttml)?.lyric);
+  const lys = readString(body?.lys) ?? readString(asRecord(body?.lys)?.lyric);
+  const eslrc = readString(body?.eslrc) ?? readString(asRecord(body?.eslrc)?.lyric);
   const candidates = [
     yrc ? parseYrcLyricText(yrc) : [],
     klyric ? parseQrcLyricText(klyric) : [],
@@ -526,10 +561,22 @@ export const readLyricLines = (payload: unknown): NcmLyricLine[] => {
   ];
 
   const translatedLines = tlyric ? parseTimedLyricText(tlyric) : [];
+  const romanLines = romalrc ? parseTimedLyricText(romalrc) : [];
+  const yTranslatedLines = ytlrc ? parseTimedLyricText(ytlrc) : [];
+  const yRomanLines = yromalrc ? parseTimedLyricText(yromalrc) : [];
 
   for (const parsed of candidates) {
     if (parsed.length > 0) {
-      return mergeTranslatedLyricLines(parsed, translatedLines);
+      const withTranslations = mergeExtraLyricLines(
+        mergeTranslatedLyricLines(parsed, translatedLines),
+        parsed[0]?.words?.length ? yTranslatedLines : [],
+        "translatedText"
+      );
+      return mergeExtraLyricLines(
+        withTranslations,
+        parsed[0]?.words?.length ? yRomanLines : romanLines,
+        "romanText"
+      );
     }
   }
 
@@ -559,4 +606,31 @@ export const findCurrentLyricLine = (
 ): string | null => {
   const index = findActiveLyricIndex(lyrics, currentTime);
   return index >= 0 ? lyrics[index]?.text ?? null : null;
+};
+
+export const snapSeekPositionToLyrics = (
+  lyrics: readonly NcmLyricLine[],
+  currentTime: number
+): number => {
+  if (lyrics.length === 0 || !Number.isFinite(currentTime)) {
+    return currentTime;
+  }
+
+  const currentIndex = findActiveLyricIndex(lyrics, currentTime);
+  const nextIndex = currentIndex + 1;
+  if (nextIndex < lyrics.length) {
+    const nextStart = lyrics[nextIndex]?.time;
+    if (nextStart !== undefined && nextStart - currentTime <= 2.5) {
+      return nextStart;
+    }
+  }
+
+  if (currentIndex >= 0) {
+    const currentStart = lyrics[currentIndex]?.time;
+    if (currentStart !== undefined && currentTime - currentStart <= 10) {
+      return currentStart;
+    }
+  }
+
+  return currentTime;
 };

@@ -12,7 +12,7 @@ export interface PlaybackContext {
   api: ApiClient;
   t: Translator;
   onRegisterPlayback: (track: NcmTrackReference) => void;
-  onStateRefresh: () => Promise<void>;
+  onStateRefresh: (expectedPath?: string | null) => Promise<void>;
   setFeedback: (tone: Feedback["tone"], message: string) => void;
 }
 
@@ -53,14 +53,26 @@ export function createPlaybackController(ctx: PlaybackContext): PlaybackControll
       coverUrl: detail?.coverUrl ?? null,
       durationSecs: item.duration_secs
     });
+    try {
+      await api.saveExternalMediaMetadata({
+        source_path: url,
+        title: detail?.title ?? item.title,
+        artist: detail?.artist ?? item.artist,
+        album: detail?.album ?? item.album,
+        duration_secs: item.duration_secs,
+        external_artwork_url: detail?.coverUrl ?? null
+      });
+    } catch {
+      // Metadata persistence is a cache warmup; playback should not depend on it.
+    }
     return url;
   };
 
   const playOnlineTrack = async (item: OnlineTrackItem) => {
     try {
       const url = await registerAndResolveTrack(item);
-      await api.load(url);
-      await onStateRefresh();
+      await api.load(url, { autoplay: true });
+      await onStateRefresh(url);
       setFeedback("success", t("ncm.feedback.trackLoaded", { title: item.title ?? item.songId }));
     } catch (error) {
       setFeedback("error", readErrorMessage(error));
