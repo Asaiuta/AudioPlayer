@@ -399,6 +399,14 @@ pub fn audio_callback_lockfree(
         }
     }
 
+    // If paused or stopped, output silence and return early.
+    // This ensures audio stops even if the platform backend doesn't honor stream.pause().
+    let current_state = shared.state.load();
+    if current_state != PlayerState::Playing {
+        data.fill(0.0);
+        return;
+    }
+
     let has_leftover = *resample_leftover_pos < resample_leftover.len();
 
     // Gapless and EOF handling

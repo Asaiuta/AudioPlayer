@@ -330,13 +330,10 @@ impl AudioPlayer {
             credentials.is_some(),
             path
         );
-        self.stop();
+        self.stop_for_track_load();
         GaplessManager::cancel_preload(&self.shared_state);
 
-        // Set loading state
-        self.shared_state.is_loading.store(true, Ordering::Release);
-        self.shared_state.load_progress.store(0, Ordering::Relaxed);
-        *self.shared_state.load_error.write() = None;
+        self.begin_loading_track(path, autoplay);
 
         let path_owned = path.to_string();
         let credentials_owned = credentials.cloned();
@@ -362,7 +359,7 @@ impl AudioPlayer {
             match result {
                 Ok(load_result) => {
                     let _ = cmd_tx.send(AudioCommand::LoadComplete(load_result));
-                    if autoplay {
+                    if autoplay && shared_state.state.load() != PlayerState::Paused {
                         let _ = cmd_tx.send(AudioCommand::Play);
                     }
                 }
@@ -375,6 +372,24 @@ impl AudioPlayer {
         });
 
         Ok(())
+    }
+
+    fn begin_loading_track(&self, path: &str, autoplay: bool) {
+        self.shared_state.position_frames.store(0, Ordering::Relaxed);
+        self.shared_state.total_frames.store(0, Ordering::Relaxed);
+        self.shared_state
+            .state
+            .store(if autoplay {
+                PlayerState::Playing
+            } else {
+                PlayerState::Stopped
+            });
+        self.shared_state.is_loading.store(true, Ordering::Release);
+        self.shared_state.load_progress.store(0, Ordering::Relaxed);
+        *self.shared_state.load_error.write() = None;
+        *self.shared_state.file_path.write() = Some(path.to_string());
+        *self.shared_state.current_track_path.write() = Some(path.to_string());
+        *self.shared_state.track_metadata.write() = crate::decoder::TrackMetadata::default();
     }
 
     /// Internal decode function for async loading
@@ -603,20 +618,51 @@ impl AudioPlayer {
     }
 
     pub fn play(&mut self) -> Result<(), String> {
+        let previous = self.shared_state.state.load();
+        if previous == PlayerState::Paused {
+            self.shared_state.state.store(PlayerState::Playing);
+            self.shared_state
+                .event_flags
+                .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+        }
         let _ = self.cmd_tx.send(AudioCommand::Play);
         Ok(())
     }
 
     pub fn pause(&mut self) -> Result<(), String> {
+        self.shared_state.state.store(PlayerState::Paused);
+        self.shared_state
+            .event_flags
+            .fetch_or(EVENT_PLAYBACK_PAUSED, Ordering::Release);
         let _ = self.cmd_tx.send(AudioCommand::Pause);
         Ok(())
     }
 
     pub fn stop(&mut self) {
+        self.shared_state.position_frames.store(0, Ordering::Relaxed);
+        self.shared_state.state.store(PlayerState::Stopped);
+        self.shared_state
+            .event_flags
+            .fetch_or(EVENT_PLAYBACK_STOPPED, Ordering::Release);
         let _ = self.cmd_tx.send(AudioCommand::Stop);
     }
 
+    fn stop_for_track_load(&self) {
+        self.shared_state.position_frames.store(0, Ordering::Relaxed);
+        self.shared_state.state.store(PlayerState::Stopped);
+        let _ = self.cmd_tx.send(AudioCommand::StopForLoad);
+    }
+
     pub fn seek(&mut self, time_secs: f64) -> Result<(), String> {
+        let sr = self.shared_state.sample_rate.load(Ordering::Relaxed) as f64;
+        let total = self.shared_state.total_frames.load(Ordering::Relaxed);
+        let new_pos = ((time_secs.max(0.0) * sr) as u64).min(total);
+        self.shared_state
+            .position_frames
+            .store(new_pos, Ordering::Relaxed);
+        self.shared_state
+            .event_flags
+            .fetch_or(EVENT_PLAYBACK_SEEKED, Ordering::Release);
         self.cmd_tx
             .send(AudioCommand::Seek(time_secs))
             .map_err(|e| format!("Failed to send seek command: {}", e))

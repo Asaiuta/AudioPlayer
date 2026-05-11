@@ -174,17 +174,37 @@ pub(crate) fn validate_path(path: &str) -> Result<String, String> {
     // Local file path validation
     let path = std::path::Path::new(path);
 
-    // Check for path traversal attempts
+    // Check for path traversal attempts.
+    // Only reject actual parent-dir components, not filenames that merely
+    // contain consecutive dots such as `song..demo.flac`.
     let path_str = path.to_string_lossy();
-    if path_str.contains("..") {
-        return Err("Path traversal not allowed: '..' found in path".into());
+    if path
+        .components()
+        .any(|component| matches!(component, std::path::Component::ParentDir))
+    {
+        return Err("Path traversal not allowed: '..' path segment found".into());
     }
 
     // On Windows, also check for drive letter injection
     #[cfg(windows)]
     {
+        // Reject UNC/network paths but allow Windows extended-length local paths
+        // like `\\?\D:\Music\Track.flac`, which are produced by canonicalize().
+        let is_extended_local_path = path_str
+            .strip_prefix("\\\\?\\")
+            .and_then(|rest| {
+                let mut chars = rest.chars();
+                match (chars.next(), chars.next(), chars.next()) {
+                    (Some(drive), Some(':'), Some('\\' | '/')) if drive.is_ascii_alphabetic() => {
+                        Some(())
+                    }
+                    _ => None,
+                }
+            })
+            .is_some();
+
         // Check for UNC path injection (\\server\share)
-        if path_str.starts_with("\\\\") {
+        if path_str.starts_with("\\\\") && !is_extended_local_path {
             return Err("UNC paths not allowed".into());
         }
         // Check for reserved device names (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
@@ -221,6 +241,57 @@ pub(crate) fn validate_path(path: &str) -> Result<String, String> {
                 path.display()
             ))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_path;
+    use std::fs;
+
+    #[test]
+    #[cfg(windows)]
+    fn validate_path_allows_extended_local_paths() {
+        let temp_dir = std::env::temp_dir().join("audio_player_validate_path");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let track_path = temp_dir.join("track.flac");
+        fs::write(&track_path, b"test").unwrap();
+
+        let canonical = track_path.canonicalize().unwrap();
+        let canonical_str = canonical.to_string_lossy().to_string();
+        assert!(
+            canonical_str.starts_with(r"\\?\"),
+            "expected canonical path to use extended-length syntax, got {}",
+            canonical_str
+        );
+
+        let validated = validate_path(&canonical_str).unwrap();
+        assert_eq!(validated, canonical_str);
+
+        let _ = fs::remove_file(&track_path);
+        let _ = fs::remove_dir(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn validate_path_allows_filenames_with_double_dots() {
+        let temp_dir = std::env::temp_dir().join("audio_player_validate_path_double_dots");
+        fs::create_dir_all(&temp_dir).unwrap();
+        let track_path = temp_dir.join("song..demo.flac");
+        fs::write(&track_path, b"test").unwrap();
+
+        let validated = validate_path(&track_path.to_string_lossy()).unwrap();
+        assert!(validated.to_lowercase().contains("song..demo.flac"));
+
+        let _ = fs::remove_file(&track_path);
+        let _ = fs::remove_dir(&temp_dir);
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn validate_path_rejects_parent_dir_segments() {
+        let result = validate_path(r"D:\music\..\secret.flac");
+        assert!(result.is_err());
     }
 }
 
@@ -454,6 +525,7 @@ pub struct StateResponse {
     genre: Option<String>,
     year: Option<u32>,
     has_cover_art: bool,
+    external_artwork_url: Option<String>,
     repeat_mode: String,
     shuffle_mode: String,
 }
@@ -599,7 +671,11 @@ fn get_player_state(player: &AudioPlayer) -> StateResponse {
     // Get real values from SharedState
     let volume = shared.volume.load(std::sync::atomic::Ordering::Relaxed) as f32 / 1_000_000.0;
     let device_id = shared.device_id.load(std::sync::atomic::Ordering::Relaxed);
-    let file_path = shared.file_path.read().clone();
+    let file_path = shared
+        .current_track_path
+        .read()
+        .clone()
+        .or_else(|| shared.file_path.read().clone());
     let media_id = file_path
         .as_deref()
         .map(crate::app_database::media_id_for_path);
@@ -683,8 +759,41 @@ fn get_player_state(player: &AudioPlayer) -> StateResponse {
         genre: metadata.genre.clone(),
         year: metadata.year,
         has_cover_art: metadata.cover_art.is_some(),
+        external_artwork_url: None,
         repeat_mode: shared.repeat_mode().as_str().to_string(),
         shuffle_mode: shared.shuffle_mode().as_str().to_string(),
+    }
+}
+
+fn enrich_state_from_media_database(app_db: &crate::app_database::AppDatabase, state: &mut StateResponse) {
+    let Some(path) = state.file_path.as_deref() else {
+        return;
+    };
+
+    let Ok(Some(item)) = app_db.media_metadata_for_path(path) else {
+        return;
+    };
+
+    if state.media_id.is_none() {
+        state.media_id = Some(item.media_id);
+    }
+    if state.title.as_deref().map_or(true, |value| value.trim().is_empty()) {
+        state.title = item.title;
+    }
+    if state.artist.as_deref().map_or(true, |value| value.trim().is_empty()) {
+        state.artist = item.artist;
+    }
+    if state.album.as_deref().map_or(true, |value| value.trim().is_empty()) {
+        state.album = item.album;
+    }
+    if state.duration <= 0.0 {
+        if let Some(duration) = item.duration_secs {
+            state.duration = duration;
+        }
+    }
+    state.has_cover_art = state.has_cover_art || item.has_cover_art;
+    if state.external_artwork_url.is_none() {
+        state.external_artwork_url = item.external_artwork_url;
     }
 }
 

@@ -13,7 +13,10 @@ use crossbeam::channel::{Receiver, Sender};
 use assert_no_alloc::assert_no_alloc;
 
 use super::callback::{audio_callback_lockfree, LockfreeDspContext};
-use super::state::{AudioCommand, PlayerState, SharedState, EVENT_PLAYBACK_STARTED};
+use super::state::{
+    AudioCommand, PlayerState, SharedState, EVENT_LOAD_COMPLETE, EVENT_PLAYBACK_STARTED,
+    EVENT_TRACK_CHANGED,
+};
 use crate::config::PhaseResponse;
 use crate::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
@@ -85,12 +88,16 @@ pub fn audio_thread_main(
                 if shared_state.state.load() == PlayerState::Paused {
                     if let Some(ref s) = stream {
                         let _ = s.play();
+                        shared_state.state.store(PlayerState::Playing);
+                        shared_state
+                            .event_flags
+                            .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
                     }
-                    shared_state.state.store(PlayerState::Playing);
-                    shared_state
-                        .event_flags
-                        .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
-                    continue;
+                    // If no stream exists (e.g., destroyed by StopForLoad during
+                    // loading), fall through to create a new one.
+                    if stream.is_some() {
+                        continue;
+                    }
                 }
 
                 let use_exclusive = shared_state.exclusive_mode.load(Ordering::Relaxed);
@@ -353,10 +360,19 @@ pub fn audio_thread_main(
                     Ok(s) => {
                         let _ = s.play();
                         stream = Some(s);
-                        shared_state.state.store(PlayerState::Playing);
-                        shared_state
-                            .event_flags
-                            .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+                        // Only transition to Playing if the user hasn't paused
+                        // during stream creation. If paused, pause the stream
+                        // immediately and skip the STARTED event.
+                        if shared_state.state.load() == PlayerState::Paused {
+                            if let Some(ref st) = stream {
+                                let _ = st.pause();
+                            }
+                        } else {
+                            shared_state.state.store(PlayerState::Playing);
+                            shared_state
+                                .event_flags
+                                .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+                        }
 
                         let detected_bits: u32 = match device.default_output_config() {
                             Ok(cfg) => match cfg.sample_format() {
@@ -483,7 +499,16 @@ pub fn audio_thread_main(
                                 Ok(s) => {
                                     let _ = s.play();
                                     stream = Some(s);
-                                    shared_state.state.store(PlayerState::Playing);
+                                    if shared_state.state.load() == PlayerState::Paused {
+                                        if let Some(ref st) = stream {
+                                            let _ = st.pause();
+                                        }
+                                    } else {
+                                        shared_state.state.store(PlayerState::Playing);
+                                        shared_state
+                                            .event_flags
+                                            .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+                                    }
 
                                     let detected_bits: u32 = match device.default_output_config() {
                                         Ok(cfg) => match cfg.sample_format() {
@@ -537,6 +562,10 @@ pub fn audio_thread_main(
                 shared_state.position_frames.store(0, Ordering::Relaxed);
                 shared_state.state.store(PlayerState::Stopped);
             }
+            Ok(AudioCommand::StopForLoad) => {
+                stream = None;
+                shared_state.position_frames.store(0, Ordering::Relaxed);
+            }
             Ok(AudioCommand::SetExternalIrConvolver { ir_data, channels }) => {
                 if let Err(e) = dsp_ctx.set_external_ir_convolver(&ir_data, channels) {
                     log::error!("Failed to set external IR convolver: {}", e);
@@ -588,7 +617,13 @@ pub fn audio_thread_main(
                     .total_frames
                     .store(result.total_frames, Ordering::Relaxed);
                 shared_state.position_frames.store(0, Ordering::Relaxed);
-                shared_state.state.store(PlayerState::Stopped);
+                if shared_state.state.load() == PlayerState::Playing {
+                    // Keep Playing — autoplay will start the stream
+                } else if shared_state.state.load() == PlayerState::Paused {
+                    // User paused during loading — stay paused
+                } else {
+                    shared_state.state.store(PlayerState::Stopped);
+                }
                 let channels = result.channels;
                 let _sr = result.sample_rate as f64;
                 let sr_u32 = result.sample_rate;
@@ -724,6 +759,10 @@ pub fn audio_thread_main(
                     _ => {}
                 }
 
+                shared_state.event_flags.fetch_or(
+                    EVENT_LOAD_COMPLETE | EVENT_TRACK_CHANGED,
+                    Ordering::Release,
+                );
                 log::debug!("DSP context updated for {} Hz sample rate", sr_u32);
             }
             Ok(AudioCommand::LoadError(e)) => {
@@ -821,10 +860,14 @@ fn handle_wasapi_exclusive(
                 return true;
             }
 
-            shared_state.state.store(PlayerState::Playing);
-            shared_state
-                .event_flags
-                .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+            if shared_state.state.load() == PlayerState::Paused {
+                let _ = wasapi_player.pause();
+            } else {
+                shared_state.state.store(PlayerState::Playing);
+                shared_state
+                    .event_flags
+                    .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+            }
 
             let mut wait_count = 0;
             while wasapi_player.get_state() == WasapiState::Stopped && wait_count < 300 {
@@ -848,11 +891,13 @@ fn handle_wasapi_exclusive(
                             shared_state.state.store(PlayerState::Paused);
                         }
                         AudioCommand::Play => {
-                            let _ = wasapi_player.play();
-                            shared_state.state.store(PlayerState::Playing);
-                            shared_state
-                                .event_flags
-                                .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+                            if shared_state.state.load() == PlayerState::Paused {
+                                let _ = wasapi_player.play();
+                                shared_state.state.store(PlayerState::Playing);
+                                shared_state
+                                    .event_flags
+                                    .fetch_or(EVENT_PLAYBACK_STARTED, Ordering::Release);
+                            }
                         }
                         AudioCommand::Seek(time) => {
                             let sr = shared_state.sample_rate.load(Ordering::Relaxed) as f64;
@@ -886,17 +931,153 @@ fn handle_wasapi_exclusive(
                             *shared_state.noise_shaper_curve.write() = curve;
                             log::info!("Noise shaper curve set to {:?} (WASAPI path)", curve);
                         }
+                        AudioCommand::LoadComplete(result) => {
+                            log::info!(
+                                "WASAPI load complete: {} frames @ {} Hz",
+                                result.total_frames,
+                                result.sample_rate
+                            );
+
+                            while shared_state.pending_dsp_chain.pop().is_some() {}
+                            let rebuilt_chain = LockfreeDspContext::build_dsp_chain(
+                                result.channels,
+                                result.sample_rate as f64,
+                                Arc::clone(&dsp_ctx.eq_params),
+                                Arc::clone(&dsp_ctx.saturation_params),
+                                Arc::clone(&dsp_ctx.crossfeed_params),
+                                Arc::clone(&dsp_ctx.limiter_params),
+                                Arc::clone(&dsp_ctx.volume_params),
+                                Arc::clone(&dsp_ctx.noise_shaper_params),
+                                Arc::clone(&dsp_ctx.dynamic_loudness_params),
+                                Arc::new(crate::processor::AtomicDynamicLoudnessTelemetry::new()),
+                            );
+                            let _ = shared_state.pending_dsp_chain.push(rebuilt_chain);
+
+                            shared_state
+                                .sample_rate
+                                .store(result.sample_rate as u64, Ordering::Relaxed);
+                            shared_state
+                                .channels
+                                .store(result.channels as u64, Ordering::Relaxed);
+                            shared_state
+                                .total_frames
+                                .store(result.total_frames, Ordering::Relaxed);
+                            shared_state.position_frames.store(0, Ordering::Relaxed);
+                            if shared_state.state.load() == PlayerState::Playing {
+                                // Keep Playing — autoplay will start the stream
+                            } else if shared_state.state.load() == PlayerState::Paused {
+                                // User paused during loading — stay paused
+                            } else {
+                                shared_state.state.store(PlayerState::Stopped);
+                            }
+
+                            let metadata = result.metadata;
+                            let file_path = result.file_path;
+                            let channels = result.channels;
+                            let sr_u32 = result.sample_rate;
+                            let samples_arc = Arc::new(result.samples);
+
+                            shared_state.audio_buffer.store(Arc::clone(&samples_arc));
+                            *shared_state.file_path.write() = Some(file_path.clone());
+                            *shared_state.track_metadata.write() = metadata.clone();
+                            *shared_state.current_track_path.write() = Some(file_path);
+                            shared_state
+                                .dsp_needs_rebuild
+                                .store(true, Ordering::Release);
+
+                            loudness_state.set_smoothing(200.0, sr_u32);
+
+                            let calc_safe_gain =
+                                |rg_gain_db: f64, peak: Option<f64>, preamp_db: f64| -> f64 {
+                                    let requested_gain = rg_gain_db + preamp_db;
+
+                                    if requested_gain <= 0.0 {
+                                        return requested_gain;
+                                    }
+
+                                    if let Some(peak_val) = peak {
+                                        if peak_val > 0.0 {
+                                            const HEADROOM: f64 = 0.99;
+                                            let max_linear = HEADROOM / peak_val;
+                                            let max_gain_db = 20.0 * max_linear.log10();
+
+                                            if requested_gain > max_gain_db {
+                                                log::info!(
+                                                    "WASAPI peak protection: peak={:.4}, requested={:.2} dB, limited to {:.2} dB",
+                                                    peak_val,
+                                                    requested_gain,
+                                                    max_gain_db
+                                                );
+                                                return max_gain_db;
+                                            }
+                                        }
+                                    }
+
+                                    requested_gain
+                                };
+
+                            match loudness_state.get_mode() {
+                                crate::config::NormalizationMode::ReplayGainTrack => {
+                                    if let Some(rg_gain) = metadata.rg_track_gain {
+                                        let peak = metadata.rg_track_peak;
+                                        let preamp = loudness_state.preamp_gain_db.load(Ordering::Relaxed);
+                                        loudness_state.set_target_gain(calc_safe_gain(rg_gain, peak, preamp));
+                                    } else {
+                                        let preamp = loudness_state.preamp_gain_db.load(Ordering::Relaxed);
+                                        let mut meter = crate::processor::LoudnessMeter::new(channels, sr_u32);
+                                        meter.process(&samples_arc);
+                                        let loudness = meter.integrated_loudness();
+                                        if loudness.is_finite() {
+                                            loudness_state.set_target_gain(-12.0 - loudness + preamp);
+                                        } else {
+                                            loudness_state.set_target_gain(preamp);
+                                        }
+                                    }
+                                }
+                                crate::config::NormalizationMode::ReplayGainAlbum => {
+                                    let rg_gain = metadata.rg_album_gain.or(metadata.rg_track_gain);
+                                    let peak = metadata.rg_album_peak.or(metadata.rg_track_peak);
+                                    let preamp = loudness_state.preamp_gain_db.load(Ordering::Relaxed);
+                                    if let Some(gain) = rg_gain {
+                                        loudness_state.set_target_gain(calc_safe_gain(gain, peak, preamp));
+                                    } else {
+                                        let mut meter = crate::processor::LoudnessMeter::new(channels, sr_u32);
+                                        meter.process(&samples_arc);
+                                        let loudness = meter.integrated_loudness();
+                                        if loudness.is_finite() {
+                                            loudness_state.set_target_gain(-12.0 - loudness + preamp);
+                                        } else {
+                                            loudness_state.set_target_gain(preamp);
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+
+                            shared_state.event_flags.fetch_or(
+                                EVENT_LOAD_COMPLETE | EVENT_TRACK_CHANGED,
+                                Ordering::Release,
+                            );
+                        }
+                        AudioCommand::LoadError(error) => {
+                            log::error!("WASAPI async load failed: {}", error);
+                            shared_state.state.store(PlayerState::Stopped);
+                        }
                         AudioCommand::Stop => {
                             let _ = wasapi_player.stop();
                             shared_state.position_frames.store(0, Ordering::Relaxed);
                             shared_state.state.store(PlayerState::Stopped);
                             break;
                         }
+                        AudioCommand::StopForLoad => {
+                            let _ = wasapi_player.stop();
+                            shared_state.position_frames.store(0, Ordering::Relaxed);
+                            break;
+                        }
                         AudioCommand::Shutdown => {
                             drop(wasapi_player);
                             return false;
                         }
-                        _ => {}
                     }
                 }
 

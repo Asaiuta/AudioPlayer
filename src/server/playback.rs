@@ -1,9 +1,10 @@
 use super::*;
 use crate::app_database::QueueEntryRecord;
-use crate::player::{RepeatMode, ShuffleMode};
+use crate::player::{RepeatMode, SharedState, ShuffleMode};
 use crate::playlist;
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::Deserialize;
+use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -68,11 +69,20 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         )
         .route("/domain/media_items", web::get().to(get_media_items))
         .route(
+            "/domain/media_items/metadata",
+            web::post().to(upsert_external_media_metadata),
+        )
+        .route(
             "/domain/media_items/{media_id}/cover_art",
             web::get().to(get_media_cover_art),
         )
+        .route("/domain/current_lyrics", web::get().to(get_current_lyrics))
         .route("/domain/library/roots", web::get().to(get_library_roots))
         .route("/domain/library/scan", web::post().to(scan_library_root))
+        .route(
+            "/domain/library/scan_tasks/{task_id}",
+            web::get().to(get_library_scan_task),
+        )
         .route(
             "/domain/queue_snapshot",
             web::get().to(get_queue_snapshot_domain),
@@ -111,6 +121,7 @@ struct ScanTaskPath {
 struct LimitQuery {
     limit: Option<usize>,
     task_type: Option<String>,
+    all: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -128,6 +139,16 @@ struct QueueEnqueueRequest {
 #[derive(Deserialize)]
 struct QueueReplaceRequest {
     paths: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct ExternalMediaMetadataRequest {
+    source_path: String,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    duration_secs: Option<f64>,
+    external_artwork_url: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -246,12 +267,10 @@ fn persist_library_scan_task(
     }
 }
 
-fn sync_queue_snapshot(data: &web::Data<Arc<AppState>>) {
-    let shared_state = {
-        let player = data.player.lock();
-        player.shared_state()
-    };
-
+fn sync_queue_snapshot_from_shared(
+    data: &web::Data<Arc<AppState>>,
+    shared_state: &Arc<SharedState>,
+) {
     let current_track_path = shared_state.current_track_path.read().clone();
     let pending_track_path = shared_state.pending_file_path.read().clone();
     let needs_preload = shared_state.needs_preload.load(Ordering::Acquire);
@@ -270,6 +289,10 @@ fn sync_queue_snapshot(data: &web::Data<Arc<AppState>>) {
 fn emit_queue_updated(data: &web::Data<Arc<AppState>>) {
     let player = data.player.lock();
     let shared = player.shared_state();
+    emit_queue_updated_from_shared(&shared);
+}
+
+fn emit_queue_updated_from_shared(shared: &Arc<SharedState>) {
     shared
         .event_flags
         .fetch_or(crate::player::EVENT_QUEUE_UPDATED, Ordering::Release);
@@ -279,6 +302,16 @@ fn emit_playback_event(data: &web::Data<Arc<AppState>>, event: u32) {
     let player = data.player.lock();
     let shared = player.shared_state();
     shared.event_flags.fetch_or(event, Ordering::Release);
+}
+
+fn playback_runtime_snapshot_from_state(state: &StateResponse) -> PlaybackRuntimeSnapshot {
+    PlaybackRuntimeSnapshot {
+        position_secs: Some(state.current_time),
+        duration_secs: Some(state.duration),
+        volume: Some(state.volume),
+        device_id: state.device_id,
+        exclusive_mode: state.exclusive_mode,
+    }
 }
 
 pub(crate) fn spawn_playback_supervisor(state: &Arc<AppState>) -> actix_rt::task::JoinHandle<()> {
@@ -344,17 +377,20 @@ fn load_queue_entry_for_playback(
         cfg.http_credentials()
     };
 
-    let mut player = data.player.lock();
-    if autoplay {
-        player.load_with_credentials_and_autoplay(&entry.source_path, credentials.as_ref())?;
-    } else {
-        player.load_with_credentials(&entry.source_path, credentials.as_ref())?;
-    }
+    let shared_state = {
+        let mut player = data.player.lock();
+        if autoplay {
+            player.load_with_credentials_and_autoplay(&entry.source_path, credentials.as_ref())?;
+        } else {
+            player.load_with_credentials(&entry.source_path, credentials.as_ref())?;
+        }
+        player.shared_state()
+    };
 
     data.app_db
-        .mark_queue_entry_status("active", entry.entry_id, "playing")?;
-    sync_queue_snapshot(data);
-    emit_queue_updated(data);
+        .mark_queue_entry_playing("active", entry.entry_id)?;
+    sync_queue_snapshot_from_shared(data, &shared_state);
+    emit_queue_updated_from_shared(&shared_state);
     Ok(())
 }
 
@@ -503,11 +539,16 @@ pub(super) fn queue_next_from_persistent_queue(
         cfg.http_credentials()
     };
 
-    let player = data.player.lock();
-    match player.queue_next_with_credentials(&entry.source_path, credentials) {
+    let (queue_result, shared_state) = {
+        let player = data.player.lock();
+        let result = player.queue_next_with_credentials(&entry.source_path, credentials);
+        (result, player.shared_state())
+    };
+
+    match queue_result {
         Ok(()) => {
-            sync_queue_snapshot(data);
-            emit_queue_updated(data);
+            sync_queue_snapshot_from_shared(data, &shared_state);
+            emit_queue_updated_from_shared(&shared_state);
             Ok(Some(entry.source_path))
         }
         Err(e) => {
@@ -538,7 +579,9 @@ fn analysis_error_response(e: &str) -> HttpResponse {
 
 fn is_supported_media_path(path: &std::path::Path) -> bool {
     const SUPPORTED_EXTENSIONS: &[&str] = &[
-        "flac", "mp3", "wav", "m4a", "aac", "ogg", "opus", "aiff", "aif", "wma", "alac",
+        "mp3", "flac", "wav", "aac", "m4a", "ogg", "opus", "wma", "ape", "wv", "alac",
+        "aiff", "aif", "dsf", "dff", "mpc", "tak", "tta", "ac3", "dts", "thd", "truehd",
+        "mka", "mkv", "mp4", "m4v", "mov", "webm", "asf", "amr", "au", "ra", "rm", "3gp",
     ];
 
     path.extension()
@@ -563,77 +606,373 @@ fn is_supported_media_href(path: &str) -> bool {
         .any(|candidate| candidate.eq_ignore_ascii_case(ext))
 }
 
+fn external_cover_for_media(path: &std::path::Path) -> Option<(Vec<u8>, String)> {
+    const COVER_NAMES: &[&str] = &["cover", "folder", "front", "album"];
+    const COVER_EXTENSIONS: &[(&str, &str)] = &[
+        ("jpg", "image/jpeg"),
+        ("jpeg", "image/jpeg"),
+        ("png", "image/png"),
+        ("webp", "image/webp"),
+    ];
+
+    let dir = path.parent()?;
+    let stem = path.file_stem().and_then(|value| value.to_str());
+    let mut candidates = Vec::new();
+    if let Some(stem) = stem {
+        for (ext, _) in COVER_EXTENSIONS {
+            candidates.push(dir.join(format!("{}.{}", stem, ext)));
+        }
+    }
+    for name in COVER_NAMES {
+        for (ext, _) in COVER_EXTENSIONS {
+            candidates.push(dir.join(format!("{}.{}", name, ext)));
+        }
+    }
+
+    for candidate in candidates {
+        if !candidate.is_file() {
+            continue;
+        }
+        let ext = candidate
+            .extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        let mime = COVER_EXTENSIONS
+            .iter()
+            .find(|(candidate_ext, _)| *candidate_ext == ext)
+            .map(|(_, mime)| (*mime).to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        match std::fs::read(&candidate) {
+            Ok(bytes) => return Some((bytes, mime)),
+            Err(e) => log::warn!("Failed to read external cover '{}': {}", candidate.display(), e),
+        }
+    }
+
+    None
+}
+
+fn metadata_with_external_cover(
+    path: &std::path::Path,
+    metadata: &crate::decoder::TrackMetadata,
+) -> crate::decoder::TrackMetadata {
+    if metadata.cover_art.is_some() {
+        return metadata.clone();
+    }
+    let Some((bytes, mime)) = external_cover_for_media(path) else {
+        return metadata.clone();
+    };
+    let mut next = metadata.clone();
+    next.cover_art = Some(bytes);
+    next.cover_art_mime = Some(mime);
+    next
+}
+
+struct LibraryScanOutcome {
+    scanned_files: u64,
+    indexed_files: u64,
+    removed_files: u64,
+}
+
 fn scan_local_library(
     data: &web::Data<Arc<AppState>>,
+    scan_task_id: u64,
+    started_at: u64,
     root_id: i64,
     root_path: &str,
-) -> Result<(u64, u64), String> {
-    let mut scanned = 0_u64;
-    let mut indexed = 0_u64;
-    let mut stack = vec![std::path::PathBuf::from(root_path)];
+) -> Result<LibraryScanOutcome, String> {
+    use rayon::prelude::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
 
+    // ── Parsed result sent from rayon workers to the DB writer thread. ──
+    struct ParsedTrack {
+        canonical_path: String,
+        metadata: crate::decoder::TrackMetadata,
+        duration_secs: Option<f64>,
+        sample_rate: Option<u32>,
+        channels: Option<usize>,
+        mtime: f64,
+        size: u64,
+    }
+
+    // Collect all supported file paths recursively.
+    let mut file_paths: Vec<std::path::PathBuf> = Vec::new();
+    let mut stack = vec![std::path::PathBuf::from(root_path)];
     while let Some(dir) = stack.pop() {
         let entries = std::fs::read_dir(&dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
-
         for entry in entries {
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let path = entry.path();
-
             if path.is_dir() {
                 stack.push(path);
-                continue;
-            }
-
-            if !is_supported_media_path(&path) {
-                continue;
-            }
-
-            let canonical = path
-                .canonicalize()
-                .unwrap_or(path.clone())
-                .to_string_lossy()
-                .to_string();
-            scanned += 1;
-
-            match crate::decoder::StreamingDecoder::open(&canonical) {
-                Ok(decoder) => {
-                    let info = decoder.info.clone();
-                    match data.app_db.record_media_metadata(
-                        &canonical,
-                        &info.metadata,
-                        info.duration_secs,
-                        Some(info.sample_rate),
-                        Some(info.channels),
-                    ) {
-                        Ok(_) => indexed += 1,
-                        Err(e) => log::warn!("Failed to index '{}': {}", canonical, e),
-                    }
-                }
-                Err(e) => log::warn!("Skipping media file '{}': {}", canonical, e),
+            } else if is_supported_media_path(&path) {
+                file_paths.push(path);
             }
         }
     }
 
+    let total_scanned = file_paths.len() as u64;
+    if total_scanned == 0 {
+        data.app_db
+            .update_library_root_scan_status(root_id, "completed", Some(0), None, Some(now_epoch_secs()))
+            .map_err(|e| format!("Failed to finalize library scan state: {}", e))?;
+        return Ok(LibraryScanOutcome { scanned_files: 0, indexed_files: 0, removed_files: 0 });
+    }
+
+    // Load existing snapshot for incremental skip.
+    let snapshot = data.app_db.load_scan_snapshot().unwrap_or_default();
+
+    // Channel: rayon workers → DB writer thread.
+    let (tx, rx) = std::sync::mpsc::sync_channel::<ParsedTrack>(64);
+    let indexed_paths = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let indexed_count = Arc::new(AtomicU64::new(0));
+
+    // Spawn DB writer thread — receives parsed tracks, batch-writes to DB.
+    let db = Arc::clone(&data.app_db);
+    let writer_paths = Arc::clone(&indexed_paths);
+    let writer_count = Arc::clone(&indexed_count);
+    let writer_data = data.clone();
+    let writer_root_path = root_path.to_string();
+    let writer_handle = std::thread::spawn(move || {
+        let mut batch: Vec<ParsedTrack> = Vec::with_capacity(50);
+        let mut total_written: u64 = 0;
+
+        loop {
+            // Block until at least one item arrives.
+            match rx.recv() {
+                Ok(track) => {
+                    batch.push(track);
+                    // Drain any additional items already in the channel.
+                    while batch.len() < 50 {
+                        match rx.try_recv() {
+                            Ok(t) => batch.push(t),
+                            Err(_) => break,
+                        }
+                    }
+                }
+                Err(_) => break, // Channel closed — all workers done.
+            }
+
+            // Flush batch.
+            for track in &batch {
+                match db.record_media_metadata_with_scan_info(
+                    &track.canonical_path,
+                    &track.metadata,
+                    track.duration_secs,
+                    track.sample_rate,
+                    track.channels,
+                    Some(track.mtime),
+                    Some(track.size),
+                ) {
+                    Ok(_) => {
+                        writer_paths.lock().unwrap().push(track.canonical_path.clone());
+                        writer_count.fetch_add(1, Ordering::Relaxed);
+                    }
+                    Err(e) => log::warn!("Failed to index '{}': {}", track.canonical_path, e),
+                }
+            }
+            total_written += batch.len() as u64;
+            batch.clear();
+
+            // Progress reporting after each batch flush.
+            persist_library_scan_task(
+                &writer_data,
+                scan_task_id,
+                &writer_root_path,
+                "scanning",
+                started_at,
+                now_epoch_secs(),
+                Some(&serde_json::json!({
+                    "root_id": root_id,
+                    "scanned_files": total_written,
+                    "indexed_files": writer_count.load(Ordering::Relaxed),
+                })),
+                None,
+            );
+        }
+
+        // Final flush — remaining items after channel closed.
+        for track in &batch {
+            match db.record_media_metadata_with_scan_info(
+                &track.canonical_path,
+                &track.metadata,
+                track.duration_secs,
+                track.sample_rate,
+                track.channels,
+                Some(track.mtime),
+                Some(track.size),
+            ) {
+                Ok(_) => {
+                    writer_paths.lock().unwrap().push(track.canonical_path.clone());
+                    writer_count.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => log::warn!("Failed to index '{}': {}", track.canonical_path, e),
+            }
+        }
+    });
+
+    // ── Parallel parse phase: rayon workers send results through channel. ──
+    let scanned = AtomicU64::new(0);
+
+    file_paths.par_iter().for_each_with(tx, |tx, path| {
+        scanned.fetch_add(1, Ordering::Relaxed);
+
+        let canonical = match path.canonicalize() {
+            Ok(p) => p.to_string_lossy().to_string(),
+            Err(_) => path.to_string_lossy().to_string(),
+        };
+
+        // Incremental skip: check mtime + size.
+        let file_meta = match std::fs::metadata(path) {
+            Ok(m) => m,
+            Err(_) => return,
+        };
+        let size = file_meta.len();
+        if size < 1024 {
+            return;
+        }
+        let mtime = file_meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as f64)
+            .unwrap_or(0.0);
+
+        if let Some((old_mtime, old_size, _has_cover)) = snapshot.get(&canonical) {
+            let mtime_unchanged = old_mtime.map_or(false, |old| (old - mtime).abs() < 1.0);
+            let size_unchanged = old_size.map_or(false, |old| old == size);
+            if mtime_unchanged && size_unchanged {
+                // File unchanged — record path directly (no DB write needed).
+                indexed_paths.lock().unwrap().push(canonical);
+                indexed_count.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+        }
+
+        // Use lofty as primary metadata extractor.
+        let lofty_meta = crate::metadata::extract_lofty_metadata(&canonical);
+        let has_lofty_title = lofty_meta.as_ref().and_then(|m| m.title.as_deref()).is_some();
+
+        let mut metadata = crate::decoder::TrackMetadata::default();
+        let mut duration_secs: Option<f64> = None;
+        let mut sample_rate: Option<u32> = None;
+        let mut channels: Option<usize> = None;
+
+        if let Some(ref lm) = lofty_meta {
+            crate::metadata::merge_lofty_into(&mut metadata, lm);
+            duration_secs = lm.duration_secs;
+        }
+
+        // Fallback to Symphonia for audio properties.
+        if duration_secs.is_none() {
+            match crate::decoder::StreamingDecoder::open(&canonical) {
+                Ok(decoder) => {
+                    let info = decoder.info.clone();
+                    duration_secs = info.duration_secs;
+                    sample_rate = Some(info.sample_rate);
+                    channels = Some(info.channels);
+                    if lofty_meta.is_none() {
+                        metadata = metadata_with_external_cover(path, &info.metadata);
+                    }
+                }
+                Err(e) => {
+                    log::warn!("Skipping media file '{}': {}", canonical, e);
+                    return;
+                }
+            }
+        }
+
+        // Filter out short tracks with no title (likely jingles/ads).
+        if !has_lofty_title && duration_secs.map_or(false, |d| d < 30.0) {
+            return;
+        }
+
+        // Title/artist/album fallback.
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("未知歌曲");
+        if metadata.title.as_deref().map_or(true, |t| t.trim().is_empty()) {
+            metadata.title = Some(file_stem.to_string());
+        }
+        if metadata.artist.as_deref().map_or(true, |a| a.trim().is_empty()) {
+            metadata.artist = Some("未知艺术家".to_string());
+        }
+        if metadata.album.as_deref().map_or(true, |a| a.trim().is_empty()) {
+            metadata.album = Some("未知专辑".to_string());
+        }
+
+        // External cover art fallback.
+        if metadata.cover_art.is_none() {
+            if let Some((bytes, mime)) = external_cover_for_media(path) {
+                metadata.cover_art = Some(bytes);
+                metadata.cover_art_mime = Some(mime);
+            }
+        }
+
+        // Send to DB writer thread (blocks if channel full — backpressure).
+        let _ = tx.send(ParsedTrack {
+            canonical_path: canonical,
+            metadata,
+            duration_secs,
+            sample_rate,
+            channels,
+            mtime,
+            size,
+        });
+    });
+
+    // tx is consumed by for_each_with; all per-thread clones drop when par_iter
+    // completes, closing the channel so the writer thread exits its recv loop.
+
+    // Wait for the DB writer to finish flushing all remaining items.
+    writer_handle.join().map_err(|_| "DB writer thread panicked".to_string())?;
+
+    let final_scanned = scanned.load(Ordering::Relaxed);
+    let final_indexed = indexed_count.load(Ordering::Relaxed);
+    let final_indexed_paths = indexed_paths.lock().unwrap().clone();
+
+    let removed = data
+        .app_db
+        .delete_local_media_not_in_root(root_path, &final_indexed_paths)
+        .map_err(|e| format!("Failed to remove stale local media: {}", e))?;
+
     data.app_db
-        .update_library_root_scan_status(
-            root_id,
-            "completed",
-            Some(indexed),
-            None,
-            Some(now_epoch_secs()),
-        )
+        .update_library_root_scan_status(root_id, "completed", Some(final_indexed), None, Some(now_epoch_secs()))
         .map_err(|e| format!("Failed to finalize library scan state: {}", e))?;
 
-    Ok((scanned, indexed))
+    persist_library_scan_task(
+        data,
+        scan_task_id,
+        root_path,
+        "scanning",
+        started_at,
+        now_epoch_secs(),
+        Some(&serde_json::json!({
+            "root_id": root_id,
+            "scanned_files": final_scanned,
+            "indexed_files": final_indexed,
+            "removed_files": removed,
+        })),
+        None,
+    );
+
+    Ok(LibraryScanOutcome {
+        scanned_files: final_scanned,
+        indexed_files: final_indexed,
+        removed_files: removed,
+    })
 }
 
 fn scan_webdav_library(
     data: &web::Data<Arc<AppState>>,
+    scan_task_id: u64,
+    started_at: u64,
     root_id: i64,
     root_path: &str,
     source_key: Option<&str>,
-) -> Result<(u64, u64), String> {
+) -> Result<LibraryScanOutcome, String> {
     let webdav_cfg = if let Some(source_key) = source_key {
         data.app_db
             .load_webdav_source_config(source_key)?
@@ -694,6 +1033,23 @@ fn scan_webdav_library(
                 }
                 Err(e) => log::warn!("Skipping remote media '{}': {}", entry.url, e),
             }
+
+            if scanned % 25 == 0 {
+                persist_library_scan_task(
+                    data,
+                    scan_task_id,
+                    root_path,
+                    "scanning",
+                    started_at,
+                    now_epoch_secs(),
+                    Some(&serde_json::json!({
+                        "root_id": root_id,
+                        "scanned_files": scanned,
+                        "indexed_files": indexed,
+                    })),
+                    None,
+                );
+            }
         }
     }
 
@@ -707,7 +1063,26 @@ fn scan_webdav_library(
         )
         .map_err(|e| format!("Failed to finalize remote library scan state: {}", e))?;
 
-    Ok((scanned, indexed))
+    persist_library_scan_task(
+        data,
+        scan_task_id,
+        root_path,
+        "scanning",
+        started_at,
+        now_epoch_secs(),
+        Some(&serde_json::json!({
+            "root_id": root_id,
+            "scanned_files": scanned,
+            "indexed_files": indexed,
+        })),
+        None,
+    );
+
+    Ok(LibraryScanOutcome {
+        scanned_files: scanned,
+        indexed_files: indexed,
+        removed_files: 0,
+    })
 }
 
 fn track_loudness_to_json(track_loudness: &crate::processor::TrackLoudness) -> serde_json::Value {
@@ -825,16 +1200,21 @@ async fn load(data: web::Data<Arc<AppState>>, body: web::Json<LoadRequest>) -> H
         cfg.http_credentials()
     };
     let autoplay = body.autoplay.unwrap_or(false);
-    let mut player = data.player.lock();
-    let load_result = if autoplay {
-        player.load_with_credentials_and_autoplay(&path, credentials.as_ref())
-    } else {
-        player.load_with_credentials(&path, credentials.as_ref())
+    let load_result = {
+        let mut player = data.player.lock();
+        let result = if autoplay {
+            player.load_with_credentials_and_autoplay(&path, credentials.as_ref())
+        } else {
+            player.load_with_credentials(&path, credentials.as_ref())
+        };
+        result.map(|_| (get_player_state(&player), player.shared_state()))
     };
 
     match load_result {
-        Ok(()) => {
-            let snapshot = build_runtime_snapshot(&player);
+        Ok((state_response, shared_state)) => {
+            let mut state_response = state_response;
+            enrich_state_from_media_database(&data.app_db, &mut state_response);
+            let snapshot = playback_runtime_snapshot_from_state(&state_response);
             let media_id = data.app_db.record_media_stub(&path);
             if let Err(e) = &media_id {
                 log::warn!("Failed to ensure media item for '{}': {}", path, e);
@@ -881,14 +1261,14 @@ async fn load(data: web::Data<Arc<AppState>>, body: web::Json<LoadRequest>) -> H
                 Err(e) => log::warn!("Failed to start playback session for '{}': {}", path, e),
             }
 
-            sync_queue_snapshot(&data);
+            sync_queue_snapshot_from_shared(&data, &shared_state);
             HttpResponse::Ok().json(ApiResponse::success_with_state(
                 if autoplay {
                     "Track playback requested"
                 } else {
                     "Track loaded"
                 },
-                get_player_state(&player),
+                state_response,
             ))
         }
         Err(e) => HttpResponse::InternalServerError()
@@ -950,10 +1330,6 @@ async fn pause(data: web::Data<Arc<AppState>>) -> HttpResponse {
                     );
                 }
             }
-            player
-                .shared_state()
-                .event_flags
-                .fetch_or(crate::player::EVENT_PLAYBACK_PAUSED, Ordering::Release);
             HttpResponse::Ok().json(ApiResponse::success_with_state(
                 "Playback paused",
                 get_player_state(&player),
@@ -965,10 +1341,19 @@ async fn pause(data: web::Data<Arc<AppState>>) -> HttpResponse {
 }
 
 async fn stop(data: web::Data<Arc<AppState>>) -> HttpResponse {
-    let mut player = data.player.lock();
-    let snapshot_before_stop = build_runtime_snapshot(&player);
-    let current_path = player.shared_state().file_path.read().clone();
-    player.stop();
+    let (snapshot_before_stop, current_path, state_response, shared_state) = {
+        let mut player = data.player.lock();
+        let snapshot_before_stop = build_runtime_snapshot(&player);
+        let shared_state = player.shared_state();
+        let current_path = shared_state.file_path.read().clone();
+        player.stop();
+        (
+            snapshot_before_stop,
+            current_path,
+            get_player_state(&player),
+            shared_state,
+        )
+    };
     if let Some(session_id) = data.active_session_id.lock().take() {
         if let Err(e) =
             data.app_db
@@ -986,14 +1371,10 @@ async fn stop(data: web::Data<Arc<AppState>>) -> HttpResponse {
             );
         }
     }
-    sync_queue_snapshot(&data);
-    player
-        .shared_state()
-        .event_flags
-        .fetch_or(crate::player::EVENT_PLAYBACK_STOPPED, Ordering::Release);
+    sync_queue_snapshot_from_shared(&data, &shared_state);
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Playback stopped",
-        get_player_state(&player),
+        state_response,
     ))
 }
 
@@ -1020,10 +1401,6 @@ async fn seek(data: web::Data<Arc<AppState>>, body: web::Json<SeekRequest>) -> H
                     );
                 }
             }
-            player
-                .shared_state()
-                .event_flags
-                .fetch_or(crate::player::EVENT_PLAYBACK_SEEKED, Ordering::Release);
             HttpResponse::Ok().json(ApiResponse::success_with_state(
                 "Seek successful",
                 get_player_state(&player),
@@ -1089,10 +1466,12 @@ async fn set_shuffle_mode(
 
 async fn get_state(data: web::Data<Arc<AppState>>) -> HttpResponse {
     let player = data.player.lock();
+    let mut state = get_player_state(&player);
+    enrich_state_from_media_database(&data.app_db, &mut state);
     HttpResponse::Ok().json(ApiResponse {
         status: "success".into(),
         message: None,
-        state: Some(get_player_state(&player)),
+        state: Some(state),
         devices: None,
     })
 }
@@ -1109,7 +1488,7 @@ async fn get_queue_status(data: web::Data<Arc<AppState>>) -> HttpResponse {
     let pending_ready = shared_state.pending_ready.load(Ordering::Acquire);
     let is_preload_canceling = shared_state.cancel_preload_signal.load(Ordering::Acquire);
 
-    sync_queue_snapshot(&data);
+    sync_queue_snapshot_from_shared(&data, &shared_state);
 
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
@@ -1597,8 +1976,16 @@ async fn queue_next(
         _ => data.webdav_config.lock().http_credentials(),
     };
 
-    let player = data.player.lock();
-    match player.queue_next_with_credentials(&path, credentials) {
+    let (queue_result, shared_state, current_path, current_position) = {
+        let player = data.player.lock();
+        let result = player.queue_next_with_credentials(&path, credentials);
+        let shared_state = player.shared_state();
+        let current_path = shared_state.file_path.read().clone();
+        let current_position = shared_state.current_time_secs();
+        (result, shared_state, current_path, current_position)
+    };
+
+    match queue_result {
         Ok(()) => {
             let _ = data.app_db.mark_queue_entry_status_by_path(
                 "active",
@@ -1610,19 +1997,18 @@ async fn queue_next(
                 "queued_path": path,
                 "has_credentials_override": body.username.is_some() && body.password.is_some()
             });
-            let current_path = player.shared_state().file_path.read().clone();
             if let Some(session_id) = *data.active_session_id.lock() {
                 let source_path = current_path.as_deref().unwrap_or(&path);
                 let _ = data.app_db.append_playback_history(
                     Some(session_id),
                     source_path,
                     "queue_next",
-                    Some(player.shared_state().current_time_secs()),
+                    Some(current_position),
                     Some(&payload),
                 );
             }
-            sync_queue_snapshot(&data);
-            emit_queue_updated(&data);
+            sync_queue_snapshot_from_shared(&data, &shared_state);
+            emit_queue_updated_from_shared(&shared_state);
             HttpResponse::Ok().json(ApiResponse::success("Queued for gapless playback"))
         }
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
@@ -1653,9 +2039,11 @@ async fn play_from_persistent_queue(
     match load_queue_entry_for_playback(&data, entry, true) {
         Ok(()) => {
             let player = data.player.lock();
+            let mut state = get_player_state(&player);
+            enrich_state_from_media_database(&data.app_db, &mut state);
             HttpResponse::Ok().json(ApiResponse::success_with_state(
                 "Queue playback started",
-                get_player_state(&player),
+                state,
             ))
         }
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&format!(
@@ -1805,10 +2193,40 @@ async fn get_media_items(
     query: web::Query<LimitQuery>,
 ) -> HttpResponse {
     let limit = query.limit.unwrap_or(100).clamp(1, 1000);
-    match data.app_db.recent_media_items(limit) {
+    let result = if query.all.unwrap_or(false) {
+        data.app_db.list_media_items()
+    } else {
+        data.app_db.recent_media_items(limit)
+    };
+    match result {
         Ok(items) => HttpResponse::Ok().json(serde_json::json!({
             "status": "success",
             "media_items": items
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn upsert_external_media_metadata(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<ExternalMediaMetadataRequest>,
+) -> HttpResponse {
+    let source_path = match validate_path(&body.source_path) {
+        Ok(value) => value,
+        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+    };
+
+    match data.app_db.record_external_media_metadata(
+        &source_path,
+        body.title.as_deref(),
+        body.artist.as_deref(),
+        body.album.as_deref(),
+        body.duration_secs,
+        body.external_artwork_url.as_deref(),
+    ) {
+        Ok(media_id) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "media_id": media_id
         })),
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
     }
@@ -1840,12 +2258,94 @@ async fn get_media_cover_art(
     }
 }
 
+async fn get_current_lyrics(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let current_path = {
+        let player = data.player.lock();
+        player.shared_state().current_track_path.read().clone()
+    };
+
+    let Some(path) = current_path else {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "lyrics": null,
+            "source": null
+        }));
+    };
+
+    if path.starts_with("http://") || path.starts_with("https://") {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "lyrics": null,
+            "source": null
+        }));
+    }
+
+    match read_sidecar_lyrics(&path) {
+        Ok(Some((lyrics, source))) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "lyrics": lyrics,
+            "source": source
+        })),
+        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "lyrics": null,
+            "source": null
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+fn read_sidecar_lyrics(path: &str) -> Result<Option<(String, String)>, String> {
+    let track_path = Path::new(path);
+    let stem = match track_path.file_stem().and_then(|value| value.to_str()) {
+        Some(value) if !value.trim().is_empty() => value,
+        _ => return Ok(None),
+    };
+    let parent = match track_path.parent() {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+
+    for extension in ["ttml", "yrc", "lrc"] {
+        let candidate = parent.join(format!("{stem}.{extension}"));
+        if !candidate.is_file() {
+            continue;
+        }
+
+        let content = std::fs::read_to_string(&candidate)
+            .map_err(|error| format!("Failed to read lyric file '{}': {}", candidate.display(), error))?;
+
+        if content.trim().is_empty() {
+            continue;
+        }
+
+        return Ok(Some((content, extension.to_string())));
+    }
+
+    Ok(None)
+}
+
 async fn get_library_roots(data: web::Data<Arc<AppState>>) -> HttpResponse {
     match data.app_db.list_library_roots() {
         Ok(roots) => HttpResponse::Ok().json(serde_json::json!({
             "status": "success",
             "roots": roots
         })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn get_library_scan_task(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<ScanTaskPath>,
+) -> HttpResponse {
+    match data.app_db.get_analysis_task(path.task_id) {
+        Ok(Some(task)) if task.task_type == "library_scan" => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "task_id": task.task_id,
+            "task": task
+        })),
+        Ok(Some(_)) | Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Library scan task not found")),
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
     }
 }
@@ -1881,10 +2381,11 @@ async fn scan_library_root(
         .source_key
         .as_deref()
         .map(str::trim)
-        .filter(|value| !value.is_empty());
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
 
     let root_id = match data.app_db.upsert_library_root(
-        source_key,
+        source_key.as_deref(),
         &path,
         source_kind,
         &display_name,
@@ -1913,74 +2414,96 @@ async fn scan_library_root(
         Some(&serde_json::json!({
             "root_id": root_id,
             "source_kind": source_kind,
-            "source_key": source_key,
+            "source_key": source_key.as_deref(),
             "display_name": display_name,
         })),
         None,
     );
 
-    let result = if source_kind == "local" {
-        scan_local_library(&data, root_id, &path)
-    } else {
-        scan_webdav_library(&data, root_id, &path, source_key)
-    };
+    let data_for_task = data.clone();
+    let path_for_task = path.clone();
+    let display_name_for_task = display_name.clone();
+    let source_kind_for_task = source_kind.to_string();
+    let source_key_for_task = source_key.clone();
 
-    match result {
-        Ok((scanned, indexed)) => {
-            let finished_at = now_epoch_secs();
-            let payload = serde_json::json!({
-                "root_id": root_id,
-                "source_kind": source_kind,
-                "source_key": source_key,
-                "display_name": display_name,
-                "scanned_files": scanned,
-                "indexed_files": indexed,
-            });
-            persist_library_scan_task(
-                &data,
+    actix_web::rt::task::spawn_blocking(move || {
+        let result = if source_kind_for_task == "local" {
+            scan_local_library(
+                &data_for_task,
                 scan_task_id,
-                &path,
-                "success",
                 started_at,
-                finished_at,
-                Some(&payload),
-                None,
-            );
-            HttpResponse::Ok().json(serde_json::json!({
-                "status": "success",
-                "task_id": scan_task_id,
-                "root_id": root_id,
-                "scanned_files": scanned,
-                "indexed_files": indexed
-            }))
-        }
-        Err(e) => {
-            let finished_at = now_epoch_secs();
-            let _ = data.app_db.update_library_root_scan_status(
                 root_id,
-                "error",
-                None,
-                None,
-                Some(finished_at),
-            );
-            persist_library_scan_task(
-                &data,
+                &path_for_task,
+            )
+        } else {
+            scan_webdav_library(
+                &data_for_task,
                 scan_task_id,
-                &path,
-                "error",
                 started_at,
-                finished_at,
-                Some(&serde_json::json!({
+                root_id,
+                &path_for_task,
+                source_key_for_task.as_deref(),
+            )
+        };
+
+        match result {
+            Ok(outcome) => {
+                let finished_at = now_epoch_secs();
+                let payload = serde_json::json!({
                     "root_id": root_id,
-                    "source_kind": source_kind,
-                    "source_key": source_key,
-                    "display_name": display_name,
-                })),
-                Some(&e),
-            );
-            HttpResponse::InternalServerError().json(ApiResponse::error(&e))
+                    "source_kind": source_kind_for_task,
+                    "source_key": source_key_for_task.as_deref(),
+                    "display_name": display_name_for_task,
+                    "scanned_files": outcome.scanned_files,
+                    "indexed_files": outcome.indexed_files,
+                    "removed_files": outcome.removed_files,
+                });
+                persist_library_scan_task(
+                    &data_for_task,
+                    scan_task_id,
+                    &path_for_task,
+                    "success",
+                    started_at,
+                    finished_at,
+                    Some(&payload),
+                    None,
+                );
+            }
+            Err(e) => {
+                let finished_at = now_epoch_secs();
+                let _ = data_for_task.app_db.update_library_root_scan_status(
+                    root_id,
+                    "error",
+                    None,
+                    None,
+                    Some(finished_at),
+                );
+                persist_library_scan_task(
+                    &data_for_task,
+                    scan_task_id,
+                    &path_for_task,
+                    "error",
+                    started_at,
+                    finished_at,
+                    Some(&serde_json::json!({
+                        "root_id": root_id,
+                        "source_kind": source_kind_for_task,
+                        "source_key": source_key_for_task.as_deref(),
+                        "display_name": display_name_for_task,
+                    })),
+                    Some(&e),
+                );
+            }
         }
-    }
+    });
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "task_id": scan_task_id,
+        "root_id": root_id,
+        "scanned_files": 0,
+        "indexed_files": 0
+    }))
 }
 
 async fn get_queue_snapshot_domain(data: web::Data<Arc<AppState>>) -> HttpResponse {

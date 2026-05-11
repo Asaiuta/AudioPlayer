@@ -158,7 +158,10 @@ async fn websocket(
                         let file_path = shared_state.file_path.read().clone();
                         if error.is_none() {
                             if let Some(ref path) = file_path {
-                                let metadata = shared_state.track_metadata.read().clone();
+                                let mut metadata = shared_state.track_metadata.read().clone();
+                                if let Some(lm) = crate::metadata::extract_lofty_metadata(path) {
+                                    crate::metadata::merge_lofty_into(&mut metadata, &lm);
+                                }
                                 let _ = data.app_db.record_media_metadata(
                                     path,
                                     &metadata,
@@ -195,11 +198,17 @@ async fn websocket(
                                 *shared_state.file_path.write() = Some(p.clone());
                             }
                             if let Some(meta) = next_metadata {
-                                *shared_state.track_metadata.write() = meta.clone();
+                                let mut enhanced = meta.clone();
+                                if let Some(ref p) = next_path {
+                                    if let Some(lm) = crate::metadata::extract_lofty_metadata(p) {
+                                        crate::metadata::merge_lofty_into(&mut enhanced, &lm);
+                                    }
+                                }
+                                *shared_state.track_metadata.write() = enhanced.clone();
                                 if let Some(ref p) = next_path {
                                     let _ = data.app_db.record_media_metadata(
                                         p,
-                                        &meta,
+                                        &enhanced,
                                         Some(shared_state.duration_secs()),
                                         Some(shared_state.sample_rate.load(std::sync::atomic::Ordering::Relaxed) as u32),
                                         Some(shared_state.channels.load(std::sync::atomic::Ordering::Relaxed) as usize),
@@ -222,14 +231,22 @@ async fn websocket(
                         let media_id = file_path
                             .as_deref()
                             .map(crate::app_database::media_id_for_path);
+                        let stored = file_path
+                            .as_deref()
+                            .and_then(|path| data.app_db.media_metadata_for_path(path).ok().flatten());
+                        let title = metadata.title.or_else(|| stored.as_ref().and_then(|item| item.title.clone()));
+                        let artist = metadata.artist.or_else(|| stored.as_ref().and_then(|item| item.artist.clone()));
+                        let album = metadata.album.or_else(|| stored.as_ref().and_then(|item| item.album.clone()));
+                        let external_artwork_url = stored.and_then(|item| item.external_artwork_url);
                         let msg = serde_json::json!({
                             "type": "track_changed",
                             "file_path": file_path,
                             "duration": shared_state.duration_secs(),
                             "media_id": media_id,
-                            "title": metadata.title,
-                            "artist": metadata.artist,
-                            "album": metadata.album,
+                            "title": title,
+                            "artist": artist,
+                            "album": album,
+                            "external_artwork_url": external_artwork_url,
                         });
                         if session.text(msg.to_string()).await.is_err() {
                             break;

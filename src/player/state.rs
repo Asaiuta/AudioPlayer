@@ -209,6 +209,7 @@ pub enum AudioCommand {
     Play,
     Pause,
     Stop,
+    StopForLoad,
     Shutdown,
     Seek(f64),
     SetExternalIrConvolver { ir_data: Vec<f64>, channels: usize },
