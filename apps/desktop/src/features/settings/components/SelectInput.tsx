@@ -2,9 +2,23 @@ import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useDismissibleOverlay } from "../../../shared/ui/useDismissibleOverlay";
 
+const DROPDOWN_GAP = 4;
+const VIEWPORT_PADDING = 8;
+const MIN_DROPDOWN_WIDTH = 200;
+const MAX_DROPDOWN_HEIGHT = 240;
+const OPTION_HEIGHT = 34;
+const DROPDOWN_VERTICAL_CHROME = 10; // p-1 top/bottom plus the 1px border pair.
+
 export interface SelectOption {
   value: string;
   label: string;
+}
+
+interface DropdownPosition {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
 }
 
 interface SelectInputProps {
@@ -14,12 +28,30 @@ interface SelectInputProps {
   disabled?: boolean;
 }
 
+function clamp(value: number, min: number, max: number) {
+  if (max < min) return min;
+  return Math.max(min, Math.min(value, max));
+}
+
+function estimateDropdownHeight(optionCount: number) {
+  return Math.min(
+    MAX_DROPDOWN_HEIGHT,
+    optionCount * OPTION_HEIGHT + DROPDOWN_VERTICAL_CHROME
+  );
+}
+
 export function SelectInput(props: SelectInputProps) {
-  const [open, setOpen] = createSignal(false);
-  const [activeIndex, setActiveIndex] = createSignal(-1);
-  const [dropdownPosition, setDropdownPosition] = createSignal({ top: 0, left: 0, width: 0 });
+  const [open, setOpen] = createSignal<boolean>(false);
+  const [activeIndex, setActiveIndex] = createSignal<number>(-1);
+  const [dropdownPosition, setDropdownPosition] = createSignal<DropdownPosition>({
+    top: 0,
+    left: 0,
+    width: MIN_DROPDOWN_WIDTH,
+    maxHeight: MAX_DROPDOWN_HEIGHT
+  });
   let containerRef: HTMLDivElement | undefined;
   let dropdownRef: HTMLDivElement | undefined;
+  let positionFrame: number | undefined;
 
   const selectedLabel = () =>
     props.options.find((o) => o.value === props.value)?.label ?? "";
@@ -30,12 +62,18 @@ export function SelectInput(props: SelectInputProps) {
       (!!dropdownRef && dropdownRef.contains(target)),
     onDismiss: () => setOpen(false),
     escape: false, // own keydown handler below covers Escape + arrow nav
-    scroll: true,
+    scroll: false,
     blur: true
+  });
+
+  onCleanup(() => {
+    if (positionFrame !== undefined) window.cancelAnimationFrame(positionFrame);
   });
 
   createEffect(() => {
     if (!open()) return;
+
+    queuePositionUpdate();
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -57,44 +95,75 @@ export function SelectInput(props: SelectInputProps) {
       }
     };
 
-    const onResize = () => updatePosition();
+    const onViewportChange = () => queuePositionUpdate();
 
     window.addEventListener("keydown", onKey);
-    window.addEventListener("resize", onResize);
+    window.addEventListener("resize", onViewportChange);
+    window.addEventListener("scroll", onViewportChange, true);
     onCleanup(() => {
       window.removeEventListener("keydown", onKey);
-      window.removeEventListener("resize", onResize);
+      window.removeEventListener("resize", onViewportChange);
+      window.removeEventListener("scroll", onViewportChange, true);
     });
   });
 
-  const updatePosition = () => {
+  function queuePositionUpdate() {
+    if (positionFrame !== undefined) {
+      window.cancelAnimationFrame(positionFrame);
+    }
+    positionFrame = window.requestAnimationFrame(() => {
+      positionFrame = undefined;
+      updatePosition();
+    });
+  }
+
+  function updatePosition() {
     if (!containerRef) return;
     const rect = containerRef.getBoundingClientRect();
     const viewportHeight = window.innerHeight;
-    const spaceBelow = viewportHeight - rect.bottom;
-    const dropdownHeight = 200; // max-height of dropdown
-    
-    // Position below if enough space, otherwise above
-    const top = spaceBelow >= dropdownHeight 
-      ? rect.bottom + 4 
-      : rect.top - dropdownHeight - 4;
-    
+    const viewportWidth = window.innerWidth;
+    if (rect.bottom < 0 || rect.top > viewportHeight) {
+      setOpen(false);
+      return;
+    }
+
+    const desiredHeight = estimateDropdownHeight(props.options.length);
+    const spaceBelow = Math.max(0, viewportHeight - rect.bottom - DROPDOWN_GAP - VIEWPORT_PADDING);
+    const spaceAbove = Math.max(0, rect.top - DROPDOWN_GAP - VIEWPORT_PADDING);
+    const shouldOpenAbove = spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+    const availableHeight = shouldOpenAbove ? spaceAbove : spaceBelow;
+    const maxHeight = Math.max(
+      OPTION_HEIGHT,
+      Math.min(desiredHeight, availableHeight || viewportHeight - VIEWPORT_PADDING * 2)
+    );
+    const dropdownHeight = Math.min(desiredHeight, maxHeight);
+    const rawTop = shouldOpenAbove
+      ? rect.top - DROPDOWN_GAP - dropdownHeight
+      : rect.bottom + DROPDOWN_GAP;
+
+    const viewportMaxWidth = Math.max(0, viewportWidth - VIEWPORT_PADDING * 2);
+    const width = Math.min(Math.max(rect.width, MIN_DROPDOWN_WIDTH), viewportMaxWidth);
+    const left = clamp(rect.left, VIEWPORT_PADDING, viewportWidth - width - VIEWPORT_PADDING);
+
     setDropdownPosition({
-      top: Math.max(8, Math.min(top, viewportHeight - dropdownHeight - 8)),
-      left: rect.left,
-      width: rect.width
+      top: clamp(rawTop, VIEWPORT_PADDING, viewportHeight - dropdownHeight - VIEWPORT_PADDING),
+      left,
+      width,
+      maxHeight
     });
-  };
+  }
 
   const handleToggle = () => {
     if (props.disabled) return;
-    setOpen((o) => {
-      if (!o) {
-        setActiveIndex(props.options.findIndex((o) => o.value === props.value));
-        updatePosition();
-      }
-      return !o;
-    });
+    if (open()) {
+      setOpen(false);
+      return;
+    }
+
+    setActiveIndex(props.options.findIndex((o) => o.value === props.value));
+    updatePosition();
+    setOpen(true);
+    queuePositionUpdate();
   };
 
   const handleSelect = (value: string) => {
@@ -137,7 +206,9 @@ export function SelectInput(props: SelectInputProps) {
             style={{
               top: `${dropdownPosition().top}px`,
               left: `${dropdownPosition().left}px`,
-              width: `${dropdownPosition().width}px`
+              width: `${dropdownPosition().width}px`,
+              "max-height": `${dropdownPosition().maxHeight}px`,
+              "overflow-y": "auto"
             }}
             role="listbox"
           >

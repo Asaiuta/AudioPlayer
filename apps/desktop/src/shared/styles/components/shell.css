@@ -1112,6 +1112,7 @@
 
   .range-with-value input[type="range"]::-webkit-slider-thumb {
     appearance: none;
+    margin-top: -6px;
     width: 16px;
     height: 16px;
     border-radius: var(--radius-pill);
