@@ -54,61 +54,6 @@ export const adaptTrack = (value: unknown): OnlineTrackItem | null => {
   };
 };
 
-export const readDailySongs = (payload: unknown): OnlineTrackItem[] => {
-  const data = asRecord(asRecord(payload)?.data);
-  return asArray(data?.dailySongs)
-    .map(adaptTrack)
-    .filter((item): item is OnlineTrackItem => item !== null);
-};
-
-export const readLikelistIds = (payload: unknown): number[] => {
-  const data = asRecord(asRecord(payload)?.data) ?? asRecord(payload);
-  return asArray(data?.ids)
-    .map((value) => readNumber(value))
-    .filter((id): id is number => id !== null);
-};
-
-export const readSongDetailTracks = (payload: unknown): OnlineTrackItem[] =>
-  asArray(asRecord(payload)?.songs)
-    .map(adaptTrack)
-    .filter((item): item is OnlineTrackItem => item !== null);
-
-export const readPersonalFmTracks = (payload: unknown): OnlineTrackItem[] =>
-  asArray(asRecord(payload)?.data)
-    .map((value) => {
-      const item = asRecord(value);
-      if (!item) return null;
-      const rebuilt: Record<string, unknown> = { ...item };
-      const album = asRecord(item.album);
-      if (album && rebuilt.al === undefined) {
-        rebuilt.al = album;
-      }
-      const artists = asArray(item.artists);
-      if (artists.length > 0 && rebuilt.ar === undefined) {
-        rebuilt.ar = artists;
-      }
-      const duration = readNumber(item.duration);
-      if (duration !== null && rebuilt.dt === undefined) {
-        rebuilt.dt = duration;
-      }
-      return adaptTrack(rebuilt);
-    })
-    .filter((item): item is OnlineTrackItem => item !== null);
-
-export const readAlbumTracks = (payload: unknown): OnlineTrackItem[] => {
-  const root = asRecord(payload);
-  return asArray(root?.songs)
-    .map(adaptTrack)
-    .filter((item): item is OnlineTrackItem => item !== null);
-};
-
-export const readArtistTracks = (payload: unknown): OnlineTrackItem[] => {
-  const root = asRecord(payload);
-  return asArray(root?.hotSongs)
-    .map(adaptTrack)
-    .filter((item): item is OnlineTrackItem => item !== null);
-};
-
 export const readDiscoverPlaylists = (payload: unknown): DiscoverCardItem[] =>
   asArray(asRecord(payload)?.playlists ?? asRecord(payload)?.result)
     .map((value): DiscoverCardItem | null => {

@@ -5,17 +5,14 @@ import { HorizontalCardRow } from "../../components/HorizontalCardRow";
 import { IconAlbum, IconArtist, IconPause, IconPlay, IconPlaylist, IconSkipNext } from "../../components/icons";
 import {
   albumNewest,
-  personalFm,
   personalized,
   personalizedDjprogram,
   personalizedMv,
   playlistDetail,
   recommendResource,
-  recommendSongs,
-  songDetail,
-  topArtists,
-  userLikelist
+  topArtists
 } from "../../shared/api/ncm";
+import { createApiClient, type NcmTrackSummary } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { cacheFetch } from "../../shared/state/cacheFetch";
 import { useUISettings, type HomeSectionKey } from "../../shared/state/useUISettings";
@@ -191,77 +188,19 @@ const readPersonalizedDjs = (payload: unknown): FeedCardItem[] =>
     })
     .filter((value): value is FeedCardItem => value !== null);
 
-const readDailySongsCovers = (payload: unknown): DailySongsCardCover[] => {
-  const data = asRecord(asRecord(payload)?.data);
-  return asArray(data?.dailySongs)
-    .map((value): DailySongsCardCover | null => {
-      const item = asRecord(value);
-      if (!item) return null;
-      const id = readNumber(item.id);
-      if (id === null) return null;
-      const cover =
-        readString(asRecord(item.al)?.picUrl) ??
-        readString(item.picUrl) ??
-        readString(asRecord(item.album)?.picUrl);
-      return { id, url: cover };
-    })
-    .filter((value): value is DailySongsCardCover => value !== null);
+const trackCovers = (tracks: readonly NcmTrackSummary[]): DailySongsCardCover[] =>
+  tracks.map((track) => ({ id: track.songId, url: track.artworkUrl }));
+
+const buildPersonalFmPreview = (tracks: readonly NcmTrackSummary[]): PersonalFmPreview | null => {
+  const track = tracks[0] ?? null;
+  if (!track || !track.title) return null;
+  return {
+    title: track.title,
+    artist: track.artist,
+    album: track.album,
+    coverUrl: track.artworkUrl
+  };
 };
-
-const readLikelistIds = (payload: unknown): number[] => {
-  const data = asRecord(asRecord(payload)?.data) ?? asRecord(payload);
-  return asArray(data?.ids)
-    .map((value) => readNumber(value))
-    .filter((id): id is number => id !== null);
-};
-
-const readSongDetailCovers = (payload: unknown): DailySongsCardCover[] =>
-  asArray(asRecord(payload)?.songs)
-    .map((value): DailySongsCardCover | null => {
-      const item = asRecord(value);
-      if (!item) return null;
-      const id = readNumber(item.id);
-      if (id === null) return null;
-      const cover =
-        readString(asRecord(item.al)?.picUrl) ??
-        readString(item.picUrl) ??
-        readString(asRecord(item.album)?.picUrl);
-      return { id, url: cover };
-    })
-    .filter((value): value is DailySongsCardCover => value !== null);
-
-const readPersonalFmCovers = (payload: unknown): DailySongsCardCover[] =>
-  asArray(asRecord(payload)?.data)
-    .map((value): DailySongsCardCover | null => {
-      const item = asRecord(value);
-      if (!item) return null;
-      const id = readNumber(item.id);
-      if (id === null) return null;
-      const cover =
-        readString(asRecord(item.album)?.picUrl) ??
-        readString(asRecord(item.al)?.picUrl) ??
-        readString(item.picUrl);
-      return { id, url: cover };
-    })
-    .filter((value): value is DailySongsCardCover => value !== null);
-
-const readPersonalFmPreview = (payload: unknown): PersonalFmPreview[] =>
-  asArray(asRecord(payload)?.data)
-    .slice(0, 1)
-    .map((value): PersonalFmPreview | null => {
-      const item = asRecord(value);
-      if (!item) return null;
-      const title = readString(item.name);
-      if (title === null) return null;
-      const albumRecord = asRecord(item.album) ?? asRecord(item.al);
-      return {
-        title,
-        artist: readArtistNames(item.artists) ?? readArtistNames(item.ar),
-        album: readString(albumRecord?.name),
-        coverUrl: readString(albumRecord?.picUrl) ?? readString(item.picUrl)
-      };
-    })
-    .filter((value): value is PersonalFmPreview => value !== null);
 
 const RADAR_PLAYLIST_IDS = [
   3136952023, // 私人雷达
@@ -291,6 +230,7 @@ const readRadarPlaylist = (payload: unknown): FeedCardItem | null => {
 
 const RADAR_TTL = 30 * 60 * 1000;
 const DEFAULT_TTL = 10 * 60 * 1000;
+const api = createApiClient();
 
 const safeFetch = async <T,>(
   load: () => Promise<unknown>,
@@ -325,7 +265,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
     () => props.isLoggedIn,
     (isLoggedIn) =>
       isLoggedIn
-        ? safeFetch(() => recommendSongs(), readDailySongsCovers)
+        ? api.listNcmDailySongTracks().then(trackCovers)
         : Promise.resolve([] as DailySongsCardCover[])
   );
 
@@ -338,9 +278,9 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
     () => (props.isLoggedIn && props.userId !== null ? props.userId : null),
     async (uid) => {
       if (uid === null) return [] as DailySongsCardCover[];
-      const ids = await safeFetch(() => userLikelist(uid), readLikelistIds);
+      const ids = await api.getNcmLikelistIds(uid);
       if (ids.length === 0) return [] as DailySongsCardCover[];
-      return safeFetch(() => songDetail(ids.slice(0, 9)), readSongDetailCovers);
+      return api.listNcmSongDetailTracks(ids.slice(0, 9)).then(trackCovers);
     }
   );
 
@@ -353,7 +293,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
     () => props.isLoggedIn,
     (isLoggedIn) =>
       isLoggedIn
-        ? safeFetch(() => personalFm(), readPersonalFmCovers)
+        ? api.listNcmPersonalFmTracks().then(trackCovers)
         : Promise.resolve([] as DailySongsCardCover[])
   );
 
@@ -366,7 +306,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
     () => props.isLoggedIn,
     (isLoggedIn) =>
       isLoggedIn
-        ? safeFetch(() => personalFm(), readPersonalFmPreview).then((items) => items[0] ?? null)
+        ? api.listNcmPersonalFmTracks().then(buildPersonalFmPreview)
         : Promise.resolve(null as PersonalFmPreview | null)
   );
 

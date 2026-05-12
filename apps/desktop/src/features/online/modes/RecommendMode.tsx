@@ -1,7 +1,7 @@
 import { Show, createEffect, createMemo, createSignal, on } from "solid-js";
 import type { Accessor } from "solid-js";
 import { useTranslation } from "../../../shared/i18n";
-import { personalFm } from "../../../shared/api/ncm";
+import { createApiClient } from "../../../shared/api/client";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { NeteaseHomeFeed } from "../NeteaseHomeFeed";
 import { AlbumDetail } from "../details/AlbumDetail";
@@ -9,7 +9,6 @@ import { ArtistDetail } from "../details/ArtistDetail";
 import { DailySongsDetail } from "../details/DailySongsDetail";
 import { LikedSongsDetail } from "../details/LikedSongsDetail";
 import { PlaylistDetail } from "../details/PlaylistDetail";
-import { readPersonalFmTracks } from "../shared/parsers";
 import type { PlaybackController } from "../shared/playback";
 import type { Feedback, NcmProfile } from "../shared/types";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
@@ -28,6 +27,8 @@ export interface RecommendModeProps {
   currentSongId: number | null;
   isPlaying: boolean;
 }
+
+const api = createApiClient();
 
 export function RecommendMode(props: RecommendModeProps) {
   const { t } = useTranslation();
@@ -62,8 +63,7 @@ export function RecommendMode(props: RecommendModeProps) {
     if (isPlayingPersonalFm()) return;
     setIsPlayingPersonalFm(true);
     try {
-      const response = await personalFm();
-      const tracks = readPersonalFmTracks(response);
+      const tracks = await api.listNcmPersonalFmTracks();
       if (tracks.length === 0) {
         props.setFeedback("error", t("ncm.fm.feedback.empty"));
         return;

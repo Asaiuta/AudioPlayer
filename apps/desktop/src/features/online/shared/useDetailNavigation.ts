@@ -1,22 +1,8 @@
 import { createEffect, createMemo, createSignal, on } from "solid-js";
 import type { Accessor } from "solid-js";
-import {
-  album,
-  artists,
-  recommendSongs,
-  songDetail,
-  userLikelist
-} from "../../../shared/api/ncm";
 import { createApiClient } from "../../../shared/api/client";
 import type { TranslationKey, TranslationParams } from "../../../shared/i18n";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
-import {
-  readAlbumTracks,
-  readArtistTracks,
-  readDailySongs,
-  readLikelistIds,
-  readSongDetailTracks
-} from "./parsers";
 import type { PlaybackController } from "./playback";
 import type { Feedback, FeedCardItem, NcmProfile, OnlineTrackItem } from "./types";
 
@@ -151,8 +137,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
   const loadDailySongsList = async () => {
     setIsLoadingDailySongs(true);
     try {
-      const response = await recommendSongs();
-      setDailySongsState(readDailySongs(response));
+      setDailySongsState(await api.listNcmDailySongTracks());
     } catch (error) {
       setDailySongsState([]);
       setFeedback("error", readErrorMessage(error));
@@ -176,15 +161,13 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     if (!profile) return;
     setIsLoadingLikedSongs(true);
     try {
-      const idsResponse = await userLikelist(profile.userId);
-      const ids = readLikelistIds(idsResponse);
+      const ids = await api.getNcmLikelistIds(profile.userId);
       setLikedSongsTotal(ids.length);
       if (ids.length === 0) {
         setLikedSongsState([]);
         return;
       }
-      const detailResponse = await songDetail(ids.slice(0, LIKED_SONGS_DETAIL_LIMIT));
-      setLikedSongsState(readSongDetailTracks(detailResponse));
+      setLikedSongsState(await api.listNcmSongDetailTracks(ids.slice(0, LIKED_SONGS_DETAIL_LIMIT)));
     } catch (error) {
       setLikedSongsState([]);
       setLikedSongsTotal(0);
@@ -209,8 +192,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     setSelectedAlbum(albumItem);
     setIsLoadingAlbumTracks(true);
     try {
-      const response = await album(albumItem.id);
-      setAlbumTracksState(readAlbumTracks(response));
+      setAlbumTracksState(await api.listNcmAlbumTracks(albumItem.id));
     } catch (error) {
       setAlbumTracksState([]);
       setFeedback("error", readErrorMessage(error));
@@ -229,8 +211,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     setSelectedArtist(artistItem);
     setIsLoadingArtistTracks(true);
     try {
-      const response = await artists(artistItem.id);
-      setArtistTracksState(readArtistTracks(response));
+      setArtistTracksState(await api.listNcmArtistTracks(artistItem.id));
     } catch (error) {
       setArtistTracksState([]);
       setFeedback("error", readErrorMessage(error));

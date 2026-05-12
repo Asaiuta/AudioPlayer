@@ -59,6 +59,30 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         web::post().to(list_ncm_playlist_tracks),
     )
     .route(
+        "/domain/ncm/recommend/songs/tracks",
+        web::post().to(list_ncm_daily_song_tracks),
+    )
+    .route(
+        "/domain/ncm/song/details/tracks",
+        web::post().to(list_ncm_song_detail_tracks),
+    )
+    .route(
+        "/domain/ncm/personal_fm/tracks",
+        web::post().to(list_ncm_personal_fm_tracks),
+    )
+    .route(
+        "/domain/ncm/album/tracks",
+        web::post().to(list_ncm_album_tracks),
+    )
+    .route(
+        "/domain/ncm/artist/tracks",
+        web::post().to(list_ncm_artist_tracks),
+    )
+    .route(
+        "/domain/ncm/user/likelist",
+        web::post().to(list_ncm_likelist_ids),
+    )
+    .route(
         "/domain/ncm/accounts/{user_id}",
         web::delete().to(delete_ncm_account),
     )
@@ -126,6 +150,21 @@ struct PlaylistTracksRequest {
     id: i64,
     limit: Option<i64>,
     offset: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct EntityTracksRequest {
+    id: i64,
+}
+
+#[derive(Deserialize)]
+struct SongDetailTracksRequest {
+    ids: Vec<i64>,
+}
+
+#[derive(Deserialize)]
+struct LikelistRequest {
+    uid: i64,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -440,6 +479,136 @@ async fn list_ncm_playlist_tracks(
         Ok(response) => HttpResponse::Ok().json(serde_json::json!({
             "status": "success",
             "tracks": read_playlist_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_daily_song_tracks(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let mut query = Query::new();
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.recommend_songs(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_daily_song_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_song_detail_tracks(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<SongDetailTracksRequest>,
+) -> HttpResponse {
+    let ids = body
+        .ids
+        .iter()
+        .copied()
+        .filter(|id| *id > 0)
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM song ids must include at least one positive id"
+        }));
+    }
+
+    let mut query = Query::new().param(
+        "ids",
+        &ids.iter().map(i64::to_string).collect::<Vec<_>>().join(","),
+    );
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.song_detail(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_song_detail_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_personal_fm_tracks(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let mut query = Query::new();
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.personal_fm(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_personal_fm_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_album_tracks(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<EntityTracksRequest>,
+) -> HttpResponse {
+    let id = body.id;
+    if id <= 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM album id must be positive"
+        }));
+    }
+
+    let mut query = Query::new().param("id", &id.to_string());
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.album(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_song_detail_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_artist_tracks(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<EntityTracksRequest>,
+) -> HttpResponse {
+    let id = body.id;
+    if id <= 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM artist id must be positive"
+        }));
+    }
+
+    let mut query = Query::new().param("id", &id.to_string());
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.artists(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_artist_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_likelist_ids(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<LikelistRequest>,
+) -> HttpResponse {
+    let uid = body.uid;
+    if uid <= 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM user id must be positive"
+        }));
+    }
+
+    let mut query = Query::new().param("uid", &uid.to_string());
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.likelist(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "ids": read_likelist_ids(&response.body)
         })),
         Err(err) => build_error_response(err),
     }
@@ -1299,6 +1468,59 @@ fn read_playlist_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
         .collect()
 }
 
+fn read_daily_song_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
+    payload
+        .get("data")
+        .and_then(|data| data.get("dailySongs"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_track_summary)
+        .collect()
+}
+
+fn read_song_detail_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
+    payload
+        .get("songs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_track_summary)
+        .collect()
+}
+
+fn read_personal_fm_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
+    payload
+        .get("data")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_track_summary)
+        .collect()
+}
+
+fn read_artist_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
+    payload
+        .get("hotSongs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_track_summary)
+        .collect()
+}
+
+fn read_likelist_ids(payload: &Value) -> Vec<i64> {
+    payload
+        .get("data")
+        .and_then(|data| data.get("ids"))
+        .or_else(|| payload.get("ids"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_i64)
+        .collect()
+}
+
 fn read_track_summary(value: &Value) -> Option<NcmTrackSummary> {
     let item = value.as_object()?;
     let song_id = item.get("id").and_then(Value::as_i64)?;
@@ -1851,6 +2073,36 @@ mod tests {
                 artwork_url: Some("legacy.jpg".to_string()),
             }]
         );
+    }
+
+    #[test]
+    fn read_daily_personal_and_artist_tracks_use_expected_roots() {
+        let song = json!({
+            "id": 9,
+            "name": "Rooted",
+            "artists": [{ "name": "Artist" }],
+            "album": { "name": "Album", "picUrl": "cover.jpg" },
+            "duration": 60000
+        });
+
+        assert_eq!(
+            read_daily_song_tracks(&json!({ "data": { "dailySongs": [song.clone()] } })).len(),
+            1
+        );
+        assert_eq!(
+            read_personal_fm_tracks(&json!({ "data": [song.clone()] })).len(),
+            1
+        );
+        assert_eq!(read_artist_tracks(&json!({ "hotSongs": [song] })).len(), 1);
+    }
+
+    #[test]
+    fn read_likelist_ids_supports_wrapped_and_root_shapes() {
+        assert_eq!(
+            read_likelist_ids(&json!({ "data": { "ids": [1, 2, "bad", 3] } })),
+            vec![1, 2, 3]
+        );
+        assert_eq!(read_likelist_ids(&json!({ "ids": [4, 5] })), vec![4, 5]);
     }
 
     #[test]

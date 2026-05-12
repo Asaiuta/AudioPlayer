@@ -55,6 +55,12 @@ export interface ApiClient {
   listNcmUserPlaylists: (input: ListNcmUserPlaylistsInput) => Promise<NcmPlaylistSummary[]>;
   searchNcmTracks: (input: SearchNcmTracksInput) => Promise<NcmTrackSummary[]>;
   listNcmPlaylistTracks: (input: ListNcmPlaylistTracksInput) => Promise<NcmTrackSummary[]>;
+  listNcmDailySongTracks: () => Promise<NcmTrackSummary[]>;
+  listNcmSongDetailTracks: (ids: number[]) => Promise<NcmTrackSummary[]>;
+  listNcmPersonalFmTracks: () => Promise<NcmTrackSummary[]>;
+  listNcmAlbumTracks: (id: number) => Promise<NcmTrackSummary[]>;
+  listNcmArtistTracks: (id: number) => Promise<NcmTrackSummary[]>;
+  getNcmLikelistIds: (uid: number) => Promise<number[]>;
   // Persistent Queue
   getPersistentQueue: () => Promise<QueueEntry[]>;
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
@@ -794,6 +800,24 @@ const parseNcmTracksResponse = (value: unknown): NcmTrackSummary[] => {
   return tracks as NcmTrackSummary[];
 };
 
+const parseNcmLikelistIdsResponse = (value: unknown): number[] => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM likelist response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load NCM likelist");
+  }
+  if (!Array.isArray(value.ids)) {
+    throw new Error("Invalid NCM likelist payload");
+  }
+  const ids = value.ids.filter(isInteger);
+  if (ids.length !== value.ids.length) {
+    throw new Error("Invalid NCM likelist payload");
+  }
+  return ids;
+};
+
 const requestJson = async (baseUrl: string, path: string, init?: RequestInit) => {
   const runRequest = async (forceTokenRefresh: boolean) => {
     const token = await resolveApiToken(forceTokenRefresh);
@@ -1158,6 +1182,46 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       })
     });
     return parseNcmTracksResponse(json);
+  },
+  listNcmDailySongTracks: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/recommend/songs/tracks", {
+      method: "POST"
+    });
+    return parseNcmTracksResponse(json);
+  },
+  listNcmSongDetailTracks: async (ids: number[]) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/song/details/tracks", {
+      method: "POST",
+      body: JSON.stringify({ ids })
+    });
+    return parseNcmTracksResponse(json);
+  },
+  listNcmPersonalFmTracks: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/personal_fm/tracks", {
+      method: "POST"
+    });
+    return parseNcmTracksResponse(json);
+  },
+  listNcmAlbumTracks: async (id: number) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/album/tracks", {
+      method: "POST",
+      body: JSON.stringify({ id })
+    });
+    return parseNcmTracksResponse(json);
+  },
+  listNcmArtistTracks: async (id: number) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/artist/tracks", {
+      method: "POST",
+      body: JSON.stringify({ id })
+    });
+    return parseNcmTracksResponse(json);
+  },
+  getNcmLikelistIds: async (uid: number) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/user/likelist", {
+      method: "POST",
+      body: JSON.stringify({ uid })
+    });
+    return parseNcmLikelistIdsResponse(json);
   },
   getPersistentQueue: async () => {
     const json = await requestJson(baseUrl, "/domain/queue");

@@ -7,15 +7,14 @@ import {
   type NcmTrackReference,
   type NcmTrackSupplement
 } from "../features/online/ncmPlayback";
-import { likeSong, userLikelist } from "../shared/api/ncm/user";
+import { likeSong } from "../shared/api/ncm/user";
 import type { ApiClient } from "../shared/api/client";
 import type { PlayerState } from "../shared/api/types";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import {
   firstNonEmpty,
   mediaKeyForPath,
-  readErrorMessage,
-  readNumberArray
+  readErrorMessage
 } from "./controllerHelpers";
 
 export interface NcmTrackEnrichment {
@@ -263,15 +262,9 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
 
     void (async () => {
       try {
-        const likelistResp = await userLikelist(userId);
-        const ids = (likelistResp as Record<string, unknown>).data as
-          | Record<string, unknown>
-          | undefined;
-        const idList = readNumberArray(ids?.ids);
-        if (idList && !cancelled) {
+        const idList = await api.getNcmLikelistIds(userId);
+        if (!cancelled) {
           setLikedSongIds(new Set(idList));
-        } else if (!cancelled) {
-          setLikedSongIds(new Set<number>());
         }
       } catch {
         if (!cancelled) {
