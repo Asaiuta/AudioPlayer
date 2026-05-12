@@ -1,3 +1,4 @@
+use super::lyrics;
 use super::*;
 use crate::app_database::{media_id_for_path, QueueEntryRecord};
 use crate::player::{PlayerState, RepeatMode, SharedState, ShuffleMode};
@@ -2814,7 +2815,7 @@ async fn get_current_lyrics(data: web::Data<Arc<AppState>>) -> HttpResponse {
     let Some(path) = current_path else {
         return HttpResponse::Ok().json(serde_json::json!({
             "status": "success",
-            "lyrics": null,
+            "lyrics": [],
             "source": null
         }));
     };
@@ -2822,7 +2823,7 @@ async fn get_current_lyrics(data: web::Data<Arc<AppState>>) -> HttpResponse {
     if path.starts_with("http://") || path.starts_with("https://") {
         return HttpResponse::Ok().json(serde_json::json!({
             "status": "success",
-            "lyrics": null,
+            "lyrics": [],
             "source": null
         }));
     }
@@ -2830,12 +2831,12 @@ async fn get_current_lyrics(data: web::Data<Arc<AppState>>) -> HttpResponse {
     match read_sidecar_lyrics(&path) {
         Ok(Some((lyrics, source))) => HttpResponse::Ok().json(serde_json::json!({
             "status": "success",
-            "lyrics": lyrics,
+            "lyrics": lyrics::read_lyric_lines_from_source(&lyrics, &source),
             "source": source
         })),
         Ok(None) => HttpResponse::Ok().json(serde_json::json!({
             "status": "success",
-            "lyrics": null,
+            "lyrics": [],
             "source": null
         })),
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),

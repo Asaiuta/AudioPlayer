@@ -2,7 +2,6 @@ import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from
 import {
   findCurrentLyricLine,
   mergeNcmTrackReference,
-  readLyricLines,
   type NcmLyricLine,
   type NcmTrackReference,
   type NcmTrackSupplement
@@ -172,22 +171,16 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       if (trackRef) {
         const [supplementResult, localLyricResult] = results as [
           PromiseSettledResult<Awaited<ReturnType<ApiClient["resolveNcmTrackSupplement"]>>>,
-          PromiseSettledResult<{ lyrics: string | null; source: string | null }>
+          PromiseSettledResult<Awaited<ReturnType<ApiClient["getCurrentLyrics"]>>>
         ];
 
         const onlineLyrics =
-          supplementResult.status === "fulfilled" && supplementResult.value.lyricsPayload
-            ? readLyricLines(supplementResult.value.lyricsPayload)
+          supplementResult.status === "fulfilled"
+            ? supplementResult.value.lyrics
             : [];
         const localLyrics =
-          localLyricResult.status === "fulfilled" && localLyricResult.value.lyrics
-            ? readLyricLines({
-                [localLyricResult.value.source === "ttml"
-                  ? "ttml"
-                  : localLyricResult.value.source === "yrc"
-                    ? "yrc"
-                    : "lrc"]: { lyric: localLyricResult.value.lyrics }
-              })
+          localLyricResult.status === "fulfilled"
+            ? localLyricResult.value.lyrics
             : [];
         const lyrics = onlineLyrics.length > 0 ? onlineLyrics : localLyrics;
         const error =
@@ -219,17 +212,11 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       }
 
       const [localLyricResult] = results as [
-        PromiseSettledResult<{ lyrics: string | null; source: string | null }>
+        PromiseSettledResult<Awaited<ReturnType<ApiClient["getCurrentLyrics"]>>>
       ];
       const localLyrics =
-        localLyricResult.status === "fulfilled" && localLyricResult.value.lyrics
-          ? readLyricLines({
-              [localLyricResult.value.source === "ttml"
-                ? "ttml"
-                : localLyricResult.value.source === "yrc"
-                  ? "yrc"
-                  : "lrc"]: { lyric: localLyricResult.value.lyrics }
-            })
+        localLyricResult.status === "fulfilled"
+          ? localLyricResult.value.lyrics
           : [];
       const error =
         localLyricResult.status === "rejected" ? readErrorMessage(localLyricResult.reason) : null;

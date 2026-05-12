@@ -1,3 +1,4 @@
+use super::lyrics::{self, LyricLineDto};
 use super::*;
 use crate::app_database::{NcmAccountRecord, NcmAccountUpsert};
 use actix_web::http::header::{self, HeaderMap};
@@ -186,7 +187,7 @@ struct ResolvedNcmTrackSupplement {
     artist: Option<String>,
     album: Option<String>,
     cover_url: Option<String>,
-    lyrics_payload: Option<Value>,
+    lyrics: Vec<LyricLineDto>,
     detail_error: Option<String>,
     lyrics_error: Option<String>,
 }
@@ -794,8 +795,8 @@ async fn resolve_ncm_track_supplement(
             (None, Some(message))
         }
     };
-    let (lyrics_payload, lyrics_error) = match lyrics_result {
-        Ok(response) => (Some(response.body), None),
+    let (lyrics, lyrics_error) = match lyrics_result {
+        Ok(response) => (lyrics::read_lyric_lines_from_payload(&response.body), None),
         Err(err) => {
             let message = err.to_string();
             log::warn!(
@@ -804,7 +805,7 @@ async fn resolve_ncm_track_supplement(
                 message,
                 start.elapsed()
             );
-            (None, Some(message))
+            (Vec::new(), Some(message))
         }
     };
     let detail = detail.unwrap_or_default();
@@ -823,7 +824,7 @@ async fn resolve_ncm_track_supplement(
             artist: detail.artist,
             album: detail.album,
             cover_url: detail.cover_url,
-            lyrics_payload,
+            lyrics,
             detail_error,
             lyrics_error,
         }

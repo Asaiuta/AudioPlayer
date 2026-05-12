@@ -125,6 +125,7 @@ pub struct ScanTaskRecord {
 }
 
 mod effects;
+mod lyrics;
 mod netease;
 mod playback;
 mod settings_handlers;
