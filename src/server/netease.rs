@@ -51,6 +51,14 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         web::post().to(list_ncm_user_playlists),
     )
     .route(
+        "/domain/ncm/search/tracks",
+        web::post().to(search_ncm_tracks),
+    )
+    .route(
+        "/domain/ncm/playlist/tracks",
+        web::post().to(list_ncm_playlist_tracks),
+    )
+    .route(
         "/domain/ncm/accounts/{user_id}",
         web::delete().to(delete_ncm_account),
     )
@@ -106,6 +114,20 @@ struct UserPlaylistsRequest {
     mode: Option<String>,
 }
 
+#[derive(Deserialize)]
+struct SearchTracksRequest {
+    keywords: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct PlaylistTracksRequest {
+    id: i64,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 struct ResolvedNcmTrack {
     song_id: i64,
@@ -155,6 +177,18 @@ struct NcmPlaylistSummary {
     cover_url: Option<String>,
     track_count: Option<i64>,
     subscribed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct NcmTrackSummary {
+    id: String,
+    song_id: i64,
+    source_path: String,
+    title: Option<String>,
+    artist: Option<String>,
+    album: Option<String>,
+    duration_secs: Option<f64>,
+    artwork_url: Option<String>,
 }
 
 async fn list_ncm_accounts(data: web::Data<Arc<AppState>>) -> HttpResponse {
@@ -346,6 +380,67 @@ async fn list_ncm_user_playlists(
                 "playlists": playlists
             }))
         }
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn search_ncm_tracks(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<SearchTracksRequest>,
+) -> HttpResponse {
+    let request = body.into_inner();
+    let keywords = request.keywords.trim();
+    if keywords.is_empty() {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM search keywords must not be empty"
+        }));
+    }
+
+    let mut query = Query::new().param("keywords", keywords).param("type", "1");
+    if let Some(limit) = request.limit.filter(|value| *value > 0) {
+        query = query.param("limit", &limit.to_string());
+    }
+    if let Some(offset) = request.offset.filter(|value| *value >= 0) {
+        query = query.param("offset", &offset.to_string());
+    }
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.search(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_search_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_playlist_tracks(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<PlaylistTracksRequest>,
+) -> HttpResponse {
+    let request = body.into_inner();
+    if request.id <= 0 {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM playlist id must be positive"
+        }));
+    }
+
+    let mut query = Query::new().param("id", &request.id.to_string());
+    if let Some(limit) = request.limit.filter(|value| *value > 0) {
+        query = query.param("limit", &limit.to_string());
+    }
+    if let Some(offset) = request.offset.filter(|value| *value >= 0) {
+        query = query.param("offset", &offset.to_string());
+    }
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.playlist_track_all(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_playlist_tracks(&response.body)
+        })),
         Err(err) => build_error_response(err),
     }
 }
@@ -1179,6 +1274,68 @@ fn filter_playlist_summaries(
     }
 }
 
+fn read_search_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
+    payload
+        .get("result")
+        .and_then(|result| result.get("songs"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_track_summary)
+        .collect()
+}
+
+fn read_playlist_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
+    let root_songs = payload.get("songs").and_then(Value::as_array);
+    let playlist_tracks = payload
+        .get("playlist")
+        .and_then(|playlist| playlist.get("tracks"))
+        .and_then(Value::as_array);
+    root_songs
+        .or(playlist_tracks)
+        .into_iter()
+        .flatten()
+        .filter_map(read_track_summary)
+        .collect()
+}
+
+fn read_track_summary(value: &Value) -> Option<NcmTrackSummary> {
+    let item = value.as_object()?;
+    let song_id = item.get("id").and_then(Value::as_i64)?;
+    let title = item.get("name").and_then(read_non_empty_string)?;
+    let album = item
+        .get("al")
+        .and_then(Value::as_object)
+        .or_else(|| item.get("album").and_then(Value::as_object));
+    let duration_ms = item
+        .get("dt")
+        .and_then(Value::as_f64)
+        .or_else(|| item.get("duration").and_then(Value::as_f64));
+
+    Some(NcmTrackSummary {
+        id: format!("ncm-song-{}", song_id),
+        song_id,
+        source_path: format!("https://music.163.com/#/song?id={}", song_id),
+        title: Some(title),
+        artist: read_artists(item.get("ar"))
+            .or_else(|| read_artists(item.get("artists")))
+            .or_else(|| {
+                item.get("artist")
+                    .and_then(|artist| artist.get("name"))
+                    .and_then(read_non_empty_string)
+            }),
+        album: album
+            .and_then(|album| album.get("name"))
+            .and_then(read_non_empty_string)
+            .or_else(|| item.get("album").and_then(read_non_empty_string)),
+        duration_secs: duration_ms.map(|value| value / 1000.0),
+        artwork_url: album
+            .and_then(|album| album.get("picUrl"))
+            .and_then(read_non_empty_string)
+            .or_else(|| item.get("picUrl").and_then(read_non_empty_string)),
+    })
+}
+
 fn non_empty_cookie(cookie: &str) -> Option<String> {
     let trimmed = cookie.trim();
     if trimmed.is_empty() {
@@ -1631,6 +1788,67 @@ mod tests {
                 cover_url: Some("cover-b.jpg".to_string()),
                 track_count: Some(34),
                 subscribed: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn read_search_tracks_returns_stable_track_dto() {
+        let payload = json!({
+            "result": {
+                "songs": [
+                    {
+                        "id": 42,
+                        "name": "Needle",
+                        "ar": [{ "name": "A" }, { "name": "B" }],
+                        "al": { "name": "Album", "picUrl": "cover.jpg" },
+                        "dt": 180000
+                    },
+                    { "id": 43 }
+                ]
+            }
+        });
+
+        assert_eq!(
+            read_search_tracks(&payload),
+            vec![NcmTrackSummary {
+                id: "ncm-song-42".to_string(),
+                song_id: 42,
+                source_path: "https://music.163.com/#/song?id=42".to_string(),
+                title: Some("Needle".to_string()),
+                artist: Some("A, B".to_string()),
+                album: Some("Album".to_string()),
+                duration_secs: Some(180.0),
+                artwork_url: Some("cover.jpg".to_string()),
+            }]
+        );
+    }
+
+    #[test]
+    fn read_playlist_tracks_supports_root_songs_and_legacy_fields() {
+        let payload = json!({
+            "songs": [
+                {
+                    "id": 7,
+                    "name": "Legacy",
+                    "artists": [{ "name": "Legacy Artist" }],
+                    "album": { "name": "Legacy Album", "picUrl": "legacy.jpg" },
+                    "duration": 90000
+                }
+            ]
+        });
+
+        assert_eq!(
+            read_playlist_tracks(&payload),
+            vec![NcmTrackSummary {
+                id: "ncm-song-7".to_string(),
+                song_id: 7,
+                source_path: "https://music.163.com/#/song?id=7".to_string(),
+                title: Some("Legacy".to_string()),
+                artist: Some("Legacy Artist".to_string()),
+                album: Some("Legacy Album".to_string()),
+                duration_secs: Some(90.0),
+                artwork_url: Some("legacy.jpg".to_string()),
             }]
         );
     }

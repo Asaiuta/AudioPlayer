@@ -14,6 +14,7 @@ import {
   topSong,
   toplistDetail
 } from "../../../shared/api/ncm";
+import { createApiClient } from "../../../shared/api/client";
 import { readSearchPlaylists, type OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
@@ -29,7 +30,6 @@ import {
   readDiscoverToplists,
   readNumber,
   readPersonalizedSongs,
-  readSearchTracks,
   readString,
   safeDiscoverFetch
 } from "../shared/parsers";
@@ -59,6 +59,7 @@ import { SearchMode } from "./SearchMode";
 const SEARCH_LIMIT = 30;
 const DISCOVER_PAGE_LIMIT = 50;
 const ALL_PLAYLIST_CATEGORY = "全部歌单";
+const api = createApiClient();
 
 const ARTIST_INITIALS: readonly DiscoverArtistInitial[] = [
   { key: -1, label: "ncm.discover.artists.hot" },
@@ -264,15 +265,15 @@ export function DiscoverMode(props: DiscoverModeProps) {
     detailNav.setSelectedPlaylist(null);
     detailNav.setPlaylistTracksState([]);
     try {
-      const response = await search({
-        keywords: query,
-        type: searchTab() === "songs" ? 1 : 1000,
-        limit: SEARCH_LIMIT
-      });
       if (searchTab() === "songs") {
-        setSongResults(readSearchTracks(response));
+        setSongResults(await api.searchNcmTracks({ keywords: query, limit: SEARCH_LIMIT }));
         setPlaylistResults([]);
       } else {
+        const response = await search({
+          keywords: query,
+          type: 1000,
+          limit: SEARCH_LIMIT
+        });
         const playlists = readSearchPlaylists(response);
         setPlaylistResults(playlists);
         setSongResults([]);

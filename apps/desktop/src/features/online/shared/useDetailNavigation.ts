@@ -3,11 +3,11 @@ import type { Accessor } from "solid-js";
 import {
   album,
   artists,
-  playlistTrackAll,
   recommendSongs,
   songDetail,
   userLikelist
 } from "../../../shared/api/ncm";
+import { createApiClient } from "../../../shared/api/client";
 import type { TranslationKey, TranslationParams } from "../../../shared/i18n";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import {
@@ -15,7 +15,6 @@ import {
   readArtistTracks,
   readDailySongs,
   readLikelistIds,
-  readPlaylistTracks,
   readSongDetailTracks
 } from "./parsers";
 import type { PlaybackController } from "./playback";
@@ -25,6 +24,7 @@ type Translator = (key: TranslationKey, params?: TranslationParams) => string;
 
 const PLAYLIST_TRACK_LIMIT = 200;
 const LIKED_SONGS_DETAIL_LIMIT = 100;
+const api = createApiClient();
 
 export interface DetailNavigationContext {
   t: Translator;
@@ -90,8 +90,11 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     onSelectedPlaylistChange?.(playlist.id);
     setIsLoadingPlaylistTracks(true);
     try {
-      const response = await playlistTrackAll({ id: playlist.id, limit: PLAYLIST_TRACK_LIMIT });
-      setPlaylistTracksState(readPlaylistTracks(response));
+      const tracks = await api.listNcmPlaylistTracks({
+        id: playlist.id,
+        limit: PLAYLIST_TRACK_LIMIT
+      });
+      setPlaylistTracksState(tracks);
     } catch (error) {
       setPlaylistTracksState([]);
       setFeedback("error", readErrorMessage(error));

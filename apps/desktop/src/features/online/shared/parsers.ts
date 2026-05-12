@@ -54,19 +54,6 @@ export const adaptTrack = (value: unknown): OnlineTrackItem | null => {
   };
 };
 
-export const readSearchTracks = (payload: unknown): OnlineTrackItem[] => {
-  const result = asRecord(asRecord(payload)?.result);
-  return asArray(result?.songs).map(adaptTrack).filter((item): item is OnlineTrackItem => item !== null);
-};
-
-export const readPlaylistTracks = (payload: unknown): OnlineTrackItem[] => {
-  const root = asRecord(payload);
-  const songs = asArray(root?.songs);
-  if (songs.length > 0) return songs.map(adaptTrack).filter((item): item is OnlineTrackItem => item !== null);
-  const playlist = asRecord(root?.playlist);
-  return asArray(playlist?.tracks).map(adaptTrack).filter((item): item is OnlineTrackItem => item !== null);
-};
-
 export const readDailySongs = (payload: unknown): OnlineTrackItem[] => {
   const data = asRecord(asRecord(payload)?.data);
   return asArray(data?.dailySongs)

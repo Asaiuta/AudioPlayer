@@ -53,6 +53,8 @@ export interface ApiClient {
   dailySigninActiveNcmAccount: () => Promise<NcmAccountState>;
   deleteNcmAccount: (userId: number) => Promise<NcmAccountState>;
   listNcmUserPlaylists: (input: ListNcmUserPlaylistsInput) => Promise<NcmPlaylistSummary[]>;
+  searchNcmTracks: (input: SearchNcmTracksInput) => Promise<NcmTrackSummary[]>;
+  listNcmPlaylistTracks: (input: ListNcmPlaylistTracksInput) => Promise<NcmTrackSummary[]>;
   // Persistent Queue
   getPersistentQueue: () => Promise<QueueEntry[]>;
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
@@ -167,6 +169,29 @@ export interface NcmPlaylistSummary {
   coverUrl: string | null;
   trackCount: number | null;
   subscribed: boolean;
+}
+
+export interface SearchNcmTracksInput {
+  keywords: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListNcmPlaylistTracksInput {
+  id: number;
+  limit?: number;
+  offset?: number;
+}
+
+export interface NcmTrackSummary {
+  id: string;
+  songId: number;
+  source_path: string;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  duration_secs: number | null;
+  artworkUrl: string | null;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -723,6 +748,52 @@ const parseNcmUserPlaylistsResponse = (value: unknown): NcmPlaylistSummary[] => 
   return playlists as NcmPlaylistSummary[];
 };
 
+const parseNcmTrackSummary = (value: unknown): NcmTrackSummary | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (
+    !isString(value.id) ||
+    !isInteger(value.song_id) ||
+    !isString(value.source_path) ||
+    !isNullableString(value.title) ||
+    !isNullableString(value.artist) ||
+    !isNullableString(value.album) ||
+    !isNullableNumber(value.duration_secs) ||
+    !isNullableString(value.artwork_url)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    songId: value.song_id,
+    source_path: value.source_path,
+    title: value.title,
+    artist: value.artist,
+    album: value.album,
+    duration_secs: value.duration_secs,
+    artworkUrl: value.artwork_url
+  };
+};
+
+const parseNcmTracksResponse = (value: unknown): NcmTrackSummary[] => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM tracks response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load NCM tracks");
+  }
+  if (!Array.isArray(value.tracks)) {
+    throw new Error("Invalid NCM tracks payload");
+  }
+  const tracks = value.tracks.map(parseNcmTrackSummary);
+  if (tracks.some((track) => track === null)) {
+    throw new Error("Invalid NCM tracks payload");
+  }
+  return tracks as NcmTrackSummary[];
+};
+
 const requestJson = async (baseUrl: string, path: string, init?: RequestInit) => {
   const runRequest = async (forceTokenRefresh: boolean) => {
     const token = await resolveApiToken(forceTokenRefresh);
@@ -1065,6 +1136,28 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       })
     });
     return parseNcmUserPlaylistsResponse(json);
+  },
+  searchNcmTracks: async (input: SearchNcmTracksInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/search/tracks", {
+      method: "POST",
+      body: JSON.stringify({
+        keywords: input.keywords,
+        limit: input.limit ?? null,
+        offset: input.offset ?? null
+      })
+    });
+    return parseNcmTracksResponse(json);
+  },
+  listNcmPlaylistTracks: async (input: ListNcmPlaylistTracksInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/playlist/tracks", {
+      method: "POST",
+      body: JSON.stringify({
+        id: input.id,
+        limit: input.limit ?? null,
+        offset: input.offset ?? null
+      })
+    });
+    return parseNcmTracksResponse(json);
   },
   getPersistentQueue: async () => {
     const json = await requestJson(baseUrl, "/domain/queue");
