@@ -1,4 +1,4 @@
-import { Show, type JSX } from "solid-js";
+import { Show, createEffect, type JSX } from "solid-js";
 
 export const settingsSectionClass = "settings-section flex flex-col gap-[30px]";
 
@@ -51,17 +51,33 @@ interface RangeInputProps {
   max: number;
   step: number;
   value: number;
-  onInput: (value: number) => void;
+  onPreview?: (value: number) => void;
+  onCommit?: (value: number) => void;
   disabled?: boolean;
   formatSuffix?: string;
 }
 
 export function RangeInput(props: RangeInputProps) {
+  let inputRef: HTMLInputElement | undefined;
+
+  const readValue = (event: Event) => Number((event.currentTarget as HTMLInputElement).value);
+
   const handleInput = (e: Event) => {
     const el = e.currentTarget as HTMLInputElement;
     updateRangeFill(el);
-    props.onInput(Number(el.value));
+    props.onPreview?.(Number(el.value));
   };
+
+  const handleCommit = (e: Event) => {
+    props.onCommit?.(readValue(e));
+  };
+
+  createEffect(() => {
+    const value = props.value;
+    if (!inputRef) return;
+    inputRef.value = String(value);
+    updateRangeFill(inputRef);
+  });
 
   return (
     <div class={rangeWithValueClass}>
@@ -70,6 +86,7 @@ export function RangeInput(props: RangeInputProps) {
       </span>
       <input
         ref={(el) => {
+          inputRef = el;
           requestAnimationFrame(() => updateRangeFill(el));
         }}
         class={rangeInputClass}
@@ -79,6 +96,7 @@ export function RangeInput(props: RangeInputProps) {
         step={props.step}
         value={props.value}
         onInput={handleInput}
+        onChange={handleCommit}
         disabled={props.disabled}
       />
     </div>

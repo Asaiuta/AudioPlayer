@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import type { Accessor } from "solid-js";
 import type { RepeatMode, ShuffleMode } from "../shared/api/types";
 import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import {
@@ -10,7 +11,6 @@ import {
 import { useTranslation } from "../shared/i18n";
 import {
   findActiveLyricIndex,
-  findCurrentLyricLine,
   snapSeekPositionToLyrics,
   type NcmLyricLine,
   type NcmLyricWord
@@ -76,6 +76,7 @@ interface FullPlayerProps {
   onCycleRepeat: () => void;
   onToggleShuffle: () => void;
   onOpenQueue: () => void;
+  bgBlur: number;
   isLiked?: boolean;
   onToggleLike?: () => void;
 }
@@ -90,7 +91,33 @@ const formatTime = (value: number) => {
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const META_HIDE_DELAY_MS = 3000;
-const LYRIC_SCROLL_OFFSET_RATIO = 0.25;
+const clampLyricScrollOffset = (value: number) => Math.min(0.9, Math.max(0.1, value));
+
+const lyricLineProgress = (line: NcmLyricLine, currentTime: number): number => {
+  if (line.endTime === null || line.endTime <= line.time) {
+    return currentTime >= line.time ? 1 : 0;
+  }
+  return clamp01((currentTime - line.time) / (line.endTime - line.time));
+};
+
+const lyricWordProgress = (word: NcmLyricWord, currentTime: number): number => {
+  const duration = word.endTime - word.startTime;
+  if (duration <= 0) {
+    return currentTime >= word.startTime ? 1 : 0;
+  }
+  return clamp01((currentTime - word.startTime) / duration);
+};
+
+const timedWords = (line: NcmLyricLine) =>
+  line.words && line.words.length > 0 ? line.words : null;
+
+const stripBracketedContent = (value: string): string => {
+  const stripped = value
+    .replace(/\s*[\(（［\[{【].*?[\)）\]］}】]\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return stripped || value;
+};
 
 export function FullPlayer(props: FullPlayerProps) {
   const { t } = useTranslation();
@@ -116,7 +143,7 @@ export function FullPlayer(props: FullPlayerProps) {
 
   const scheduleMetaHide = () => {
     clearHideTimer();
-    if (!props.isOpen || controlAreaActive()) return;
+    if (!props.isOpen || !uiSettings.autoHidePlayerMeta || controlAreaActive()) return;
     hideTimer = window.setTimeout(() => {
       setMetaVisible(false);
     }, META_HIDE_DELAY_MS);
@@ -126,6 +153,13 @@ export function FullPlayer(props: FullPlayerProps) {
     setMetaVisible(true);
     scheduleMetaHide();
   };
+
+  createEffect(() => {
+    if (!uiSettings.autoHidePlayerMeta) {
+      clearHideTimer();
+      setMetaVisible(true);
+    }
+  });
 
   createEffect(() => {
     if (!props.isOpen) {
@@ -178,7 +212,8 @@ export function FullPlayer(props: FullPlayerProps) {
   const lyricError = () => props.lyricError ?? null;
   const hasLyrics = () => lyrics().length > 0;
   const canShowPureLyrics = () => hasLyrics();
-  const canShowComments = () => props.currentSongId !== null && !pureLyricMode();
+  const canShowComments = () =>
+    uiSettings.fullPlayerShowComments && props.currentSongId !== null && !pureLyricMode();
   const progress = () => (props.duration > 0 ? clamp01(props.currentTime / props.duration) : 0);
   const canSeek = () => props.duration > 0;
   const safeVolume = () => clamp01(props.volume);
@@ -187,7 +222,55 @@ export function FullPlayer(props: FullPlayerProps) {
   const repeatLabel = () => t(`player.repeat.${props.repeatMode}` as const);
   const shuffleLabel = () =>
     props.shuffleMode === "on" ? t("player.shuffle.on") : t("player.shuffle.off");
+  const displayTitle = () =>
+    uiSettings.hideBracketedContent ? stripBracketedContent(props.title) : props.title;
+  const displaySubtitle = () =>
+    uiSettings.hideBracketedContent ? stripBracketedContent(props.subtitle) : props.subtitle;
   const playPauseLabel = () => (props.isPlaying ? t("player.aria.pause") : t("player.aria.play"));
+  const remainingTime = () => Math.max(0, props.duration - props.currentTime);
+  const timeLeft = () =>
+    uiSettings.timeFormat === "remaining-total"
+      ? `-${formatTime(remainingTime())}`
+      : formatTime(props.currentTime);
+  const timeRight = () =>
+    uiSettings.timeFormat === "current-remaining"
+      ? `-${formatTime(remainingTime())}`
+      : formatTime(props.duration);
+  const lyricLineAlign = () =>
+    uiSettings.lyricAlignRight ? "flex-end" : uiSettings.lyricsPosition;
+  const lyricTextAlign = () => {
+    const align = lyricLineAlign();
+    if (align === "center") return "center";
+    return align === "flex-end" ? "right" : "left";
+  };
+  const playerStyleRatio = () => Math.min(70, Math.max(30, uiSettings.playerStyleRatio));
+  const backgroundFlowSpeed = () => Math.min(10, Math.max(0.1, uiSettings.playerBackgroundFlowSpeed));
+  const lowFrequencyEnergy = createMemo(() => {
+    if (!uiSettings.playerBackgroundLowFreqVolume || props.spectrum.length === 0) return 0;
+    const lows = props.spectrum.slice(0, Math.min(8, props.spectrum.length));
+    const average = lows.reduce((sum, value) => sum + Math.max(0, value), 0) / lows.length;
+    return clamp01(average);
+  });
+  const rootStyle = createMemo(() => {
+    const duration = Math.max(4, 24 / backgroundFlowSpeed());
+    const fluidScale = 1.04 + lowFrequencyEnergy() * 0.045;
+    const backgroundBlur = Math.max(0, props.bgBlur);
+    return {
+      "--full-player-fluid-duration": `${duration}s`,
+      "--full-player-fluid-scale": String(fluidScale),
+      "--full-player-fullscreen-gradient": `${Math.min(100, Math.max(0, uiSettings.playerFullscreenGradient))}%`,
+      "--full-player-background-blur": `${backgroundBlur}px`,
+      "--full-player-background-color-blur": `${backgroundBlur * 1.35}px`,
+      "--full-player-surface-blur": `${Math.max(6, Math.round(backgroundBlur * 0.75))}px`
+    };
+  });
+  const stageStyle = createMemo(() => {
+    if (pureLyricMode() || showComment() || uiSettings.playerType === "fullscreen") return undefined;
+    const coverRatio = playerStyleRatio();
+    return {
+      "grid-template-columns": `minmax(320px, ${coverRatio}fr) minmax(420px, ${100 - coverRatio}fr)`
+    };
+  });
   const handlePlayPauseClick = () => {
     if (props.isPlaying) {
       props.onPause();
@@ -195,13 +278,19 @@ export function FullPlayer(props: FullPlayerProps) {
     }
     props.onPlay();
   };
-  const activeLyricIndex = () => findActiveLyricIndex(lyrics(), props.currentTime);
-  const compactLyric = () => findCurrentLyricLine(lyrics(), props.currentTime);
+  const currentTime = () => props.currentTime;
+  const activeLyricIndex = createMemo(() => findActiveLyricIndex(lyrics(), currentTime()));
+  const compactLyric = createMemo(() => {
+    const index = activeLyricIndex();
+    return index >= 0 ? lyrics()[index]?.text ?? null : null;
+  });
   const layoutClassName = createMemo(() => {
     const mode = uiSettings.fullPlayerCommentMode;
     return [
       "full-player-stage",
+      `is-player-type-${uiSettings.playerType}`,
       uiSettings.fullPlayerLayout === "lyrics" ? "is-lyrics-layout" : "is-balanced-layout",
+      uiSettings.hiddenCovers.player ? "is-cover-hidden" : "",
       pureLyricMode() ? "is-pure-layout" : "",
       showComment() ? "is-comment-visible" : "",
       showComment() ? `is-comment-${mode === "fullscreen" ? "fullscreen" : mode === "half-left" ? "half-left" : "half-right"}` : ""
@@ -218,7 +307,11 @@ export function FullPlayer(props: FullPlayerProps) {
     return [
       "full-player",
       props.isOpen ? "is-open" : "",
-      `cover-mode-${uiSettings.fullPlayerCoverMode === "record" ? "record" : "normal"}`,
+      `player-type-${uiSettings.playerType}`,
+      `background-mode-${uiSettings.playerBackgroundType}`,
+      uiSettings.playerType === "record" ? "cover-mode-record" : "cover-mode-normal",
+      uiSettings.playerBackgroundPause && !props.isPlaying ? "is-background-paused" : "",
+      uiSettings.playerBackgroundLowFreqVolume ? "has-background-pulse" : "",
       showComment() && uiSettings.fullPlayerCommentMode === "fullscreen" ? "is-fullscreen-comment" : ""
     ]
       .filter(Boolean)
@@ -231,38 +324,6 @@ export function FullPlayer(props: FullPlayerProps) {
         }
       : undefined
   );
-  const wordProgress = (word: NcmLyricWord) => {
-    const duration = word.endTime - word.startTime;
-    if (duration <= 0) {
-      return props.currentTime >= word.startTime ? 1 : 0;
-    }
-    return clamp01((props.currentTime - word.startTime) / duration);
-  };
-  const lineProgress = (line: NcmLyricLine) => {
-    if (line.endTime === null || line.endTime <= line.time) {
-      return props.currentTime >= line.time ? 1 : 0;
-    }
-    return clamp01((props.currentTime - line.time) / (line.endTime - line.time));
-  };
-  const lineDistance = (index: number) => {
-    const activeIndex = activeLyricIndex();
-    if (activeIndex < 0) return 0;
-    return Math.abs(activeIndex - index);
-  };
-  const lineVisualStyle = (index: number, line: NcmLyricLine) => {
-    const isActive = index === activeLyricIndex();
-    const distance = lineDistance(index);
-    const opacity = isActive ? 1 : Math.max(0.12, 0.34 - distance * 0.045);
-    const blur = isActive ? 0 : Math.min(distance * 1.6, 8);
-
-    return {
-      "--line-progress": `${lineProgress(line) * 100}%`,
-      opacity: String(opacity),
-      filter: `blur(${String(blur)}px)`
-    };
-  };
-  const timedWords = (line: NcmLyricLine) =>
-    line.words && line.words.length > 0 ? line.words : null;
   const fullscreenLabel = () =>
     isFullscreen() ? t("fullPlayer.action.fullscreenExit") : t("fullPlayer.action.fullscreenEnter");
   const pureLyricLabel = () =>
@@ -278,11 +339,13 @@ export function FullPlayer(props: FullPlayerProps) {
     const state = commentsState();
     return state.status === "error" ? state.error : t("common.error.requestFailed");
   };
+  const snapSeek = (value: number): number =>
+    uiSettings.progressAdjustLyric ? snapSeekPositionToLyrics(lyrics(), value) : value;
 
   const seekFromClientX = (clientX: number, rect: DOMRect) => {
     if (!canSeek()) return;
     const ratio = clamp01((clientX - rect.left) / rect.width);
-    props.onSeek(snapSeekPositionToLyrics(lyrics(), ratio * props.duration));
+    props.onSeek(snapSeek(ratio * props.duration));
   };
 
   const handleLyricSeek = (line: NcmLyricLine) => {
@@ -303,12 +366,10 @@ export function FullPlayer(props: FullPlayerProps) {
     const STEP = 5;
     if (event.key === "ArrowLeft") {
       event.preventDefault();
-      props.onSeek(snapSeekPositionToLyrics(lyrics(), Math.max(0, props.currentTime - STEP)));
+      props.onSeek(snapSeek(Math.max(0, props.currentTime - STEP)));
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
-      props.onSeek(
-        snapSeekPositionToLyrics(lyrics(), Math.min(props.duration, props.currentTime + STEP))
-      );
+      props.onSeek(snapSeek(Math.min(props.duration, props.currentTime + STEP)));
     } else if (event.key === "Home") {
       event.preventDefault();
       props.onSeek(0);
@@ -358,6 +419,10 @@ export function FullPlayer(props: FullPlayerProps) {
   };
 
   const handleSurfaceLeave = () => {
+    if (!uiSettings.autoHidePlayerMeta) {
+      setMetaVisible(true);
+      return;
+    }
     clearHideTimer();
     setMetaVisible(false);
   };
@@ -410,7 +475,8 @@ export function FullPlayer(props: FullPlayerProps) {
       activeLine.offsetTop -
       Math.max(
         0,
-        container.clientHeight * LYRIC_SCROLL_OFFSET_RATIO - activeLine.clientHeight / 2
+        container.clientHeight * clampLyricScrollOffset(uiSettings.lyricsScrollOffset) -
+          activeLine.clientHeight / 2
       ) +
       (lineRect.top - containerRect.top - activeLine.offsetTop);
 
@@ -418,6 +484,12 @@ export function FullPlayer(props: FullPlayerProps) {
       top: Math.max(0, offset),
       behavior: "smooth"
     });
+  });
+
+  createEffect(() => {
+    if (!canShowComments() && showComment()) {
+      setShowComment(false);
+    }
   });
 
   createEffect(() => {
@@ -453,6 +525,7 @@ export function FullPlayer(props: FullPlayerProps) {
     <div
       ref={rootRef}
       class={fullPlayerRootClassName()}
+      style={rootStyle()}
       role="dialog"
       aria-label={t("fullPlayer.aria.dialog")}
       aria-modal="true"
@@ -520,50 +593,56 @@ export function FullPlayer(props: FullPlayerProps) {
         </div>
       </div>
 
-      <div class={layoutClassName()}>
+      <div class={layoutClassName()} style={stageStyle()}>
         <div class="full-player-primary">
-          <div class={`full-player-cover${props.isPlaying ? " is-playing" : ""}`}>
-            <Show when={uiSettings.fullPlayerCoverMode === "record"}>
-              <svg
-                class="full-player-vinyl-needle"
-                viewBox="0 0 100 100"
-                xmlns="http://www.w3.org/2000/svg"
-                aria-hidden="true"
-              >
-                <circle cx="10" cy="10" r="9" fill="#2a2a2a" stroke="#1a1a1a" stroke-width="1" />
-                <circle cx="10" cy="10" r="5" fill="#666" />
-                <circle cx="10" cy="10" r="2" fill="#1a1a1a" />
-                <path d="M 10 10 L 80 80" stroke="#888" stroke-width="4" stroke-linecap="round" />
-                <rect
-                  x="78"
-                  y="78"
-                  width="14"
-                  height="14"
-                  rx="2"
-                  fill="#3a3a3a"
-                  stroke="#1a1a1a"
-                  stroke-width="1"
-                  transform="rotate(45 85 85)"
-                />
-                <circle cx="92" cy="92" r="2.5" fill="#aa6633" />
-              </svg>
-            </Show>
-            <CoverArt coverUrl={props.coverUrl} alt={props.title || t("cover.alt")} />
-          </div>
+          <Show when={!uiSettings.hiddenCovers.player}>
+            <div class={`full-player-cover${props.isPlaying ? " is-playing" : ""}`}>
+              <Show when={uiSettings.playerType === "record"}>
+                <svg
+                  class="full-player-vinyl-needle"
+                  viewBox="0 0 100 100"
+                  xmlns="http://www.w3.org/2000/svg"
+                  aria-hidden="true"
+                >
+                  <circle cx="10" cy="10" r="9" fill="#2a2a2a" stroke="#1a1a1a" stroke-width="1" />
+                  <circle cx="10" cy="10" r="5" fill="#666" />
+                  <circle cx="10" cy="10" r="2" fill="#1a1a1a" />
+                  <path d="M 10 10 L 80 80" stroke="#888" stroke-width="4" stroke-linecap="round" />
+                  <rect
+                    x="78"
+                    y="78"
+                    width="14"
+                    height="14"
+                    rx="2"
+                    fill="#3a3a3a"
+                    stroke="#1a1a1a"
+                    stroke-width="1"
+                    transform="rotate(45 85 85)"
+                  />
+                  <circle cx="92" cy="92" r="2.5" fill="#aa6633" />
+                </svg>
+              </Show>
+              <CoverArt coverUrl={props.coverUrl} alt={props.title || t("cover.alt")} />
+            </div>
+          </Show>
 
-          <div class="full-player-meta">
-            <div class="full-player-title">{props.title}</div>
-            <div class="full-player-subtitle">{props.subtitle || t("player.subtitle.empty")}</div>
-            <Show when={props.detail}>
-              {(detail) => <div class="full-player-detail">{detail()}</div>}
-            </Show>
-          </div>
+          <Show when={uiSettings.showPlayMeta}>
+            <div class="full-player-meta">
+              <div class="full-player-title">{displayTitle()}</div>
+              <div class="full-player-subtitle">{displaySubtitle() || t("player.subtitle.empty")}</div>
+              <Show when={props.detail}>
+                {(detail) => <div class="full-player-detail">{detail()}</div>}
+              </Show>
+            </div>
+          </Show>
         </div>
 
         <Show when={showComment()}>
           <div class={commentPanelClassName()}>
-            <div class="full-player-comment-song">
-              <CoverArt coverUrl={props.coverUrl} alt={props.title || t("cover.alt")} />
+            <div class={`full-player-comment-song${uiSettings.hiddenCovers.player ? " is-cover-hidden" : ""}`}>
+              <Show when={!uiSettings.hiddenCovers.player}>
+                <CoverArt coverUrl={props.coverUrl} alt={props.title || t("cover.alt")} />
+              </Show>
               <div class="full-player-comment-song-info">
                 <span class="full-player-comment-song-title">{props.title || t("player.fallback.empty")}</span>
                 <span class="full-player-comment-song-artist">
@@ -616,7 +695,19 @@ export function FullPlayer(props: FullPlayerProps) {
           </div>
         </Show>
 
-        <div class="full-player-lyric-panel" style={{ "--lyric-font-size": `${uiSettings.lyricFontSize}px` }}>
+        <div
+          class="full-player-lyric-panel"
+          style={{
+            "--lyric-font-size": `${uiSettings.lyricFontSize}px`,
+            "--lyric-font-weight": String(uiSettings.lyricFontWeight),
+            "--lyric-translation-font-size": `${uiSettings.lyricTranslationFontSize}px`,
+            "--lyric-romanization-font-size": `${uiSettings.lyricRomanizationFontSize}px`,
+            "--lyric-line-align": lyricLineAlign(),
+            "--lyric-text-align": lyricTextAlign(),
+            "--lyric-horizontal-offset": `${uiSettings.lyricHorizontalOffset}px`,
+            "--lyric-blend-mode": uiSettings.lyricsBlendMode
+          }}
+        >
           <div class="full-player-lyric-now">{lyricNow()}</div>
           <div
             ref={lyricListRef}
@@ -633,41 +724,18 @@ export function FullPlayer(props: FullPlayerProps) {
             >
               <For each={lyrics()}>
                 {(line, index) => (
-                  <div
-                    data-lyric-index={String(index())}
-                    class={`full-player-lyric-line${
-                      index() === activeLyricIndex() ? " is-active" : ""
-                    }`}
-                    style={lineVisualStyle(index(), line)}
-                    onClick={() => handleLyricSeek(line)}
-                  >
-                    <Show
-                      when={uiSettings.showWordLyrics && timedWords(line)}
-                      fallback={<span class="full-player-lyric-text">{line.text}</span>}
-                    >
-                      {(words) => (
-                        <span class="full-player-lyric-words">
-                          <For each={words()}>
-                            {(word) => (
-                              <span
-                                class="full-player-lyric-word"
-                                style={{
-                                  "--word-progress": `${wordProgress(word) * 100}%`
-                                }}
-                              >
-                                {word.text}
-                              </span>
-                            )}
-                          </For>
-                        </span>
-                      )}
-                    </Show>
-                    <Show when={uiSettings.showLyricTranslation && line.translatedText}>
-                      {(translatedText) => (
-                        <span class="full-player-lyric-translation">{translatedText()}</span>
-                      )}
-                    </Show>
-                  </div>
+                  <LyricLine
+                    line={line}
+                    index={index}
+                    activeIndex={activeLyricIndex}
+                    currentTime={currentTime}
+                    lyricsBlur={() => uiSettings.lyricsBlur}
+                    showWordLyrics={() => uiSettings.showWordLyrics}
+                    showTranslation={() => uiSettings.showLyricTranslation}
+                    showRomanization={() => uiSettings.showLyricRomanization}
+                    swapTranslationRomanization={() => uiSettings.swapLyricTranslationRomanization}
+                    onSeek={handleLyricSeek}
+                  />
                 )}
               </For>
             </Show>
@@ -690,49 +758,57 @@ export function FullPlayer(props: FullPlayerProps) {
           >
             <IconChevronDown />
           </button>
-          <button
-            type="button"
-            class={`full-player-menu-icon${props.isLiked ? " is-active" : ""}`}
-            onClick={() => props.onToggleLike?.()}
-            disabled={!props.onToggleLike}
-            aria-label={t("player.aria.favorite")}
-            aria-pressed={Boolean(props.isLiked)}
-            title={t("player.aria.favorite")}
-          >
-            <Show when={props.isLiked} fallback={<IconHeart />}>
-              <IconHeartFilled />
-            </Show>
-          </button>
-          <button
-            type="button"
-            class="full-player-menu-icon"
-            aria-label={t("fullPlayer.action.addToPlaylist")}
-            title={t("fullPlayer.action.addToPlaylist")}
-          >
-            <IconPlaylist />
-          </button>
-          <button
-            type="button"
-            class="full-player-menu-icon"
-            aria-label={t("fullPlayer.action.download")}
-            title={t("fullPlayer.action.download")}
-          >
-            <IconDownload />
-          </button>
-          <button
-            type="button"
-            class={`full-player-menu-icon${showComment() ? " is-active" : ""}`}
-            onClick={toggleComment}
-            disabled={!canShowComments()}
-            aria-label={t("fullPlayer.comment.toggle")}
-            aria-pressed={showComment()}
-            title={t("fullPlayer.comment.toggle")}
-          >
-            <IconMessage />
-            <Show when={commentCount() > 0}>
-              <span class="full-player-icon-badge">{commentCount() > 999 ? "999+" : commentCount()}</span>
-            </Show>
-          </button>
+          <Show when={uiSettings.fullPlayerShowLike}>
+            <button
+              type="button"
+              class={`full-player-menu-icon${props.isLiked ? " is-active" : ""}`}
+              onClick={() => props.onToggleLike?.()}
+              disabled={!props.onToggleLike}
+              aria-label={t("player.aria.favorite")}
+              aria-pressed={Boolean(props.isLiked)}
+              title={t("player.aria.favorite")}
+            >
+              <Show when={props.isLiked} fallback={<IconHeart />}>
+                <IconHeartFilled />
+              </Show>
+            </button>
+          </Show>
+          <Show when={uiSettings.fullPlayerShowAddToPlaylist}>
+            <button
+              type="button"
+              class="full-player-menu-icon"
+              aria-label={t("fullPlayer.action.addToPlaylist")}
+              title={t("fullPlayer.action.addToPlaylist")}
+            >
+              <IconPlaylist />
+            </button>
+          </Show>
+          <Show when={uiSettings.fullPlayerShowDownload}>
+            <button
+              type="button"
+              class="full-player-menu-icon"
+              aria-label={t("fullPlayer.action.download")}
+              title={t("fullPlayer.action.download")}
+            >
+              <IconDownload />
+            </button>
+          </Show>
+          <Show when={uiSettings.fullPlayerShowComments}>
+            <button
+              type="button"
+              class={`full-player-menu-icon${showComment() ? " is-active" : ""}`}
+              onClick={toggleComment}
+              disabled={!canShowComments()}
+              aria-label={t("fullPlayer.comment.toggle")}
+              aria-pressed={showComment()}
+              title={t("fullPlayer.comment.toggle")}
+            >
+              <IconMessage />
+              <Show when={uiSettings.fullPlayerShowCommentCount && commentCount() > 0}>
+                <span class="full-player-icon-badge">{commentCount() > 999 ? "999+" : commentCount()}</span>
+              </Show>
+            </button>
+          </Show>
         </div>
 
         <div class="full-player-control-center">
@@ -794,7 +870,7 @@ export function FullPlayer(props: FullPlayerProps) {
           </div>
 
           <div class="full-player-progress-wrap">
-            <span class="full-player-time">{formatTime(props.currentTime)}</span>
+            <span class="full-player-time">{timeLeft()}</span>
             <div
               class={`full-player-progress${canSeek() ? " is-interactive" : ""}`}
               role={canSeek() ? "slider" : "presentation"}
@@ -808,30 +884,36 @@ export function FullPlayer(props: FullPlayerProps) {
             >
               <div class="full-player-progress-fill" style={{ width: `${progress() * 100}%` }} />
             </div>
-            <span class="full-player-time">{formatTime(props.duration)}</span>
+            <span class="full-player-time">{timeRight()}</span>
           </div>
         </div>
 
         <div class="full-player-control-side is-right">
-          <span class="full-player-quality-tag">
-            {props.currentSongId === null ? t("player.quality.source") : t("settings.ncm.songLevel")}
-          </span>
-          <button
-            type="button"
-            class="full-player-menu-icon full-player-utility-hidden"
-            aria-label={t("fullPlayer.action.desktopLyric")}
-            title={t("fullPlayer.action.desktopLyric")}
-          >
-            <IconDesktopLyric />
-          </button>
-          <button
-            type="button"
-            class="full-player-menu-icon full-player-utility-hidden"
-            aria-label={t("player.aria.more")}
-            title={t("player.aria.more")}
-          >
-            <IconControls />
-          </button>
+          <Show when={uiSettings.showPlayerQuality}>
+            <span class="full-player-quality-tag">
+              {props.currentSongId === null ? t("player.quality.source") : t("settings.ncm.songLevel")}
+            </span>
+          </Show>
+          <Show when={uiSettings.fullPlayerShowDesktopLyric}>
+            <button
+              type="button"
+              class="full-player-menu-icon full-player-utility-hidden"
+              aria-label={t("fullPlayer.action.desktopLyric")}
+              title={t("fullPlayer.action.desktopLyric")}
+            >
+              <IconDesktopLyric />
+            </button>
+          </Show>
+          <Show when={uiSettings.fullPlayerShowMoreSettings}>
+            <button
+              type="button"
+              class="full-player-menu-icon full-player-utility-hidden"
+              aria-label={t("player.aria.more")}
+              title={t("player.aria.more")}
+            >
+              <IconControls />
+            </button>
+          </Show>
           <div class="full-player-volume" ref={fullVolumeRef}>
             <button
               type="button"
@@ -875,12 +957,111 @@ export function FullPlayer(props: FullPlayerProps) {
         </div>
       </div>
 
-      <Show when={props.spectrum.length > 0}>
+      <Show when={uiSettings.showSpectrums && props.spectrum.length > 0}>
         <div class={`full-player-spectrum${metaVisible() ? "" : " is-visible"}`} aria-hidden="true">
           <SpectrumCanvas data={props.spectrum} active={props.isPlaying} />
         </div>
       </Show>
     </div>
+  );
+}
+
+interface LyricLineProps {
+  line: NcmLyricLine;
+  index: Accessor<number>;
+  activeIndex: Accessor<number>;
+  currentTime: Accessor<number>;
+  lyricsBlur: Accessor<boolean>;
+  showWordLyrics: Accessor<boolean>;
+  showTranslation: Accessor<boolean>;
+  showRomanization: Accessor<boolean>;
+  swapTranslationRomanization: Accessor<boolean>;
+  onSeek: (line: NcmLyricLine) => void;
+}
+
+function LyricLine(props: LyricLineProps) {
+  const isActive = createMemo(() => props.index() === props.activeIndex());
+  const activeWords = createMemo(() =>
+    isActive() && props.showWordLyrics() ? timedWords(props.line) : null
+  );
+  const lineStyle = createMemo(() => {
+    const active = isActive();
+    const activeIndex = props.activeIndex();
+    const distance = activeIndex < 0 ? 0 : Math.abs(activeIndex - props.index());
+    const opacity = active ? 1 : Math.max(0.12, 0.34 - distance * 0.045);
+    const blur = active || !props.lyricsBlur() ? 0 : Math.min(distance * 1.6, 8);
+    const progress = active ? lyricLineProgress(props.line, props.currentTime()) : 0;
+
+    return {
+      "--line-progress": `${progress * 100}%`,
+      opacity: String(opacity),
+      filter: `blur(${String(blur)}px)`
+    };
+  });
+  const className = createMemo(() =>
+    `full-player-lyric-line${isActive() ? " is-active" : ""}`
+  );
+
+  return (
+    <div
+      data-lyric-index={String(props.index())}
+      class={className()}
+      style={lineStyle()}
+      onClick={() => props.onSeek(props.line)}
+    >
+      <Show
+        when={activeWords()}
+        fallback={<span class="full-player-lyric-text">{props.line.text}</span>}
+      >
+        {(words) => (
+          <span class="full-player-lyric-words">
+            <For each={words()}>
+              {(word) => <LyricWord word={word} currentTime={props.currentTime} />}
+            </For>
+          </span>
+        )}
+      </Show>
+      <Show
+        when={props.swapTranslationRomanization()}
+        fallback={
+          <>
+            <Show when={props.showTranslation() && props.line.translatedText}>
+              {(translatedText) => (
+                <span class="full-player-lyric-translation">{translatedText()}</span>
+              )}
+            </Show>
+            <Show when={props.showRomanization() && props.line.romanText}>
+              {(romanText) => (
+                <span class="full-player-lyric-romanization">{romanText()}</span>
+              )}
+            </Show>
+          </>
+        }
+      >
+        <Show when={props.showRomanization() && props.line.romanText}>
+          {(romanText) => (
+            <span class="full-player-lyric-romanization">{romanText()}</span>
+          )}
+        </Show>
+        <Show when={props.showTranslation() && props.line.translatedText}>
+          {(translatedText) => (
+            <span class="full-player-lyric-translation">{translatedText()}</span>
+          )}
+        </Show>
+      </Show>
+    </div>
+  );
+}
+
+function LyricWord(props: { word: NcmLyricWord; currentTime: Accessor<number> }) {
+  const style = createMemo(() => ({
+    "--word-progress": `${lyricWordProgress(props.word, props.currentTime()) * 100}%`
+  }));
+
+  return (
+    <span class="full-player-lyric-word" style={style()}>
+      {props.word.text}
+    </span>
   );
 }
 

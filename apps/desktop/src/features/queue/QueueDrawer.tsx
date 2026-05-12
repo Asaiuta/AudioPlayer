@@ -1,6 +1,12 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { IconClose, IconDelete, IconMusic, IconPlayCircle, IconRefresh } from "../../components/icons";
+import {
+  displayNameFromSourcePath,
+  formatMediaDuration,
+  isMediaListItemCurrent,
+  type MediaListItem
+} from "../../components/media/MediaList";
 import type { QueueEntry } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
 
@@ -15,26 +21,59 @@ interface QueueDrawerProps {
   onClear: () => Promise<void>;
 }
 
-const mediaKeyForPath = (path: string | null | undefined): string | null => {
-  if (!path) return null;
-  return path
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/")
-    .toLowerCase();
+const QUEUE_ROW_HEIGHT = 80;
+const QUEUE_OVERSCAN = 6;
+
+interface QueueDrawerItem extends MediaListItem {
+  entryId: number;
+  positionIndex: number;
+  status: string;
+  addedAtEpochSecs: number;
+  updatedAtEpochSecs: number;
+}
+
+const firstText = (...values: Array<string | null | undefined>): string | null => {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
 };
 
-const fileNameFromPath = (path: string): string => {
-  const normalized = path.replace(/\\/g, "/");
-  const parts = normalized.split("/").filter(Boolean);
-  return parts[parts.length - 1] ?? path;
+const adaptQueueEntry = (entry: QueueEntry): QueueDrawerItem => ({
+  id: String(entry.entry_id),
+  entryId: entry.entry_id,
+  positionIndex: entry.position_index,
+  source_path: entry.source_path,
+  media_id: entry.media_id,
+  title: entry.title,
+  artist: entry.artist,
+  album: entry.album,
+  duration_secs: entry.duration_secs,
+  artworkUrl: entry.external_artwork_url,
+  status: entry.status,
+  addedAtEpochSecs: entry.added_at_epoch_secs,
+  updatedAtEpochSecs: entry.updated_at_epoch_secs
+});
+
+const queueItemTitle = (item: QueueDrawerItem): string =>
+  firstText(item.title, displayNameFromSourcePath(item.source_path ?? item.id)) ?? item.source_path ?? item.id;
+
+const queueItemDetail = (item: QueueDrawerItem): string => {
+  const parts = [item.artist, item.album].map((value) => value?.trim()).filter(Boolean);
+  return parts.length > 0 ? parts.join(" - ") : item.source_path ?? item.status;
 };
+
+const queueItemDuration = (item: QueueDrawerItem): string =>
+  item.duration_secs === null ? "" : formatMediaDuration(item.duration_secs);
 
 export function QueueDrawer(props: QueueDrawerProps) {
   const { t } = useTranslation();
   const [busyEntryId, setBusyEntryId] = createSignal<number | null>(null);
   const [clearing, setClearing] = createSignal(false);
-  const itemRefs: HTMLLIElement[] = [];
+  const [scrollTop, setScrollTop] = createSignal<number>(0);
+  const [viewportHeight, setViewportHeight] = createSignal<number>(0);
+  let bodyRef: HTMLDivElement | undefined;
 
   createEffect(() => {
     if (!props.open || typeof window === "undefined") return;
@@ -45,43 +84,72 @@ export function QueueDrawer(props: QueueDrawerProps) {
     onCleanup(() => window.removeEventListener("keydown", handleKey));
   });
 
+  createEffect(() => {
+    if (!props.open || typeof window === "undefined") return;
+    const updateViewportHeight = () => setViewportHeight(bodyRef?.clientHeight ?? 0);
+    queueMicrotask(updateViewportHeight);
+    window.addEventListener("resize", updateViewportHeight);
+    onCleanup(() => window.removeEventListener("resize", updateViewportHeight));
+  });
+
+  const queueItems = createMemo<QueueDrawerItem[]>(() => props.entries.map(adaptQueueEntry));
   const countKey = createMemo(() =>
     props.entries.length === 1 ? "queue.persistent.count.one" : "queue.persistent.count.other"
   );
-  const currentPathKey = createMemo(() => mediaKeyForPath(props.currentTrackPath));
   const currentIndex = createMemo(() =>
-    props.entries.findIndex((entry) =>
-      props.currentMediaId
-        ? entry.media_id === props.currentMediaId || mediaKeyForPath(entry.source_path) === currentPathKey()
-        : mediaKeyForPath(entry.source_path) === currentPathKey()
+    queueItems().findIndex((item) =>
+      isMediaListItemCurrent(item, {
+        sourcePath: props.currentTrackPath,
+        mediaId: props.currentMediaId
+      })
     )
   );
-  const isCurrent = (entry: QueueEntry) =>
-    props.currentMediaId
-      ? entry.media_id === props.currentMediaId || mediaKeyForPath(entry.source_path) === currentPathKey()
-      : mediaKeyForPath(entry.source_path) === currentPathKey();
+  const isCurrent = (item: QueueDrawerItem) =>
+    isMediaListItemCurrent(item, {
+      sourcePath: props.currentTrackPath,
+      mediaId: props.currentMediaId
+    });
+
+  const virtualRange = createMemo(() => {
+    const length = queueItems().length;
+    const viewportRows = Math.ceil((viewportHeight() || QUEUE_ROW_HEIGHT * 8) / QUEUE_ROW_HEIGHT);
+    const start = Math.max(0, Math.floor(scrollTop() / QUEUE_ROW_HEIGHT) - QUEUE_OVERSCAN);
+    const end = Math.min(length, start + viewportRows + QUEUE_OVERSCAN * 2);
+    return { start, end };
+  });
+  const visibleEntries = createMemo(() => {
+    const range = virtualRange();
+    return queueItems().slice(range.start, range.end).map((item, offset) => ({
+      item,
+      index: range.start + offset
+    }));
+  });
+  const listHeight = () => `${queueItems().length * QUEUE_ROW_HEIGHT}px`;
 
   const scrollToCurrent = () => {
     const index = currentIndex();
     if (index < 0) return;
-    itemRefs[index]?.scrollIntoView({ block: "center", behavior: "smooth" });
+    bodyRef?.scrollTo({
+      top: Math.max(0, index * QUEUE_ROW_HEIGHT - (viewportHeight() - QUEUE_ROW_HEIGHT) / 2),
+      behavior: "smooth"
+    });
   };
 
-  const handlePlay = async (entry: QueueEntry) => {
-    if (isCurrent(entry)) return;
-    setBusyEntryId(entry.entry_id);
+  const handlePlay = async (item: QueueDrawerItem) => {
+    if (isCurrent(item)) return;
+    setBusyEntryId(item.entryId);
     try {
-      await props.onPlayEntry(entry.entry_id);
+      await props.onPlayEntry(item.entryId);
       props.onClose();
     } finally {
       setBusyEntryId(null);
     }
   };
 
-  const handleRemove = async (entry: QueueEntry) => {
-    setBusyEntryId(entry.entry_id);
+  const handleRemove = async (item: QueueDrawerItem) => {
+    setBusyEntryId(item.entryId);
     try {
-      await props.onRemoveEntry(entry.entry_id);
+      await props.onRemoveEntry(item.entryId);
     } finally {
       setBusyEntryId(null);
     }
@@ -123,23 +191,29 @@ export function QueueDrawer(props: QueueDrawerProps) {
               </button>
             </header>
 
-            <div class="queue-drawer-body">
+            <div
+              ref={bodyRef}
+              class="queue-drawer-body"
+              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+            >
               <Show
                 when={props.entries.length > 0}
                 fallback={<div class="queue-drawer-empty">{t("queue.persistent.empty")}</div>}
               >
-                <ul class="queue-drawer-list">
-                  <For each={props.entries}>
-                    {(entry, index) => {
-                      const active = () => isCurrent(entry);
+                <ul class="queue-drawer-list" style={{ height: listHeight() }}>
+                  <For each={visibleEntries()}>
+                    {(item) => {
+                      const queueItem = item.item;
+                      const index = () => item.index;
+                      const active = () => isCurrent(queueItem);
                       const disabled = () => busyEntryId() !== null || clearing();
                       return (
-                        <li ref={(el) => { itemRefs[index()] = el; }}>
+                        <li style={{ transform: `translateY(${index() * QUEUE_ROW_HEIGHT}px)` }}>
                           <div class={`queue-drawer-item${active() ? " is-current" : ""}`}>
                             <button
                               type="button"
                               class="queue-drawer-item-main"
-                              onClick={() => void handlePlay(entry)}
+                              onClick={() => void handlePlay(queueItem)}
                               disabled={disabled() || active()}
                             >
                               <span class={`queue-drawer-index${index() + 1 > 9999 ? " is-big" : ""}`}>
@@ -148,9 +222,14 @@ export function QueueDrawer(props: QueueDrawerProps) {
                                 </Show>
                               </span>
                               <span class="queue-drawer-copy">
-                                <span class="queue-drawer-name">{fileNameFromPath(entry.source_path)}</span>
-                                <span class="queue-drawer-path">{entry.source_path}</span>
+                                <span class="queue-drawer-name" title={queueItem.source_path ?? queueItemTitle(queueItem)}>
+                                  {queueItemTitle(queueItem)}
+                                </span>
+                                <span class="queue-drawer-path" title={queueItem.source_path ?? queueItemDetail(queueItem)}>
+                                  {queueItemDetail(queueItem)}
+                                </span>
                               </span>
+                              <span class="queue-drawer-duration">{queueItemDuration(queueItem)}</span>
                               <Show when={!active()}>
                                 <span class="queue-drawer-play" aria-hidden="true">
                                   <IconPlayCircle />
@@ -160,7 +239,7 @@ export function QueueDrawer(props: QueueDrawerProps) {
                             <button
                               type="button"
                               class="queue-drawer-remove"
-                              onClick={() => void handleRemove(entry)}
+                              onClick={() => void handleRemove(queueItem)}
                               disabled={disabled()}
                               aria-label={t("queue.entry.remove")}
                               title={t("queue.entry.remove")}

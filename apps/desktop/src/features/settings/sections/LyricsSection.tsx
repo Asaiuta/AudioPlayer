@@ -1,5 +1,9 @@
-import { createSignal } from "solid-js";
+import { Show, createMemo, createSignal } from "solid-js";
 import { useTranslation } from "../../../shared/i18n";
+import type {
+  LyricsBlendMode,
+  LyricsPosition
+} from "../../../shared/state/useUISettings";
 import { STORAGE_KEYS } from "../../../shared/state/useUISettings";
 import {
   SettingItem,
@@ -7,7 +11,8 @@ import {
   settingsSectionClass
 } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
-import { persist, readBool, readNumber } from "../storage";
+import { SelectInput, type SelectOption } from "../components/SelectInput";
+import { persist, readBool, readNumber, readString } from "../storage";
 
 interface LyricsSectionProps {
   highlightId: string | null;
@@ -16,11 +21,64 @@ interface LyricsSectionProps {
 export function LyricsSection(props: LyricsSectionProps) {
   const { t } = useTranslation();
 
-  const [lyricFontSize, setLyricFontSize] = createSignal(readNumber(STORAGE_KEYS.lyricFontSize, 28));
-  const [showLyricTranslation, setShowLyricTranslation] = createSignal(
+  const [lyricFontSize, setLyricFontSize] = createSignal<number>(
+    readNumber(STORAGE_KEYS.lyricFontSize, 28)
+  );
+  const [lyricFontWeight, setLyricFontWeight] = createSignal<number>(
+    readNumber(STORAGE_KEYS.lyricFontWeight, 700)
+  );
+  const [lyricTranslationFontSize, setLyricTranslationFontSize] = createSignal<number>(
+    readNumber(STORAGE_KEYS.lyricTranslationFontSize, 22)
+  );
+  const [lyricRomanizationFontSize, setLyricRomanizationFontSize] = createSignal<number>(
+    readNumber(STORAGE_KEYS.lyricRomanizationFontSize, 18)
+  );
+  const [showLyricTranslation, setShowLyricTranslation] = createSignal<boolean>(
     readBool(STORAGE_KEYS.showLyricTranslation, true)
   );
-  const [showWordLyrics, setShowWordLyrics] = createSignal(readBool(STORAGE_KEYS.showWordLyrics, true));
+  const [showLyricRomanization, setShowLyricRomanization] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.showLyricRomanization, true)
+  );
+  const [showWordLyrics, setShowWordLyrics] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.showWordLyrics, true)
+  );
+  const [lyricsBlur, setLyricsBlur] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.lyricsBlur, false)
+  );
+  const [lyricsScrollOffset, setLyricsScrollOffset] = createSignal<number>(
+    readNumber(STORAGE_KEYS.lyricsScrollOffset, 0.25)
+  );
+  const [swapLyricTranslationRomanization, setSwapLyricTranslationRomanization] =
+    createSignal<boolean>(readBool(STORAGE_KEYS.swapLyricTranslationRomanization, false));
+  const [lyricsPosition, setLyricsPosition] = createSignal<LyricsPosition>(
+    (() => {
+      const raw = readString(STORAGE_KEYS.lyricsPosition, "flex-start");
+      return raw === "center" || raw === "flex-end" ? (raw as LyricsPosition) : "flex-start";
+    })()
+  );
+  const [lyricHorizontalOffset, setLyricHorizontalOffset] = createSignal<number>(
+    readNumber(STORAGE_KEYS.lyricHorizontalOffset, 10)
+  );
+  const [lyricAlignRight, setLyricAlignRight] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.lyricAlignRight, false)
+  );
+  const [lyricsBlendMode, setLyricsBlendMode] = createSignal<LyricsBlendMode>(
+    (() => {
+      const raw = readString(STORAGE_KEYS.lyricsBlendMode, "screen");
+      return raw === "plus-lighter" ? "plus-lighter" : "screen";
+    })()
+  );
+
+  const lyricsPositionOptions = createMemo<SelectOption[]>(() => [
+    { value: "flex-start", label: t("settings.lyric.position.left") },
+    { value: "center", label: t("settings.lyric.position.center") },
+    { value: "flex-end", label: t("settings.lyric.position.right") }
+  ]);
+
+  const lyricsBlendModeOptions = createMemo<SelectOption[]>(() => [
+    { value: "screen", label: t("settings.lyric.blendMode.screen") },
+    { value: "plus-lighter", label: t("settings.lyric.blendMode.plusLighter") }
+  ]);
 
   const isHi = (id: string) => props.highlightId === id;
   let itemIndex = 0;
@@ -30,22 +88,213 @@ export function LyricsSection(props: LyricsSectionProps) {
     setLyricFontSize(v);
     persist(STORAGE_KEYS.lyricFontSize, v);
   };
+  const handleLyricFontWeight = (v: number) => {
+    setLyricFontWeight(v);
+    persist(STORAGE_KEYS.lyricFontWeight, v);
+  };
+  const handleLyricTranslationFontSize = (v: number) => {
+    setLyricTranslationFontSize(v);
+    persist(STORAGE_KEYS.lyricTranslationFontSize, v);
+  };
+  const handleLyricRomanizationFontSize = (v: number) => {
+    setLyricRomanizationFontSize(v);
+    persist(STORAGE_KEYS.lyricRomanizationFontSize, v);
+  };
   const handleShowLyricTranslation = () => {
     const next = !showLyricTranslation();
     setShowLyricTranslation(next);
     persist(STORAGE_KEYS.showLyricTranslation, next);
+  };
+  const handleShowLyricRomanization = () => {
+    const next = !showLyricRomanization();
+    setShowLyricRomanization(next);
+    persist(STORAGE_KEYS.showLyricRomanization, next);
   };
   const handleShowWordLyrics = () => {
     const next = !showWordLyrics();
     setShowWordLyrics(next);
     persist(STORAGE_KEYS.showWordLyrics, next);
   };
+  const handleLyricsBlur = () => {
+    const next = !lyricsBlur();
+    setLyricsBlur(next);
+    persist(STORAGE_KEYS.lyricsBlur, next);
+  };
+  const handleLyricsScrollOffsetPercent = (v: number) => {
+    const next = v / 100;
+    setLyricsScrollOffset(next);
+    persist(STORAGE_KEYS.lyricsScrollOffset, next);
+  };
+  const handleSwapLyricTranslationRomanization = () => {
+    const next = !swapLyricTranslationRomanization();
+    setSwapLyricTranslationRomanization(next);
+    persist(STORAGE_KEYS.swapLyricTranslationRomanization, next);
+  };
+  const handleLyricsPosition = (value: LyricsPosition) => {
+    setLyricsPosition(value);
+    persist(STORAGE_KEYS.lyricsPosition, value);
+  };
+  const handleLyricHorizontalOffset = (v: number) => {
+    setLyricHorizontalOffset(v);
+    persist(STORAGE_KEYS.lyricHorizontalOffset, v);
+  };
+  const handleLyricAlignRight = () => {
+    const next = !lyricAlignRight();
+    setLyricAlignRight(next);
+    persist(STORAGE_KEYS.lyricAlignRight, next);
+  };
+  const handleLyricsBlendMode = (value: LyricsBlendMode) => {
+    setLyricsBlendMode(value);
+    persist(STORAGE_KEYS.lyricsBlendMode, value);
+  };
 
   return (
     <section class={settingsSectionClass}>
-      <SettingGroup title={t("settings.lyric.title")}>
-        <SettingItem id="lyricFontSize" label={t("settings.lyric.fontSize")} highlighted={isHi("lyricFontSize")} index={nextIndex()}>
-          <RangeInput min={16} max={48} step={1} value={lyricFontSize()} onInput={handleLyricFontSize} formatSuffix="px" />
+      <SettingGroup title={t("settings.lyric.displaySettings")}>
+        <SettingItem
+          id="lyricFontSize"
+          label={t("settings.lyric.fontSize")}
+          highlighted={isHi("lyricFontSize")}
+          index={nextIndex()}
+        >
+          <RangeInput
+            min={16}
+            max={48}
+            step={1}
+            value={lyricFontSize()}
+            onPreview={setLyricFontSize}
+            onCommit={handleLyricFontSize}
+            formatSuffix="px"
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="lyricTranslationFontSize"
+          label={t("settings.lyric.translationFontSize")}
+          description={t("settings.lyric.translationFontSize.desc")}
+          highlighted={isHi("lyricTranslationFontSize")}
+          index={nextIndex()}
+        >
+          <RangeInput
+            min={5}
+            max={40}
+            step={1}
+            value={lyricTranslationFontSize()}
+            onPreview={setLyricTranslationFontSize}
+            onCommit={handleLyricTranslationFontSize}
+            formatSuffix="px"
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="lyricRomanizationFontSize"
+          label={t("settings.lyric.romanizationFontSize")}
+          description={t("settings.lyric.romanizationFontSize.desc")}
+          highlighted={isHi("lyricRomanizationFontSize")}
+          index={nextIndex()}
+        >
+          <RangeInput
+            min={5}
+            max={40}
+            step={1}
+            value={lyricRomanizationFontSize()}
+            onPreview={setLyricRomanizationFontSize}
+            onCommit={handleLyricRomanizationFontSize}
+            formatSuffix="px"
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="lyricFontWeight"
+          label={t("settings.lyric.fontWeight")}
+          description={t("settings.lyric.fontWeight.desc")}
+          highlighted={isHi("lyricFontWeight")}
+          index={nextIndex()}
+        >
+          <RangeInput
+            min={100}
+            max={900}
+            step={100}
+            value={lyricFontWeight()}
+            onPreview={setLyricFontWeight}
+            onCommit={handleLyricFontWeight}
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="lyricsPosition"
+          label={t("settings.lyric.position")}
+          description={t("settings.lyric.position.desc")}
+          highlighted={isHi("lyricsPosition")}
+          index={nextIndex()}
+        >
+          <SelectInput
+            value={lyricsPosition()}
+            options={lyricsPositionOptions()}
+            onChange={(v) => handleLyricsPosition(v as LyricsPosition)}
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="lyricHorizontalOffset"
+          label={t("settings.lyric.horizontalOffset")}
+          description={t("settings.lyric.horizontalOffset.desc")}
+          highlighted={isHi("lyricHorizontalOffset")}
+          index={nextIndex()}
+        >
+          <RangeInput
+            min={0}
+            max={200}
+            step={1}
+            value={lyricHorizontalOffset()}
+            onPreview={setLyricHorizontalOffset}
+            onCommit={handleLyricHorizontalOffset}
+            formatSuffix="px"
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="lyricAlignRight"
+          label={t("settings.lyric.alignRight")}
+          description={t("settings.lyric.alignRight.desc")}
+          highlighted={isHi("lyricAlignRight")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input type="checkbox" checked={lyricAlignRight()} onChange={handleLyricAlignRight} />
+            <span class="toggle-switch-slider" />
+          </label>
+        </SettingItem>
+
+        <SettingItem
+          id="lyricsScrollOffset"
+          label={t("settings.lyric.scrollOffset")}
+          description={t("settings.lyric.scrollOffset.desc")}
+          highlighted={isHi("lyricsScrollOffset")}
+          index={nextIndex()}
+        >
+          <RangeInput
+            min={10}
+            max={90}
+            step={5}
+            value={Math.round(lyricsScrollOffset() * 100)}
+            onPreview={(value) => setLyricsScrollOffset(value / 100)}
+            onCommit={handleLyricsScrollOffsetPercent}
+            formatSuffix="%"
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="showWordLyrics"
+          label={t("settings.lyric.showWordLyrics")}
+          description={t("settings.lyric.showWordLyrics.desc")}
+          highlighted={isHi("showWordLyrics")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input type="checkbox" checked={showWordLyrics()} onChange={handleShowWordLyrics} />
+            <span class="toggle-switch-slider" />
+          </label>
         </SettingItem>
 
         <SettingItem
@@ -62,16 +311,66 @@ export function LyricsSection(props: LyricsSectionProps) {
         </SettingItem>
 
         <SettingItem
-          id="showWordLyrics"
-          label={t("settings.lyric.showWordLyrics")}
-          description={t("settings.lyric.showWordLyrics.desc")}
-          highlighted={isHi("showWordLyrics")}
+          id="showLyricRomanization"
+          label={t("settings.lyric.showRomanization")}
+          description={t("settings.lyric.showRomanization.desc")}
+          highlighted={isHi("showLyricRomanization")}
           index={nextIndex()}
         >
           <label class="toggle-switch">
-            <input type="checkbox" checked={showWordLyrics()} onChange={handleShowWordLyrics} />
+            <input
+              type="checkbox"
+              checked={showLyricRomanization()}
+              onChange={handleShowLyricRomanization}
+            />
             <span class="toggle-switch-slider" />
           </label>
+        </SettingItem>
+
+        <Show when={showLyricTranslation() && showLyricRomanization()}>
+          <SettingItem
+            id="swapLyricTranslationRomanization"
+            label={t("settings.lyric.swapTranslationRomanization")}
+            description={t("settings.lyric.swapTranslationRomanization.desc")}
+            highlighted={isHi("swapLyricTranslationRomanization")}
+            index={nextIndex()}
+          >
+            <label class="toggle-switch">
+              <input
+                type="checkbox"
+                checked={swapLyricTranslationRomanization()}
+                onChange={handleSwapLyricTranslationRomanization}
+              />
+              <span class="toggle-switch-slider" />
+            </label>
+          </SettingItem>
+        </Show>
+
+        <SettingItem
+          id="lyricsBlur"
+          label={t("settings.lyric.blur")}
+          description={t("settings.lyric.blur.desc")}
+          highlighted={isHi("lyricsBlur")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input type="checkbox" checked={lyricsBlur()} onChange={handleLyricsBlur} />
+            <span class="toggle-switch-slider" />
+          </label>
+        </SettingItem>
+
+        <SettingItem
+          id="lyricsBlendMode"
+          label={t("settings.lyric.blendMode")}
+          description={t("settings.lyric.blendMode.desc")}
+          highlighted={isHi("lyricsBlendMode")}
+          index={nextIndex()}
+        >
+          <SelectInput
+            value={lyricsBlendMode()}
+            options={lyricsBlendModeOptions()}
+            onChange={(v) => handleLyricsBlendMode(v as LyricsBlendMode)}
+          />
         </SettingItem>
       </SettingGroup>
     </section>

@@ -139,7 +139,7 @@ async fn set_eq(data: web::Data<Arc<AppState>>, body: web::Json<SetEqRequest>) -
         drop(player);
         return HttpResponse::Ok().json(ApiResponse::success_with_state(
             "FIR EQ updated",
-            get_player_state(&data.player.lock()),
+            get_enriched_player_state(&data.player.lock(), &data.app_db),
         ));
     }
 
@@ -162,7 +162,7 @@ async fn set_eq(data: web::Data<Arc<AppState>>, body: web::Json<SetEqRequest>) -
 
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "EQ updated",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 
@@ -227,7 +227,7 @@ async fn configure_optimizations(
 
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Optimizations updated",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 

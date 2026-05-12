@@ -16,10 +16,23 @@ interface PlaybackSectionProps {
 export function PlaybackSection(props: PlaybackSectionProps) {
   const { t } = useTranslation();
 
-  const [autoPlay, setAutoPlay] = createSignal(readBool(STORAGE_KEYS.autoPlay, false));
-  const [volumeFade, setVolumeFade] = createSignal(readBool(STORAGE_KEYS.volumeFade, true));
-  const [volumeFadeTime, setVolumeFadeTime] = createSignal(readNumber(STORAGE_KEYS.volumeFadeTime, 300));
-  const [memoryLastSeek, setMemoryLastSeek] = createSignal(readBool(STORAGE_KEYS.memoryLastSeek, true));
+  const [autoPlay, setAutoPlay] = createSignal<boolean>(readBool(STORAGE_KEYS.autoPlay, false));
+  const [volumeFade, setVolumeFade] = createSignal<boolean>(readBool(STORAGE_KEYS.volumeFade, true));
+  const [volumeFadeTime, setVolumeFadeTime] = createSignal<number>(
+    readNumber(STORAGE_KEYS.volumeFadeTime, 300)
+  );
+  const [memoryLastSeek, setMemoryLastSeek] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.memoryLastSeek, true)
+  );
+  const [progressTooltipShow, setProgressTooltipShow] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.progressTooltipShow, true)
+  );
+  const [progressLyricShow, setProgressLyricShow] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.progressLyricShow, true)
+  );
+  const [progressAdjustLyric, setProgressAdjustLyric] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.progressAdjustLyric, false)
+  );
 
   const isHi = (id: string) => props.highlightId === id;
   let itemIndex = 0;
@@ -44,6 +57,21 @@ export function PlaybackSection(props: PlaybackSectionProps) {
     setMemoryLastSeek(next);
     persist(STORAGE_KEYS.memoryLastSeek, next);
   };
+  const handleProgressTooltipShow = () => {
+    const next = !progressTooltipShow();
+    setProgressTooltipShow(next);
+    persist(STORAGE_KEYS.progressTooltipShow, next);
+  };
+  const handleProgressLyricShow = () => {
+    const next = !progressLyricShow();
+    setProgressLyricShow(next);
+    persist(STORAGE_KEYS.progressLyricShow, next);
+  };
+  const handleProgressAdjustLyric = () => {
+    const next = !progressAdjustLyric();
+    setProgressAdjustLyric(next);
+    persist(STORAGE_KEYS.progressAdjustLyric, next);
+  };
 
   return (
     <section class={settingsSectionClass}>
@@ -57,6 +85,60 @@ export function PlaybackSection(props: PlaybackSectionProps) {
         >
           <label class="toggle-switch">
             <input type="checkbox" checked={autoPlay()} onChange={handleAutoPlay} />
+            <span class="toggle-switch-slider" />
+          </label>
+        </SettingItem>
+
+        <SettingItem
+          id="memoryLastSeek"
+          label={t("settings.playback.memoryLastSeek")}
+          description={t("settings.playback.memoryLastSeek.desc")}
+          highlighted={isHi("memoryLastSeek")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input type="checkbox" checked={memoryLastSeek()} onChange={handleMemoryLastSeek} />
+            <span class="toggle-switch-slider" />
+          </label>
+        </SettingItem>
+
+        <SettingItem
+          id="progressTooltipShow"
+          label={t("settings.playback.progressTooltipShow")}
+          description={t("settings.playback.progressTooltipShow.desc")}
+          highlighted={isHi("progressTooltipShow")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input type="checkbox" checked={progressTooltipShow()} onChange={handleProgressTooltipShow} />
+            <span class="toggle-switch-slider" />
+          </label>
+        </SettingItem>
+
+        <Show when={progressTooltipShow()}>
+          <SettingItem
+            id="progressLyricShow"
+            label={t("settings.playback.progressLyricShow")}
+            description={t("settings.playback.progressLyricShow.desc")}
+            highlighted={isHi("progressLyricShow")}
+            index={nextIndex()}
+          >
+            <label class="toggle-switch">
+              <input type="checkbox" checked={progressLyricShow()} onChange={handleProgressLyricShow} />
+              <span class="toggle-switch-slider" />
+            </label>
+          </SettingItem>
+        </Show>
+
+        <SettingItem
+          id="progressAdjustLyric"
+          label={t("settings.playback.progressAdjustLyric")}
+          description={t("settings.playback.progressAdjustLyric.desc")}
+          highlighted={isHi("progressAdjustLyric")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input type="checkbox" checked={progressAdjustLyric()} onChange={handleProgressAdjustLyric} />
             <span class="toggle-switch-slider" />
           </label>
         </SettingItem>
@@ -76,22 +158,17 @@ export function PlaybackSection(props: PlaybackSectionProps) {
 
         <Show when={volumeFade()}>
           <SettingItem id="volumeFadeTime" label={t("settings.playback.volumeFadeTime")} highlighted={isHi("volumeFadeTime")} index={nextIndex()}>
-            <RangeInput min={100} max={2000} step={50} value={volumeFadeTime()} onInput={handleVolumeFadeTime} formatSuffix="ms" />
+            <RangeInput
+              min={200}
+              max={2000}
+              step={50}
+              value={volumeFadeTime()}
+              onPreview={setVolumeFadeTime}
+              onCommit={handleVolumeFadeTime}
+              formatSuffix="ms"
+            />
           </SettingItem>
         </Show>
-
-        <SettingItem
-          id="memoryLastSeek"
-          label={t("settings.playback.memoryLastSeek")}
-          description={t("settings.playback.memoryLastSeek.desc")}
-          highlighted={isHi("memoryLastSeek")}
-          index={nextIndex()}
-        >
-          <label class="toggle-switch">
-            <input type="checkbox" checked={memoryLastSeek()} onChange={handleMemoryLastSeek} />
-            <span class="toggle-switch-slider" />
-          </label>
-        </SettingItem>
       </SettingGroup>
     </section>
   );

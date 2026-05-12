@@ -1072,6 +1072,9 @@
     --full-player-border: oklch(1 0 0 / 0.06);
     --full-player-border-strong: oklch(1 0 0 / 0.10);
     --full-player-surface: oklch(1 0 0 / 0.08);
+    --full-player-fluid-duration: 20s;
+    --full-player-fluid-scale: 1.04;
+    --full-player-fullscreen-gradient: 15%;
     position: fixed;
     inset: 0;
     z-index: var(--z-modal);
@@ -1101,10 +1104,10 @@
     inset: -14%;
     background-position: center;
     background-size: cover;
-    filter: blur(78px) saturate(1.08) brightness(0.42);
+    filter: blur(var(--full-player-background-blur, 32px)) saturate(1.08) brightness(0.42);
     opacity: 0.62;
-    transform: scale(1.04);
-    animation: full-player-fluid-drift 20s ease-in-out infinite alternate;
+    transform: scale(var(--full-player-fluid-scale));
+    animation: full-player-fluid-drift var(--full-player-fluid-duration) ease-in-out infinite alternate;
   }
 
   .full-player-fluid::before,
@@ -1129,6 +1132,51 @@
       radial-gradient(circle at 50% 50%, transparent 0 30%, color-mix(in oklch, var(--full-player-shadow) 100%, transparent) 74%);
   }
 
+  .full-player.background-mode-blur .full-player-fluid {
+    filter: blur(var(--full-player-background-blur, 32px)) saturate(1.1) brightness(0.42);
+    opacity: 0.62;
+    animation: none;
+  }
+
+  .full-player.background-mode-blur .full-player-fluid::before {
+    display: none;
+  }
+
+  .full-player.background-mode-color .full-player-fluid {
+    filter: blur(var(--full-player-background-color-blur, 43px)) saturate(1.85) brightness(0.5);
+    opacity: 0.7;
+    transform: scale(1.14);
+    animation: none;
+  }
+
+  .full-player.background-mode-color .full-player-fluid::before {
+    display: none;
+  }
+
+  .full-player.background-mode-color .full-player-fluid::after {
+    background:
+      radial-gradient(circle at 32% 48%, transparent 0 22%, oklch(0 0 0 / 0.18) 62%),
+      linear-gradient(115deg, oklch(0 0 0 / 0.36), transparent 46%, oklch(1 0 0 / 0.05));
+  }
+
+  .full-player.background-mode-animation .full-player-fluid {
+    filter: blur(var(--full-player-background-blur, 32px)) saturate(1.18) brightness(0.44);
+    opacity: 0.68;
+  }
+
+  .full-player.is-background-paused .full-player-fluid,
+  .full-player.is-background-paused .full-player-fluid::before {
+    animation-play-state: paused;
+  }
+
+  .full-player.player-type-fullscreen .full-player-fluid {
+    inset: 0;
+    filter: saturate(1.04) brightness(0.58);
+    opacity: 0.92;
+    transform: scale(1);
+    animation: none;
+  }
+
   .full-player-vignette {
     position: absolute;
     inset: 0;
@@ -1136,7 +1184,20 @@
       linear-gradient(180deg, oklch(0 0 0 / 0.34), transparent 16%, oklch(0 0 0 / 0.62)),
       radial-gradient(1280px 780px at 50% 46%, transparent 0 48%, oklch(0 0 0 / 0.54) 100%),
       var(--full-player-scrim);
-    backdrop-filter: blur(26px) saturate(0.92);
+    backdrop-filter: blur(var(--full-player-surface-blur, 24px)) saturate(0.92);
+  }
+
+  .full-player.player-type-fullscreen .full-player-vignette {
+    background:
+      linear-gradient(
+        90deg,
+        oklch(0 0 0 / 0.06) 0 var(--full-player-fullscreen-gradient),
+        oklch(0.04 0.012 80 / 0.78) calc(var(--full-player-fullscreen-gradient) + 18%),
+        oklch(0.03 0.01 80 / 0.88) 100%
+      ),
+      linear-gradient(180deg, oklch(0 0 0 / 0.26), transparent 24%, oklch(0 0 0 / 0.58)),
+      radial-gradient(980px 620px at 18% 46%, transparent 0 46%, oklch(0 0 0 / 0.4) 100%);
+    backdrop-filter: blur(6px) saturate(1.04);
   }
 
   .full-player-overlay-menu,
@@ -1294,6 +1355,12 @@
 
   .full-player-stage.is-lyrics-layout {
     grid-template-columns: minmax(320px, 0.72fr) minmax(520px, 1.28fr);
+  }
+
+  .full-player-stage.is-player-type-fullscreen {
+    grid-template-columns: minmax(280px, 0.58fr) minmax(520px, 1.42fr);
+    width: min(1600px, 100%);
+    gap: clamp(42px, 6vw, 96px);
   }
 
   .full-player-stage.is-pure-layout {
@@ -1512,7 +1579,12 @@
     display: flex;
     flex-direction: column;
     gap: clamp(18px, 2.2vh, 28px);
-    padding: clamp(136px, 20vh, 230px) 8px clamp(96px, 15vh, 170px) 0;
+    align-items: var(--lyric-line-align, flex-start);
+    padding:
+      clamp(136px, 20vh, 230px)
+      var(--lyric-horizontal-offset, 10px)
+      clamp(96px, 15vh, 170px)
+      var(--lyric-horizontal-offset, 10px);
     scroll-behavior: smooth;
     scrollbar-width: none;
     mask-image: linear-gradient(180deg, transparent, black 14%, black 76%, transparent);
@@ -1527,13 +1599,15 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: var(--lyric-line-align, flex-start);
     width: min(100%, 780px);
+    text-align: var(--lyric-text-align, left);
+    mix-blend-mode: var(--lyric-blend-mode, screen);
     color: var(--full-player-ink-muted);
     font-family: var(--font-display);
     font-size: var(--lyric-font-size, clamp(30px, 4vw, 60px));
     line-height: 1.16;
-    font-weight: 720;
+    font-weight: var(--lyric-font-weight, 720);
     letter-spacing: 0;
     transition:
       color var(--duration-base) var(--ease-standard),
@@ -1603,16 +1677,43 @@
     -webkit-background-clip: text;
   }
 
-  .full-player-lyric-translation {
+  .full-player-lyric-translation,
+  .full-player-lyric-romanization {
     margin-top: 8px;
     color: oklch(1 0 0 / 0.28);
     font-family: var(--font-sans);
-    font-size: clamp(15px, 1.05vw, 18px);
+    font-size: var(--lyric-translation-font-size, clamp(15px, 1.05vw, 18px));
     font-weight: 560;
     line-height: 1.32;
   }
 
-  .full-player-lyric-line.is-active .full-player-lyric-translation {
+  .full-player.player-type-fullscreen .full-player-primary {
+    align-self: end;
+    justify-content: flex-end;
+    padding-bottom: clamp(42px, 8vh, 96px);
+  }
+
+  .full-player.player-type-fullscreen .full-player-cover {
+    display: none;
+  }
+
+  .full-player.player-type-fullscreen .full-player-meta {
+    width: min(100%, 560px);
+  }
+
+  .full-player.player-type-fullscreen .full-player-title {
+    font-size: clamp(28px, 3.6vw, 56px);
+  }
+
+  .full-player-lyric-romanization {
+    margin-top: 4px;
+    color: oklch(1 0 0 / 0.22);
+    font-size: var(--lyric-romanization-font-size, clamp(14px, 0.95vw, 16px));
+    font-weight: 520;
+  }
+
+  .full-player-lyric-line.is-active .full-player-lyric-translation,
+  .full-player-lyric-line.is-active .full-player-lyric-romanization {
     color: oklch(1 0 0 / 0.52);
   }
 
@@ -1669,6 +1770,10 @@
     border-radius: var(--radius-card);
     color: var(--full-player-ink);
     background: var(--full-player-glass);
+  }
+
+  .full-player-comment-song.is-cover-hidden {
+    grid-template-columns: minmax(0, 1fr) 40px;
   }
 
   .full-player-comment-song .cover-art,

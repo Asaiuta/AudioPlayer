@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import type { PlayerState, RepeatMode, RequestState, ShuffleMode } from "../shared/api/types";
 import { useTranslation } from "../shared/i18n";
+import { useUISettings, type PlayerTimeFormat } from "../shared/state/useUISettings";
 import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import { snapSeekPositionToLyrics, type NcmLyricLine } from "../features/online/ncmPlayback";
 import { CoverArt } from "./CoverArt";
@@ -74,6 +75,16 @@ const formatTime = (value: number) => {
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 const ARTIST_SEPARATOR = /\s*(?:[\/,;&、]|\sfeat\.\s|\sft\.\s)\s*/i;
+const PLAYER_TIME_FORMATS: readonly PlayerTimeFormat[] = [
+  "current-total",
+  "remaining-total",
+  "current-remaining"
+];
+
+interface ProgressGeometry {
+  left: number;
+  width: number;
+}
 
 const splitArtists = (raw: string | null | undefined): string[] => {
   if (!raw) return [];
@@ -83,9 +94,18 @@ const splitArtists = (raw: string | null | undefined): string[] => {
     .filter(Boolean);
 };
 
+const stripBracketedContent = (value: string): string => {
+  const stripped = value
+    .replace(/\s*[\(（［\[{【].*?[\)）\]］}】]\s*/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return stripped || value;
+};
+
 export function PlayerBar(props: PlayerBarProps) {
   const { t } = useTranslation();
-  const [showRemaining, setShowRemaining] = createSignal(false);
+  const uiSettings = useUISettings();
+  const [timeFormatOverride, setTimeFormatOverride] = createSignal<PlayerTimeFormat | null>(null);
   const [volumePopoverOpen, setVolumePopoverOpen] = createSignal(false);
   const [errorVisible, setErrorVisible] = createSignal(false);
   const [moreOpen, setMoreOpen] = createSignal(false);
@@ -102,6 +122,10 @@ export function PlayerBar(props: PlayerBarProps) {
   let qualityRef: HTMLDivElement | undefined;
   let controlsRef: HTMLDivElement | undefined;
   let progressEdgeRef: HTMLDivElement | undefined;
+  let progressGeometry: ProgressGeometry | null = null;
+  let progressFrame: number | undefined;
+  let pendingProgressUpdate: { clientX: number; mode: "hover" | "drag" } | null = null;
+  let latestDragValue: number | null = null;
 
   // Track cover changes for transition animation
   let lastCoverUrl: string | null | undefined;
@@ -137,6 +161,11 @@ export function PlayerBar(props: PlayerBarProps) {
   useDismissibleOverlay(controlsOpen, {
     isInside: (target) => !!controlsRef && controlsRef.contains(target),
     onDismiss: () => setControlsOpen(false)
+  });
+
+  createEffect(() => {
+    uiSettings.timeFormat;
+    setTimeFormatOverride(null);
   });
 
   createEffect(() => {
@@ -178,11 +207,19 @@ export function PlayerBar(props: PlayerBarProps) {
   };
 
   const title = () =>
-    props.title?.trim() ||
-    (player()?.title ??
-      player()?.file_path ??
-      fallbackTitle() ??
-      t("player.fallback.empty"));
+    uiSettings.hideBracketedContent
+      ? stripBracketedContent(
+          props.title?.trim() ||
+            (player()?.title ??
+              player()?.file_path ??
+              fallbackTitle() ??
+              t("player.fallback.empty"))
+        )
+      : props.title?.trim() ||
+        (player()?.title ??
+          player()?.file_path ??
+          fallbackTitle() ??
+          t("player.fallback.empty"));
   const rawArtist = () => props.subtitle?.trim() || player()?.artist?.trim() || "";
   const artistList = () => splitArtists(rawArtist());
   const artistFallback = () => t("player.subtitle.empty");
@@ -191,8 +228,9 @@ export function PlayerBar(props: PlayerBarProps) {
     const lyric = props.currentLyric?.trim();
     return lyric ? lyric : null;
   };
-  const showLyric = () => Boolean(currentLyric());
-  const secondaryKey = () => currentLyric() ?? artistText();
+  const showLyric = () => uiSettings.barLyricShow && Boolean(currentLyric());
+  const secondaryKey = () => (uiSettings.barLyricShow ? currentLyric() : null) ?? artistText();
+  const showSecondaryMeta = () => uiSettings.showPlayMeta && Boolean(secondaryKey());
   const infoKey = () => {
     const state = player();
     return state?.media_id ?? state?.file_path ?? "empty";
@@ -212,10 +250,36 @@ export function PlayerBar(props: PlayerBarProps) {
   const shuffleLabel = () =>
     shuffleActive() ? t("player.shuffle.on") : t("player.shuffle.off");
   const playPauseLabel = () => (isPlaying() ? t("player.aria.pause") : t("player.aria.play"));
+  const activeTimeFormat = () => timeFormatOverride() ?? uiSettings.timeFormat;
+  const timeLeft = () =>
+    activeTimeFormat() === "remaining-total"
+      ? `-${formatTime(remainingTime())}`
+      : formatTime(displayTime());
   const timeRight = () =>
-    showRemaining() ? `-${formatTime(remainingTime())}` : formatTime(duration());
-  const timeToggleLabel = () =>
-    showRemaining() ? t("player.toggle.remaining") : t("player.toggle.elapsed");
+    activeTimeFormat() === "current-remaining"
+      ? `-${formatTime(remainingTime())}`
+      : formatTime(duration());
+  const timeFormatLabel = (format: PlayerTimeFormat) => {
+    switch (format) {
+      case "current-total":
+        return t("settings.appearance.timeFormat.currentTotal");
+      case "remaining-total":
+        return t("settings.appearance.timeFormat.remainingTotal");
+      case "current-remaining":
+        return t("settings.appearance.timeFormat.currentRemaining");
+      default: {
+        const _exhaustive: never = format;
+        return _exhaustive;
+      }
+    }
+  };
+  const timeToggleLabel = () => timeFormatLabel(activeTimeFormat());
+  const cycleTimeFormat = () => {
+    const active = activeTimeFormat();
+    const index = PLAYER_TIME_FORMATS.indexOf(active);
+    const next = PLAYER_TIME_FORMATS[(index + 1) % PLAYER_TIME_FORMATS.length];
+    setTimeFormatOverride(next);
+  };
   const handlePlayPauseClick = () => {
     if (isPlaying()) {
       props.onPause();
@@ -232,10 +296,25 @@ export function PlayerBar(props: PlayerBarProps) {
     return t("player.quality.upsampled", { value: state.target_samplerate });
   };
 
-  const seekFromClientX = (clientX: number, rect: DOMRect) => {
+  const readProgressGeometry = (): ProgressGeometry | null => {
+    if (!progressEdgeRef) return null;
+    const rect = progressEdgeRef.getBoundingClientRect();
+    if (rect.width <= 0) return null;
+    progressGeometry = {
+      left: rect.left,
+      width: rect.width
+    };
+    return progressGeometry;
+  };
+
+  const progressRatioFromClientX = (clientX: number, geometry: ProgressGeometry): number =>
+    clamp01((clientX - geometry.left) / geometry.width);
+
+  const seekFromClientX = (clientX: number) => {
     if (!canSeek()) return;
-    const ratio = clamp01((clientX - rect.left) / rect.width);
-    props.onSeek(snapSeek(ratio * duration()));
+    const geometry = readProgressGeometry();
+    if (!geometry) return;
+    props.onSeek(snapSeek(progressRatioFromClientX(clientX, geometry) * duration()));
   };
 
   const findLyricIndexAt = (value: number): number => {
@@ -256,69 +335,110 @@ export function PlayerBar(props: PlayerBarProps) {
     return idx;
   };
 
-  const snapSeek = (value: number): number => snapSeekPositionToLyrics(props.lyrics ?? [], value);
+  const snapSeek = (value: number): number =>
+    uiSettings.progressAdjustLyric ? snapSeekPositionToLyrics(props.lyrics ?? [], value) : value;
 
   const nearestLyricText = (value: number): string | null => {
+    if (!uiSettings.progressLyricShow) return null;
     const idx = findLyricIndexAt(value);
     if (idx === -1) return null;
     return props.lyrics![idx].text || null;
   };
 
-  const updateHover = (clientX: number, rect: DOMRect) => {
+  const applyProgressPreview = (clientX: number, mode: "hover" | "drag") => {
     if (!canSeek()) return;
-    const ratio = clamp01((clientX - rect.left) / rect.width);
+    const geometry = progressGeometry ?? readProgressGeometry();
+    if (!geometry) return;
+
+    const ratio = progressRatioFromClientX(clientX, geometry);
+    const value = ratio * duration();
+    if (mode === "drag") {
+      latestDragValue = value;
+      setDragValue(value);
+    }
     setHoverRatio(ratio);
-    setHoverTime(ratio * duration());
+    setHoverTime(value);
+  };
+
+  const flushProgressPreview = () => {
+    if (progressFrame !== undefined) {
+      window.cancelAnimationFrame(progressFrame);
+      progressFrame = undefined;
+    }
+    const update = pendingProgressUpdate;
+    pendingProgressUpdate = null;
+    if (update) {
+      applyProgressPreview(update.clientX, update.mode);
+    }
+  };
+
+  const cancelProgressPreview = () => {
+    if (progressFrame !== undefined) {
+      window.cancelAnimationFrame(progressFrame);
+      progressFrame = undefined;
+    }
+    pendingProgressUpdate = null;
+  };
+
+  const scheduleProgressPreview = (clientX: number, mode: "hover" | "drag") => {
+    pendingProgressUpdate = { clientX, mode };
+    if (progressFrame !== undefined) return;
+    progressFrame = window.requestAnimationFrame(() => {
+      progressFrame = undefined;
+      const update = pendingProgressUpdate;
+      pendingProgressUpdate = null;
+      if (update) {
+        applyProgressPreview(update.clientX, update.mode);
+      }
+    });
   };
 
   const handleProgressClick = (event: MouseEvent) => {
     if (isDragging()) return;
-    const target = event.currentTarget;
-    if (target instanceof HTMLDivElement) {
-      seekFromClientX(event.clientX, target.getBoundingClientRect());
-    }
+    seekFromClientX(event.clientX);
+  };
+
+  const handleProgressMouseEnter = () => {
+    progressGeometry = null;
+    readProgressGeometry();
   };
 
   const handleProgressMouseMove = (event: MouseEvent) => {
     if (isDragging()) return;
-    const target = event.currentTarget;
-    if (target instanceof HTMLDivElement) {
-      updateHover(event.clientX, target.getBoundingClientRect());
-    }
+    scheduleProgressPreview(event.clientX, "hover");
   };
 
   const handleProgressMouseLeave = () => {
     if (isDragging()) return;
+    flushProgressPreview();
     setHoverTime(null);
     setHoverRatio(null);
+    progressGeometry = null;
   };
 
   const handleProgressMouseDown = (event: MouseEvent) => {
     if (!canSeek() || event.button !== 0) return;
     if (!progressEdgeRef) return;
-    const rect = progressEdgeRef.getBoundingClientRect();
-    const ratio = clamp01((event.clientX - rect.left) / rect.width);
+    progressGeometry = readProgressGeometry();
+    if (!progressGeometry) return;
+
     setIsDragging(true);
-    setDragValue(ratio * duration());
-    setHoverRatio(ratio);
-    setHoverTime(ratio * duration());
+    applyProgressPreview(event.clientX, "drag");
 
     const onMove = (moveEvent: MouseEvent) => {
-      if (!progressEdgeRef) return;
-      const r = progressEdgeRef.getBoundingClientRect();
-      const ratioMove = clamp01((moveEvent.clientX - r.left) / r.width);
-      setDragValue(ratioMove * duration());
-      setHoverRatio(ratioMove);
-      setHoverTime(ratioMove * duration());
+      scheduleProgressPreview(moveEvent.clientX, "drag");
     };
     const onUp = () => {
-      const finalValue = dragValue();
+      flushProgressPreview();
+      const finalValue = latestDragValue ?? dragValue();
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseup", onUp);
       setIsDragging(false);
       setDragValue(null);
       setHoverTime(null);
       setHoverRatio(null);
+      latestDragValue = null;
+      progressGeometry = null;
       if (finalValue !== null) {
         props.onSeek(snapSeek(finalValue));
       }
@@ -356,6 +476,10 @@ export function PlayerBar(props: PlayerBarProps) {
   };
 
   const VolumeIcon = () => (sliderVolume() <= 0.001 ? IconVolumeMute : IconVolumeHigh);
+
+  onCleanup(() => {
+    cancelProgressPreview();
+  });
 
   const VolumeSlider = () => (
     <input
@@ -395,6 +519,7 @@ export function PlayerBar(props: PlayerBarProps) {
           tabIndex={canSeek() ? 0 : -1}
           onClick={handleProgressClick}
           onMouseDown={handleProgressMouseDown}
+          onMouseEnter={handleProgressMouseEnter}
           onMouseMove={handleProgressMouseMove}
           onMouseLeave={handleProgressMouseLeave}
           onKeyDown={handleProgressKeyDown}
@@ -409,7 +534,14 @@ export function PlayerBar(props: PlayerBarProps) {
               aria-hidden="true"
             />
           </Show>
-          <Show when={canSeek() && hoverRatio() !== null && hoverTime() !== null}>
+          <Show
+            when={
+              canSeek() &&
+              uiSettings.progressTooltipShow &&
+              hoverRatio() !== null &&
+              hoverTime() !== null
+            }
+          >
               <div
                 class="player-progress-tooltip absolute inline-flex items-center gap-1.5 max-w-320px text-xs whitespace-nowrap pointer-events-none"
                 role="tooltip"
@@ -423,22 +555,24 @@ export function PlayerBar(props: PlayerBarProps) {
           </Show>
         </div>
 
-        <div class="player-bar-left flex items-center min-w-0 h-full">
-          <button
-            type="button"
-            class={`player-bar-cover relative flex-none w-56px h-56px min-w-56px p-0 overflow-hidden mr-3 cursor-pointer${coverTransitioning() ? " is-leaving" : ""}`}
-            onClick={props.onCoverClick}
-            aria-label={t("player.aria.coverExpand")}
-            title={t("player.aria.coverExpand")}
-          >
-            <CoverArt
-              coverUrl={props.coverUrl}
-              alt={props.title?.trim() || player()?.title || player()?.file_path || t("cover.alt")}
-            />
-            <span class="player-bar-cover-expand absolute inset-0 grid place-items-center opacity-0 pointer-events-none" aria-hidden="true">
-              <IconExpand />
-            </span>
-          </button>
+        <div class={`player-bar-left flex items-center min-w-0 h-full${uiSettings.hiddenCovers.player ? " is-cover-hidden" : ""}`}>
+          <Show when={!uiSettings.hiddenCovers.player}>
+            <button
+              type="button"
+              class={`player-bar-cover relative flex-none w-56px h-56px min-w-56px p-0 overflow-hidden mr-3 cursor-pointer${coverTransitioning() ? " is-leaving" : ""}`}
+              onClick={props.onCoverClick}
+              aria-label={t("player.aria.coverExpand")}
+              title={t("player.aria.coverExpand")}
+            >
+              <CoverArt
+                coverUrl={props.coverUrl}
+                alt={props.title?.trim() || player()?.title || player()?.file_path || t("cover.alt")}
+              />
+              <span class="player-bar-cover-expand absolute inset-0 grid place-items-center opacity-0 pointer-events-none" aria-hidden="true">
+                <IconExpand />
+              </span>
+            </button>
+          </Show>
           <Show when={infoKey()} keyed>
             {(_) => (
               <div class="player-bar-info player-bar-info-enter flex flex-col min-w-0">
@@ -483,45 +617,47 @@ export function PlayerBar(props: PlayerBarProps) {
                 </Show>
               </div>
             </div>
-            <div class="player-info-secondary relative min-w-0 overflow-hidden flex items-center text-xs">
-              <Show when={secondaryKey()} keyed>
-                {(_) => (
-                  <Show
-                    when={showLyric()}
-                    fallback={
-                      <Show
-                        when={artistList().length > 0}
-                        fallback={
+            <Show when={showSecondaryMeta()}>
+              <div class="player-info-secondary relative min-w-0 overflow-hidden flex items-center text-xs">
+                <Show when={secondaryKey()} keyed>
+                  {(_) => (
+                    <Show
+                      when={showLyric()}
+                      fallback={
+                        <Show
+                          when={artistList().length > 0}
+                          fallback={
+                            <MarqueeText
+                              text={artistFallback()}
+                              class="player-info-secondary-item player-artists"
+                              speed={24}
+                            />
+                          }
+                        >
                           <MarqueeText
-                            text={artistFallback()}
+                            title={artistList().join(" / ")}
+                            measureKey={artistList().join("|")}
                             class="player-info-secondary-item player-artists"
                             speed={24}
-                          />
-                        }
-                      >
-                        <MarqueeText
-                          title={artistList().join(" / ")}
-                          measureKey={artistList().join("|")}
-                          class="player-info-secondary-item player-artists"
-                          speed={24}
-                        >
-                          <For each={artistList()}>
-                            {(name) => <span class="player-artist-item inline-flex items-center whitespace-nowrap cursor-pointer">{name}</span>}
-                          </For>
-                        </MarqueeText>
-                      </Show>
-                    }
-                  >
-                    <MarqueeText
-                      text={currentLyric()!}
-                      title={t("player.meta.lyricLive")}
-                      speed={30}
-                      class="player-info-secondary-item player-lyric-line"
-                    />
-                  </Show>
-                )}
-              </Show>
-            </div>
+                          >
+                            <For each={artistList()}>
+                              {(name) => <span class="player-artist-item inline-flex items-center whitespace-nowrap cursor-pointer">{name}</span>}
+                            </For>
+                          </MarqueeText>
+                        </Show>
+                      }
+                    >
+                      <MarqueeText
+                        text={currentLyric()!}
+                        title={t("player.meta.lyricLive")}
+                        speed={30}
+                        class="player-info-secondary-item player-lyric-line"
+                      />
+                    </Show>
+                  )}
+                </Show>
+              </div>
+            </Show>
               </div>
             )}
           </Show>
@@ -610,53 +746,55 @@ export function PlayerBar(props: PlayerBarProps) {
             <button
               type="button"
               class="player-time-toggle inline-flex items-center gap-1 min-h-28px bg-transparent border-0 text-xs"
-              onClick={() => setShowRemaining((prev) => !prev)}
+              onClick={cycleTimeFormat}
               aria-label={t("player.aria.timeToggle")}
               title={timeToggleLabel()}
             >
-              <span class="player-time-current">{formatTime(displayTime())}</span>
+              <span class="player-time-current">{timeLeft()}</span>
               <span class="player-time-divider" aria-hidden="true">/</span>
               <span class="player-time-total">{timeRight()}</span>
             </button>
           </div>
 
           <div class="player-utility-group flex items-center" role="group" aria-label={t("player.aria.more")}>
-            <div class="player-quality-wrap relative inline-flex" ref={qualityRef}>
-              <button
-                type="button"
-                class={`player-inline-tag player-right-tag player-utility-hidden player-quality-tag cursor-pointer bg-transparent border-0 text-xs${qualityOpen() ? " is-open" : ""}`}
-                aria-label={t("player.aria.qualityPopover")}
-                aria-haspopup="dialog"
-                aria-expanded={qualityOpen()}
-                onClick={() => setQualityOpen((open) => !open)}
-              >
-                {qualityLabel()}
-              </button>
-              <Show when={qualityOpen()}>
-                <div class="player-quality-popover absolute right-0 min-w-220px flex flex-col gap-2" role="dialog" aria-label={t("player.quality.title")}>
-                  <div class="player-popover-title text-13px font-semibold">{t("player.quality.title")}</div>
-                  <dl class="player-popover-grid grid gap-x-3 gap-y-1 text-xs">
-                    <dt>{t("player.quality.target")}</dt>
-                    <dd>
-                      {player()?.target_samplerate
-                        ? `${player()!.target_samplerate} Hz`
-                        : t("player.quality.source")}
-                    </dd>
-                    <dt>{t("player.quality.resampler")}</dt>
-                    <dd>{player()?.resample_quality || t("common.dash")}</dd>
-                    <dt>{t("player.quality.outputBits")}</dt>
-                    <dd>{player()?.output_bits ? `${player()!.output_bits}-bit` : t("common.dash")}</dd>
-                    <dt>{t("player.quality.exclusive")}</dt>
-                    <dd>{player()?.exclusive_mode ? t("common.on") : t("common.off")}</dd>
-                    <dt>{t("player.quality.dither")}</dt>
-                    <dd>{player()?.dither_enabled ? t("common.on") : t("common.off")}</dd>
-                    <dt>{t("player.quality.loudness")}</dt>
-                    <dd>{player()?.loudness_enabled ? t("common.on") : t("common.off")}</dd>
-                  </dl>
-                  <div class="player-popover-hint text-11px">{t("player.quality.hint")}</div>
-                </div>
-              </Show>
-            </div>
+            <Show when={uiSettings.showPlayerQuality}>
+              <div class="player-quality-wrap relative inline-flex" ref={qualityRef}>
+                <button
+                  type="button"
+                  class={`player-inline-tag player-right-tag player-utility-hidden player-quality-tag cursor-pointer bg-transparent border-0 text-xs${qualityOpen() ? " is-open" : ""}`}
+                  aria-label={t("player.aria.qualityPopover")}
+                  aria-haspopup="dialog"
+                  aria-expanded={qualityOpen()}
+                  onClick={() => setQualityOpen((open) => !open)}
+                >
+                  {qualityLabel()}
+                </button>
+                <Show when={qualityOpen()}>
+                  <div class="player-quality-popover absolute right-0 min-w-220px flex flex-col gap-2" role="dialog" aria-label={t("player.quality.title")}>
+                    <div class="player-popover-title text-13px font-semibold">{t("player.quality.title")}</div>
+                    <dl class="player-popover-grid grid gap-x-3 gap-y-1 text-xs">
+                      <dt>{t("player.quality.target")}</dt>
+                      <dd>
+                        {player()?.target_samplerate
+                          ? `${player()!.target_samplerate} Hz`
+                          : t("player.quality.source")}
+                      </dd>
+                      <dt>{t("player.quality.resampler")}</dt>
+                      <dd>{player()?.resample_quality || t("common.dash")}</dd>
+                      <dt>{t("player.quality.outputBits")}</dt>
+                      <dd>{player()?.output_bits ? `${player()!.output_bits}-bit` : t("common.dash")}</dd>
+                      <dt>{t("player.quality.exclusive")}</dt>
+                      <dd>{player()?.exclusive_mode ? t("common.on") : t("common.off")}</dd>
+                      <dt>{t("player.quality.dither")}</dt>
+                      <dd>{player()?.dither_enabled ? t("common.on") : t("common.off")}</dd>
+                      <dt>{t("player.quality.loudness")}</dt>
+                      <dd>{player()?.loudness_enabled ? t("common.on") : t("common.off")}</dd>
+                    </dl>
+                    <div class="player-popover-hint text-11px">{t("player.quality.hint")}</div>
+                  </div>
+                </Show>
+              </div>
+            </Show>
             <button
               type="button"
               class="player-inline-icon player-utility-button player-utility-disabled w-38px h-38px"
@@ -742,7 +880,7 @@ export function PlayerBar(props: PlayerBarProps) {
               title={t("sidebar.nav.queue.label")}
             >
               <IconPlaylist />
-              <Show when={props.queueLength > 0}>
+              <Show when={uiSettings.showPlaylistCount && props.queueLength > 0}>
                 <span class="player-queue-badge absolute top--4px right--10px min-w-18px h-18px text-11px font-semibold text-center pointer-events-none" aria-hidden="true">
                   {props.queueLength > 9999 ? "9999+" : props.queueLength}
                 </span>
