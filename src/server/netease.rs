@@ -33,6 +33,30 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         web::post().to(resolve_ncm_track_supplement),
     )
     .route("/domain/ncm/home_feed", web::post().to(get_ncm_home_feed))
+    .route(
+        "/domain/ncm/discover/playlists",
+        web::post().to(list_ncm_discover_playlists),
+    )
+    .route(
+        "/domain/ncm/discover/albums",
+        web::post().to(list_ncm_discover_albums),
+    )
+    .route(
+        "/domain/ncm/discover/artists",
+        web::post().to(list_ncm_discover_artists),
+    )
+    .route(
+        "/domain/ncm/discover/toplists",
+        web::post().to(list_ncm_discover_toplists),
+    )
+    .route(
+        "/domain/ncm/discover/songs",
+        web::post().to(list_ncm_discover_songs),
+    )
+    .route(
+        "/domain/ncm/discover/playlist_categories",
+        web::post().to(get_ncm_discover_playlist_categories),
+    )
     .route("/domain/ncm/accounts", web::get().to(list_ncm_accounts))
     .route("/domain/ncm/accounts", web::post().to(upsert_ncm_account))
     .route(
@@ -117,6 +141,38 @@ struct ResolveNcmTrackSupplementRequest {
 #[derive(Deserialize)]
 struct HomeFeedRequest {
     user_id: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct DiscoverPlaylistsRequest {
+    cat: Option<String>,
+    kind: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    before: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct DiscoverAlbumsRequest {
+    area: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct DiscoverArtistsRequest {
+    #[serde(rename = "type")]
+    artist_type: Option<i64>,
+    area: Option<i64>,
+    initial: Option<Value>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct DiscoverSongsRequest {
+    #[serde(rename = "type")]
+    song_type: Option<i64>,
 }
 
 #[derive(Deserialize)]
@@ -284,6 +340,47 @@ struct NcmHomePersonalFmPreview {
 struct NcmHomeFeedError {
     section: String,
     message: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct NcmDiscoverCard {
+    id: i64,
+    title: String,
+    subtitle: Option<String>,
+    cover_url: Option<String>,
+    cursor: Option<i64>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct NcmDiscoverToplistTrack {
+    title: String,
+    artist: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct NcmDiscoverToplist {
+    id: i64,
+    title: String,
+    subtitle: Option<String>,
+    description: Option<String>,
+    cover_url: Option<String>,
+    tracks: Vec<NcmDiscoverToplistTrack>,
+    is_official: bool,
+    cursor: Option<i64>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+struct NcmDiscoverPlaylistCategories {
+    categories: HashMap<i64, String>,
+    entries: Vec<NcmDiscoverPlaylistCategoryEntry>,
+    hq_names: Vec<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+struct NcmDiscoverPlaylistCategoryEntry {
+    name: String,
+    category: i64,
+    hot: bool,
 }
 
 async fn list_ncm_accounts(data: web::Data<Arc<AppState>>) -> HttpResponse {
@@ -611,6 +708,191 @@ async fn get_ncm_home_feed(
     HttpResponse::Ok().json(serde_json::json!({
         "status": "success",
         "feed": feed
+    }))
+}
+
+async fn list_ncm_discover_playlists(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<DiscoverPlaylistsRequest>,
+) -> HttpResponse {
+    let request = body.into_inner();
+    let kind = request
+        .kind
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("normal");
+    if kind != "normal" && kind != "hq" {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM discover playlist kind must be normal or hq"
+        }));
+    }
+
+    let cat = request
+        .cat
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("全部歌单");
+    let limit = request.limit.filter(|value| *value > 0).unwrap_or(50);
+    let offset = request.offset.filter(|value| *value >= 0).unwrap_or(0);
+    let mut query = Query::new()
+        .param("cat", cat)
+        .param("limit", &limit.to_string());
+    if kind == "hq" {
+        if let Some(before) = request.before.filter(|value| *value > 0) {
+            query = query.param("before", &before.to_string());
+        }
+    } else {
+        query = query
+            .param("order", "hot")
+            .param("offset", &offset.to_string());
+    }
+    inject_active_ncm_cookie(&data, &mut query);
+
+    let result = if kind == "hq" {
+        data.ncm_client.top_playlist_highquality(&query).await
+    } else {
+        data.ncm_client.top_playlist(&query).await
+    };
+
+    match result {
+        Ok(response) => {
+            let items = read_discover_playlist_cards(&response.body);
+            let has_more = read_page_has_more(&response.body, limit, offset, items.len());
+            HttpResponse::Ok().json(serde_json::json!({
+                "status": "success",
+                "items": items,
+                "has_more": has_more
+            }))
+        }
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_discover_albums(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<DiscoverAlbumsRequest>,
+) -> HttpResponse {
+    let request = body.into_inner();
+    let area = request
+        .area
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("ALL");
+    let limit = request.limit.filter(|value| *value > 0).unwrap_or(50);
+    let offset = request.offset.filter(|value| *value >= 0).unwrap_or(0);
+    let mut query = Query::new()
+        .param("area", area)
+        .param("limit", &limit.to_string())
+        .param("offset", &offset.to_string());
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.album_new(&query).await {
+        Ok(response) => {
+            let items = read_discover_album_cards(&response.body);
+            let has_more = read_page_has_more(&response.body, limit, offset, items.len());
+            HttpResponse::Ok().json(serde_json::json!({
+                "status": "success",
+                "items": items,
+                "has_more": has_more
+            }))
+        }
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_discover_artists(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<DiscoverArtistsRequest>,
+) -> HttpResponse {
+    let request = body.into_inner();
+    let limit = request.limit.filter(|value| *value > 0).unwrap_or(50);
+    let offset = request.offset.filter(|value| *value >= 0).unwrap_or(0);
+    let mut query = Query::new()
+        .param("type", &request.artist_type.unwrap_or(-1).to_string())
+        .param("area", &request.area.unwrap_or(-1).to_string())
+        .param("limit", &limit.to_string())
+        .param("offset", &offset.to_string());
+    if let Some(initial) = request.initial.as_ref().and_then(discover_initial_param) {
+        query = query.param("initial", &initial);
+    }
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.artist_list(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "items": read_discover_artist_cards(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_discover_toplists(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let mut query = Query::new();
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.toplist_detail(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "toplists": read_discover_toplists(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn list_ncm_discover_songs(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<DiscoverSongsRequest>,
+) -> HttpResponse {
+    let song_type = body.song_type.unwrap_or(0);
+    if !matches!(song_type, 0 | 7 | 96 | 16 | 8) {
+        return HttpResponse::BadRequest().json(serde_json::json!({
+            "status": "error",
+            "message": "NCM discover song type is invalid"
+        }));
+    }
+
+    let mut query = Query::new().param("type", &song_type.to_string());
+    inject_active_ncm_cookie(&data, &mut query);
+
+    match data.ncm_client.top_song(&query).await {
+        Ok(response) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "tracks": read_top_song_tracks(&response.body)
+        })),
+        Err(err) => build_error_response(err),
+    }
+}
+
+async fn get_ncm_discover_playlist_categories(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let mut cat_query = Query::new();
+    let mut hq_query = Query::new();
+    inject_active_ncm_cookie(&data, &mut cat_query);
+    inject_active_ncm_cookie(&data, &mut hq_query);
+
+    let (cat_result, hq_result) = tokio::join!(
+        data.ncm_client.playlist_catlist(&cat_query),
+        data.ncm_client.playlist_highquality_tags(&hq_query)
+    );
+
+    let cat_response = match cat_result {
+        Ok(response) => response,
+        Err(err) => return build_error_response(err),
+    };
+    let hq_body = match hq_result {
+        Ok(response) => response.body,
+        Err(err) => {
+            log::warn!("NCM discover highquality tags failed: {}", err);
+            serde_json::json!({})
+        }
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "categories": read_discover_playlist_categories(&cat_response.body, &hq_body)
     }))
 }
 
@@ -1645,6 +1927,225 @@ fn filter_playlist_summaries(
     }
 }
 
+fn read_discover_playlist_cards(payload: &Value) -> Vec<NcmDiscoverCard> {
+    payload
+        .get("playlists")
+        .or_else(|| payload.get("result"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_discover_playlist_card)
+        .collect()
+}
+
+fn read_discover_album_cards(payload: &Value) -> Vec<NcmDiscoverCard> {
+    payload
+        .get("albums")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_discover_album_card)
+        .collect()
+}
+
+fn read_discover_artist_cards(payload: &Value) -> Vec<NcmDiscoverCard> {
+    payload
+        .get("artists")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_discover_artist_card)
+        .collect()
+}
+
+fn read_discover_toplists(payload: &Value) -> Vec<NcmDiscoverToplist> {
+    payload
+        .get("list")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_discover_toplist)
+        .collect()
+}
+
+fn read_discover_playlist_card(value: &Value) -> Option<NcmDiscoverCard> {
+    let item = value.as_object()?;
+    let id = item.get("id").and_then(Value::as_i64)?;
+    let title = item.get("name").and_then(read_non_empty_string)?;
+    Some(NcmDiscoverCard {
+        id,
+        title,
+        subtitle: item
+            .get("creator")
+            .and_then(|creator| creator.get("nickname"))
+            .and_then(read_non_empty_string)
+            .or_else(|| item.get("copywriter").and_then(read_non_empty_string)),
+        cover_url: item
+            .get("coverImgUrl")
+            .and_then(read_non_empty_string)
+            .or_else(|| item.get("picUrl").and_then(read_non_empty_string)),
+        cursor: read_discover_cursor(item),
+    })
+}
+
+fn read_discover_album_card(value: &Value) -> Option<NcmDiscoverCard> {
+    let item = value.as_object()?;
+    let id = item.get("id").and_then(Value::as_i64)?;
+    let title = item.get("name").and_then(read_non_empty_string)?;
+    Some(NcmDiscoverCard {
+        id,
+        title,
+        subtitle: item
+            .get("artist")
+            .and_then(|artist| artist.get("name"))
+            .and_then(read_non_empty_string)
+            .or_else(|| read_artists(item.get("artists")))
+            .or_else(|| read_artists(item.get("ar"))),
+        cover_url: item.get("picUrl").and_then(read_non_empty_string),
+        cursor: read_discover_cursor(item),
+    })
+}
+
+fn read_discover_artist_card(value: &Value) -> Option<NcmDiscoverCard> {
+    let item = value.as_object()?;
+    let id = item.get("id").and_then(Value::as_i64)?;
+    let title = item.get("name").and_then(read_non_empty_string)?;
+    Some(NcmDiscoverCard {
+        id,
+        title,
+        subtitle: None,
+        cover_url: item
+            .get("picUrl")
+            .and_then(read_non_empty_string)
+            .or_else(|| item.get("img1v1Url").and_then(read_non_empty_string)),
+        cursor: None,
+    })
+}
+
+fn read_discover_toplist(value: &Value) -> Option<NcmDiscoverToplist> {
+    let item = value.as_object()?;
+    let id = item.get("id").and_then(Value::as_i64)?;
+    let title = item.get("name").and_then(read_non_empty_string)?;
+    Some(NcmDiscoverToplist {
+        id,
+        title,
+        subtitle: item.get("updateTip").and_then(read_non_empty_string),
+        description: item.get("description").and_then(read_non_empty_string),
+        cover_url: item
+            .get("coverImgUrl")
+            .and_then(read_non_empty_string)
+            .or_else(|| item.get("picUrl").and_then(read_non_empty_string)),
+        tracks: item
+            .get("tracks")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(read_discover_toplist_track)
+            .collect(),
+        is_official: item
+            .get("ToplistType")
+            .and_then(read_non_empty_string)
+            .is_some(),
+        cursor: read_discover_cursor(item),
+    })
+}
+
+fn read_discover_toplist_track(value: &Value) -> Option<NcmDiscoverToplistTrack> {
+    let item = value.as_object()?;
+    let title = item
+        .get("first")
+        .and_then(read_non_empty_string)
+        .or_else(|| item.get("name").and_then(read_non_empty_string))?;
+    Some(NcmDiscoverToplistTrack {
+        title,
+        artist: item
+            .get("second")
+            .and_then(read_non_empty_string)
+            .or_else(|| read_artists(item.get("ar")))
+            .or_else(|| read_artists(item.get("artists"))),
+    })
+}
+
+fn read_discover_playlist_categories(
+    cat_payload: &Value,
+    hq_payload: &Value,
+) -> NcmDiscoverPlaylistCategories {
+    let categories = cat_payload
+        .get("categories")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .filter_map(|(key, value)| Some((key.parse::<i64>().ok()?, read_non_empty_string(value)?)))
+        .collect::<HashMap<_, _>>();
+    let entries = cat_payload
+        .get("sub")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_discover_playlist_category_entry)
+        .collect();
+    let hq_names = hq_payload
+        .get("tags")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("name").and_then(read_non_empty_string))
+        .collect();
+    NcmDiscoverPlaylistCategories {
+        categories,
+        entries,
+        hq_names,
+    }
+}
+
+fn read_discover_playlist_category_entry(
+    value: &Value,
+) -> Option<NcmDiscoverPlaylistCategoryEntry> {
+    let item = value.as_object()?;
+    Some(NcmDiscoverPlaylistCategoryEntry {
+        name: item.get("name").and_then(read_non_empty_string)?,
+        category: item.get("category").and_then(Value::as_i64).unwrap_or(0),
+        hot: item.get("hot").and_then(Value::as_bool).unwrap_or(false),
+    })
+}
+
+fn read_discover_cursor(item: &serde_json::Map<String, Value>) -> Option<i64> {
+    item.get("updateTime")
+        .and_then(Value::as_i64)
+        .or_else(|| item.get("trackNumberUpdateTime").and_then(Value::as_i64))
+        .or_else(|| item.get("trackUpdateTime").and_then(Value::as_i64))
+        .or_else(|| item.get("publishTime").and_then(Value::as_i64))
+}
+
+fn read_page_has_more(payload: &Value, limit: i64, offset: i64, item_count: usize) -> bool {
+    payload
+        .get("more")
+        .and_then(Value::as_bool)
+        .or_else(|| payload.get("hasMore").and_then(Value::as_bool))
+        .or_else(|| {
+            payload
+                .get("total")
+                .and_then(Value::as_i64)
+                .map(|total| offset.saturating_add(limit) < total)
+        })
+        .unwrap_or(item_count as i64 >= limit)
+}
+
+fn discover_initial_param(value: &Value) -> Option<String> {
+    match value {
+        Value::Number(number) => number.as_i64().map(|value| value.to_string()),
+        Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        _ => None,
+    }
+}
+
 fn read_personalized_playlist_cards(payload: &Value) -> Vec<NcmHomeFeedCard> {
     payload
         .get("result")
@@ -1901,6 +2402,17 @@ fn read_daily_song_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
         .collect()
 }
 
+fn read_top_song_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
+    payload
+        .get("data")
+        .or_else(|| payload.get("result"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(read_wrapped_track_summary)
+        .collect()
+}
+
 fn read_song_detail_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
     payload
         .get("songs")
@@ -1919,6 +2431,44 @@ fn read_personal_fm_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
         .flatten()
         .filter_map(read_track_summary)
         .collect()
+}
+
+fn read_wrapped_track_summary(value: &Value) -> Option<NcmTrackSummary> {
+    let item = value.as_object()?;
+    let song = item.get("song").and_then(Value::as_object).unwrap_or(item);
+    let mut rebuilt = song.clone();
+    if !rebuilt.contains_key("id") {
+        if let Some(id) = item.get("id") {
+            rebuilt.insert("id".to_string(), id.clone());
+        }
+    }
+    if !rebuilt.contains_key("name") {
+        if let Some(name) = item.get("name") {
+            rebuilt.insert("name".to_string(), name.clone());
+        }
+    }
+    if !rebuilt.contains_key("picUrl") {
+        if let Some(pic_url) = item.get("picUrl") {
+            rebuilt.insert("picUrl".to_string(), pic_url.clone());
+        }
+    }
+    if !rebuilt.contains_key("al") {
+        if let Some(album) = song.get("al").or_else(|| song.get("album")) {
+            rebuilt.insert("al".to_string(), album.clone());
+        }
+    }
+    if !rebuilt.contains_key("ar") {
+        let artists = song.get("ar").or_else(|| song.get("artists"));
+        if let Some(artists) = artists {
+            rebuilt.insert("ar".to_string(), artists.clone());
+        }
+    }
+    if !rebuilt.contains_key("dt") {
+        if let Some(duration) = song.get("dt").or_else(|| song.get("duration")) {
+            rebuilt.insert("dt".to_string(), duration.clone());
+        }
+    }
+    read_track_summary(&Value::Object(rebuilt))
 }
 
 fn read_artist_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
@@ -2508,6 +3058,112 @@ mod tests {
                 album: Some("Legacy Album".to_string()),
                 duration_secs: Some(90.0),
                 artwork_url: Some("legacy.jpg".to_string()),
+            }]
+        );
+    }
+
+    #[test]
+    fn read_discover_cards_support_common_section_shapes() {
+        let playlists = json!({
+            "playlists": [{
+                "id": 1,
+                "name": "Playlist",
+                "creator": { "nickname": "Ada" },
+                "coverImgUrl": "playlist.jpg",
+                "updateTime": 1710000000000_i64
+            }],
+            "more": true
+        });
+        let albums = json!({
+            "albums": [{
+                "id": 2,
+                "name": "Album",
+                "artists": [{ "name": "Artist" }],
+                "picUrl": "album.jpg",
+                "publishTime": 1710000000001_i64
+            }],
+            "total": 100
+        });
+        let artists = json!({
+            "artists": [{
+                "id": 3,
+                "name": "Singer",
+                "img1v1Url": "artist.jpg"
+            }]
+        });
+
+        let playlist_card = &read_discover_playlist_cards(&playlists)[0];
+        assert_eq!(playlist_card.subtitle.as_deref(), Some("Ada"));
+        assert_eq!(playlist_card.cursor, Some(1710000000000));
+        assert!(read_page_has_more(&playlists, 50, 0, 1));
+
+        let album_card = &read_discover_album_cards(&albums)[0];
+        assert_eq!(album_card.subtitle.as_deref(), Some("Artist"));
+        assert_eq!(album_card.cursor, Some(1710000000001));
+        assert!(read_page_has_more(&albums, 50, 0, 1));
+
+        let artist_card = &read_discover_artist_cards(&artists)[0];
+        assert_eq!(artist_card.cover_url.as_deref(), Some("artist.jpg"));
+    }
+
+    #[test]
+    fn read_discover_toplists_categories_and_wrapped_tracks() {
+        let toplists = json!({
+            "list": [{
+                "id": 4,
+                "name": "Hot",
+                "updateTip": "daily",
+                "description": "desc",
+                "coverImgUrl": "top.jpg",
+                "ToplistType": "S",
+                "tracks": [
+                    { "first": "Song", "second": "Artist" },
+                    { "name": "Modern", "ar": [{ "name": "A" }, { "name": "B" }] }
+                ]
+            }]
+        });
+        let categories = json!({
+            "categories": { "0": "语种" },
+            "sub": [{ "name": "华语", "category": 0, "hot": true }]
+        });
+        let hq_tags = json!({
+            "tags": [{ "name": "华语" }]
+        });
+        let top_songs = json!({
+            "data": [{
+                "song": {
+                    "id": 5,
+                    "name": "Top Song",
+                    "artists": [{ "name": "Singer" }],
+                    "album": { "name": "Album", "picUrl": "song.jpg" },
+                    "duration": 210000
+                }
+            }]
+        });
+
+        let toplist = &read_discover_toplists(&toplists)[0];
+        assert!(toplist.is_official);
+        assert_eq!(toplist.tracks[1].artist.as_deref(), Some("A, B"));
+
+        let category_state = read_discover_playlist_categories(&categories, &hq_tags);
+        assert_eq!(
+            category_state.categories.get(&0).map(String::as_str),
+            Some("语种")
+        );
+        assert_eq!(category_state.entries[0].name, "华语");
+        assert_eq!(category_state.hq_names, vec!["华语".to_string()]);
+
+        assert_eq!(
+            read_top_song_tracks(&top_songs),
+            vec![NcmTrackSummary {
+                id: "ncm-song-5".to_string(),
+                song_id: 5,
+                source_path: "https://music.163.com/#/song?id=5".to_string(),
+                title: Some("Top Song".to_string()),
+                artist: Some("Singer".to_string()),
+                album: Some("Album".to_string()),
+                duration_secs: Some(210.0),
+                artwork_url: Some("song.jpg".to_string()),
             }]
         );
     }

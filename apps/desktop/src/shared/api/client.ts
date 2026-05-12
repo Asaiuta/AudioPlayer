@@ -62,6 +62,12 @@ export interface ApiClient {
   listNcmArtistTracks: (id: number) => Promise<NcmTrackSummary[]>;
   getNcmLikelistIds: (uid: number) => Promise<number[]>;
   getNcmHomeFeed: (input?: GetNcmHomeFeedInput) => Promise<NcmHomeFeed>;
+  listNcmDiscoverPlaylists: (input: ListNcmDiscoverPlaylistsInput) => Promise<NcmDiscoverCardsPage>;
+  listNcmDiscoverAlbums: (input: ListNcmDiscoverAlbumsInput) => Promise<NcmDiscoverCardsPage>;
+  listNcmDiscoverArtists: (input: ListNcmDiscoverArtistsInput) => Promise<NcmDiscoverCard[]>;
+  listNcmDiscoverToplists: () => Promise<NcmDiscoverToplist[]>;
+  listNcmDiscoverSongs: (input: ListNcmDiscoverSongsInput) => Promise<NcmTrackSummary[]>;
+  getNcmDiscoverPlaylistCategories: () => Promise<NcmDiscoverPlaylistCategories>;
   // Persistent Queue
   getPersistentQueue: () => Promise<QueueEntry[]>;
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
@@ -269,6 +275,72 @@ export interface NcmHomeFeed {
   errors: NcmHomeFeedError[];
 }
 
+export type NcmDiscoverPlaylistKind = "normal" | "hq";
+export type NcmDiscoverAlbumArea = "ALL" | "ZH" | "EA" | "KR" | "JP";
+export type NcmDiscoverSongType = 0 | 7 | 96 | 16 | 8;
+
+export interface ListNcmDiscoverPlaylistsInput {
+  cat: string;
+  kind: NcmDiscoverPlaylistKind;
+  limit?: number;
+  offset?: number;
+  before?: number | null;
+}
+
+export interface ListNcmDiscoverAlbumsInput {
+  area: NcmDiscoverAlbumArea;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListNcmDiscoverArtistsInput {
+  type: number;
+  area: number;
+  initial: number | string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ListNcmDiscoverSongsInput {
+  type: NcmDiscoverSongType;
+}
+
+export interface NcmDiscoverCard {
+  id: number;
+  title: string;
+  subtitle: string | null;
+  coverUrl: string | null;
+  cursor: number | null;
+}
+
+export interface NcmDiscoverCardsPage {
+  items: NcmDiscoverCard[];
+  hasMore: boolean;
+}
+
+export interface NcmDiscoverToplistTrack {
+  title: string;
+  artist: string | null;
+}
+
+export interface NcmDiscoverToplist extends NcmDiscoverCard {
+  description: string | null;
+  tracks: NcmDiscoverToplistTrack[];
+  isOfficial: boolean;
+}
+
+export interface NcmDiscoverPlaylistCategoryEntry {
+  name: string;
+  category: number;
+  hot: boolean;
+}
+
+export interface NcmDiscoverPlaylistCategories {
+  categories: Record<number, string>;
+  entries: NcmDiscoverPlaylistCategoryEntry[];
+  hqNames: string[];
+}
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -297,6 +369,14 @@ const isNumberRecord = (value: unknown): value is Record<string, number> => {
   }
 
   return Object.values(value).every(isNumber);
+};
+
+const isStringRecord = (value: unknown): value is Record<string, string> => {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return Object.values(value).every(isString);
 };
 
 const hasFields = <T extends string>(
@@ -1017,6 +1097,123 @@ const parseArray = <T>(
   return parsed as T[];
 };
 
+const parseStringItem = (value: unknown): string | null =>
+  isString(value) ? value : null;
+
+const parseNcmDiscoverCard = (value: unknown): NcmDiscoverCard | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+  if (
+    !isInteger(value.id) ||
+    !isString(value.title) ||
+    !isNullableString(value.subtitle) ||
+    !isNullableString(value.cover_url) ||
+    !isNullableInteger(value.cursor)
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    title: value.title,
+    subtitle: value.subtitle,
+    coverUrl: value.cover_url,
+    cursor: value.cursor
+  };
+};
+
+const parseNcmDiscoverCardsPageResponse = (value: unknown): NcmDiscoverCardsPage => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM discover cards response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load NCM discover cards");
+  }
+  if (!isBoolean(value.has_more)) {
+    throw new Error("Invalid NCM discover cards payload");
+  }
+  return {
+    items: parseArray(value.items, parseNcmDiscoverCard, "Invalid NCM discover cards payload"),
+    hasMore: value.has_more
+  };
+};
+
+const parseNcmDiscoverCardsResponse = (value: unknown): NcmDiscoverCard[] => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM discover cards response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load NCM discover cards");
+  }
+  return parseArray(value.items, parseNcmDiscoverCard, "Invalid NCM discover cards payload");
+};
+
+const parseNcmDiscoverToplistTrack = (value: unknown): NcmDiscoverToplistTrack | null => {
+  if (!isRecord(value) || !isString(value.title) || !isNullableString(value.artist)) {
+    return null;
+  }
+  return {
+    title: value.title,
+    artist: value.artist
+  };
+};
+
+const parseNcmDiscoverToplist = (value: unknown): NcmDiscoverToplist | null => {
+  const card = parseNcmDiscoverCard(value);
+  if (!card || !isRecord(value) || !isNullableString(value.description) || !isBoolean(value.is_official)) {
+    return null;
+  }
+  return {
+    ...card,
+    description: value.description,
+    tracks: parseArray(value.tracks, parseNcmDiscoverToplistTrack, "Invalid NCM discover toplist tracks payload"),
+    isOfficial: value.is_official
+  };
+};
+
+const parseNcmDiscoverToplistsResponse = (value: unknown): NcmDiscoverToplist[] => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM discover toplists response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load NCM discover toplists");
+  }
+  return parseArray(value.toplists, parseNcmDiscoverToplist, "Invalid NCM discover toplists payload");
+};
+
+const parseNcmDiscoverPlaylistCategoryEntry = (value: unknown): NcmDiscoverPlaylistCategoryEntry | null => {
+  if (!isRecord(value) || !isString(value.name) || !isInteger(value.category) || !isBoolean(value.hot)) {
+    return null;
+  }
+  return {
+    name: value.name,
+    category: value.category,
+    hot: value.hot
+  };
+};
+
+const parseNcmDiscoverPlaylistCategoriesResponse = (value: unknown): NcmDiscoverPlaylistCategories => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM discover categories response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load NCM discover categories");
+  }
+  const categories = isRecord(value.categories) ? value.categories : null;
+  if (!categories || !isStringRecord(categories.categories)) {
+    throw new Error("Invalid NCM discover categories payload");
+  }
+  return {
+    categories: categories.categories as Record<number, string>,
+    entries: parseArray(categories.entries, parseNcmDiscoverPlaylistCategoryEntry, "Invalid NCM discover category entries payload"),
+    hqNames: parseArray(categories.hq_names, parseStringItem, "Invalid NCM discover highquality tags payload")
+  };
+};
+
 const parseNcmHomeFeedResponse = (value: unknown): NcmHomeFeed => {
   if (!isRecord(value)) {
     throw new Error("Invalid NCM home feed response shape");
@@ -1502,6 +1699,62 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       })
     });
     return parseNcmHomeFeedResponse(json);
+  },
+  listNcmDiscoverPlaylists: async (input: ListNcmDiscoverPlaylistsInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/discover/playlists", {
+      method: "POST",
+      body: JSON.stringify({
+        cat: input.cat,
+        kind: input.kind,
+        limit: input.limit ?? null,
+        offset: input.offset ?? null,
+        before: input.before ?? null
+      })
+    });
+    return parseNcmDiscoverCardsPageResponse(json);
+  },
+  listNcmDiscoverAlbums: async (input: ListNcmDiscoverAlbumsInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/discover/albums", {
+      method: "POST",
+      body: JSON.stringify({
+        area: input.area,
+        limit: input.limit ?? null,
+        offset: input.offset ?? null
+      })
+    });
+    return parseNcmDiscoverCardsPageResponse(json);
+  },
+  listNcmDiscoverArtists: async (input: ListNcmDiscoverArtistsInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/discover/artists", {
+      method: "POST",
+      body: JSON.stringify({
+        type: input.type,
+        area: input.area,
+        initial: input.initial,
+        limit: input.limit ?? null,
+        offset: input.offset ?? null
+      })
+    });
+    return parseNcmDiscoverCardsResponse(json);
+  },
+  listNcmDiscoverToplists: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/discover/toplists", {
+      method: "POST"
+    });
+    return parseNcmDiscoverToplistsResponse(json);
+  },
+  listNcmDiscoverSongs: async (input: ListNcmDiscoverSongsInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/discover/songs", {
+      method: "POST",
+      body: JSON.stringify({ type: input.type })
+    });
+    return parseNcmTracksResponse(json);
+  },
+  getNcmDiscoverPlaylistCategories: async () => {
+    const json = await requestJson(baseUrl, "/domain/ncm/discover/playlist_categories", {
+      method: "POST"
+    });
+    return parseNcmDiscoverPlaylistCategoriesResponse(json);
   },
   getPersistentQueue: async () => {
     const json = await requestJson(baseUrl, "/domain/queue");

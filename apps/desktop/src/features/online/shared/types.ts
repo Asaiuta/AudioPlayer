@@ -43,6 +43,7 @@ export interface DiscoverCardItem {
   title: string;
   subtitle: string | null;
   coverUrl: string | null;
+  cursor: number | null;
 }
 
 export interface DiscoverToplistTrack {

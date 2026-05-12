@@ -4,16 +4,7 @@ import { Portal } from "solid-js/web";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { SegmentedTabs } from "../../../components/page/SegmentedTabs";
 import { useTranslation } from "../../../shared/i18n";
-import {
-  albumNew,
-  artistList,
-  playlistCatlist,
-  search,
-  topPlaylist,
-  topPlaylistHighquality,
-  topSong,
-  toplistDetail
-} from "../../../shared/api/ncm";
+import { search } from "../../../shared/api/ncm";
 import { createApiClient } from "../../../shared/api/client";
 import { readSearchPlaylists, type OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { AlbumDetail } from "../details/AlbumDetail";
@@ -21,18 +12,6 @@ import { ArtistDetail } from "../details/ArtistDetail";
 import { DailySongsDetail } from "../details/DailySongsDetail";
 import { LikedSongsDetail } from "../details/LikedSongsDetail";
 import { PlaylistDetail } from "../details/PlaylistDetail";
-import {
-  asArray,
-  asRecord,
-  readDiscoverAlbums,
-  readDiscoverArtists,
-  readDiscoverPlaylists,
-  readDiscoverToplists,
-  readNumber,
-  readPersonalizedSongs,
-  readString,
-  safeDiscoverFetch
-} from "../shared/parsers";
 import type { PlaybackController } from "../shared/playback";
 import type {
   DiscoverArtistArea,
@@ -60,6 +39,15 @@ const SEARCH_LIMIT = 30;
 const DISCOVER_PAGE_LIMIT = 50;
 const ALL_PLAYLIST_CATEGORY = "全部歌单";
 const api = createApiClient();
+
+const safeLoadDiscover = async <T,>(load: () => Promise<T>, fallback: T): Promise<T> => {
+  try {
+    return await load();
+  } catch (error) {
+    console.warn("[NeteasePage] discover fetch failed", error);
+    return fallback;
+  }
+};
 
 const ARTIST_INITIALS: readonly DiscoverArtistInitial[] = [
   { key: -1, label: "ncm.discover.artists.hot" },
@@ -167,22 +155,25 @@ export function DiscoverMode(props: DiscoverModeProps) {
     try {
       const kind = discoverPlaylistKind();
       const cat = catName();
-      const raw = await safeDiscoverFetch(
-        () =>
-          kind === "hq"
-            ? topPlaylistHighquality({ cat, limit: DISCOVER_PAGE_LIMIT, before: offset > 0 ? allPlaylists()[allPlaylists().length - 1]?.id : undefined })
-            : topPlaylist({ cat, order: "hot", limit: DISCOVER_PAGE_LIMIT, offset }),
-        readDiscoverPlaylists
-      );
+      const currentPlaylists = allPlaylists();
+      const lastCursor = currentPlaylists.length > 0 ? currentPlaylists[currentPlaylists.length - 1]?.cursor ?? null : null;
+      const page = await api.listNcmDiscoverPlaylists({
+        cat,
+        kind,
+        limit: DISCOVER_PAGE_LIMIT,
+        offset,
+        before: kind === "hq" && offset > 0 ? lastCursor : null
+      });
       if (reset) {
-        setAllPlaylists(raw);
+        setAllPlaylists(page.items);
         setPlaylistOffset(0);
       } else {
-        setAllPlaylists((prev) => [...prev, ...raw]);
+        setAllPlaylists((prev) => [...prev, ...page.items]);
       }
-      setHasMorePlaylists(raw.length >= DISCOVER_PAGE_LIMIT);
+      setHasMorePlaylists(page.hasMore);
     } catch {
       if (reset) setAllPlaylists([]);
+      setHasMorePlaylists(false);
     } finally {
       setIsLoadingPlaylists(false);
     }
@@ -193,19 +184,17 @@ export function DiscoverMode(props: DiscoverModeProps) {
     setIsLoadingAlbums(true);
     try {
       const area = selectedNewArea().albumArea;
-      const raw = await safeDiscoverFetch(
-        () => albumNew({ area, limit: DISCOVER_PAGE_LIMIT, offset }),
-        readDiscoverAlbums
-      );
+      const page = await api.listNcmDiscoverAlbums({ area, limit: DISCOVER_PAGE_LIMIT, offset });
       if (reset) {
-        setAllAlbums(raw);
+        setAllAlbums(page.items);
         setAlbumOffset(0);
       } else {
-        setAllAlbums((prev) => [...prev, ...raw]);
+        setAllAlbums((prev) => [...prev, ...page.items]);
       }
-      setHasMoreAlbums(raw.length >= DISCOVER_PAGE_LIMIT);
+      setHasMoreAlbums(page.hasMore);
     } catch {
       if (reset) setAllAlbums([]);
+      setHasMoreAlbums(false);
     } finally {
       setIsLoadingAlbums(false);
     }
@@ -224,7 +213,7 @@ export function DiscoverMode(props: DiscoverModeProps) {
   ));
 
   const [discoverToplists] = createResource(() =>
-    safeDiscoverFetch(() => toplistDetail(), readDiscoverToplists)
+    safeLoadDiscover(() => api.listNcmDiscoverToplists(), [])
   );
   const selectedArtistArea = createMemo(() => ARTIST_AREAS[discoverArtistAreaIndex()] ?? ARTIST_AREAS[0]);
   const [discoverArtists] = createResource(
@@ -234,22 +223,22 @@ export function DiscoverMode(props: DiscoverModeProps) {
       area: selectedArtistArea().area
     }),
     (query) =>
-      safeDiscoverFetch(
+      safeLoadDiscover(
         () =>
-          artistList({
+          api.listNcmDiscoverArtists({
             type: query.type,
             area: query.area,
             initial: query.initial,
             limit: DISCOVER_PAGE_LIMIT,
             offset: 0
           }),
-        readDiscoverArtists
+        []
       )
   );
   const selectedNewArea = createMemo(() => NEW_AREAS[discoverNewAreaIndex()] ?? NEW_AREAS[0]);
   const [discoverSongs] = createResource(
     () => selectedNewArea().songType,
-    (type) => safeDiscoverFetch(() => topSong({ type }), readPersonalizedSongs)
+    (type) => safeLoadDiscover(() => api.listNcmDiscoverSongs({ type }), [])
   );
 
   const hasSearchResults = () => songResults().length > 0 || playlistResults().length > 0;
@@ -294,15 +283,10 @@ export function DiscoverMode(props: DiscoverModeProps) {
       void runSearch();
     }
     try {
-      const [catsRes, hqRes] = await Promise.all([playlistCatlist(), playlistCatlist(true)]);
-      setCatTypes(asRecord(catsRes)?.categories as Record<number, string> ?? {});
-      setCatEntries(
-        asArray(asRecord(catsRes)?.sub).map((s: unknown) => {
-          const item = asRecord(s);
-          return { name: readString(item?.name) ?? "", category: readNumber(item?.category) ?? 0, hot: !!item?.hot };
-        }).filter((e) => e.name !== "")
-      );
-      setHqCatNames(new Set(asArray(asRecord(hqRes)?.tags).map((t: unknown) => readString(asRecord(t)?.name)).filter((n): n is string => Boolean(n))));
+      const categories = await api.getNcmDiscoverPlaylistCategories();
+      setCatTypes(categories.categories);
+      setCatEntries(categories.entries);
+      setHqCatNames(new Set(categories.hqNames));
     } catch {}
   });
 
