@@ -1,13 +1,14 @@
 use super::*;
 use crate::app_database::{media_id_for_path, QueueEntryRecord};
-use crate::player::{RepeatMode, SharedState, ShuffleMode};
+use crate::player::{PlayerState, RepeatMode, SharedState, ShuffleMode};
 use crate::playlist;
 use actix_web::{web, HttpRequest, HttpResponse};
+use ncm_api_rs::Query;
 use serde::Deserialize;
 use std::path::Path;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.route("/load", web::post().to(load))
@@ -342,6 +343,160 @@ fn append_playback_history_and_emit(
     Ok(())
 }
 
+const NCM_SCROBBLE_MIN_LISTEN_SECS: u64 = 30;
+
+fn begin_ncm_scrobble_session(
+    data: &web::Data<Arc<AppState>>,
+    session_id: i64,
+    source_path: &str,
+    is_playing: bool,
+) {
+    let track_source = match data.app_db.ncm_track_source_for_path(source_path) {
+        Ok(Some(track_source)) => track_source,
+        Ok(None) => return,
+        Err(err) => {
+            log::warn!("Failed to read NCM track source for scrobble: {}", err);
+            return;
+        }
+    };
+
+    data.ncm_scrobble.lock().sessions.insert(
+        session_id,
+        NcmScrobbleSession {
+            source_path: source_path.to_string(),
+            song_id: track_source.song_id,
+            accumulated: Duration::ZERO,
+            segment_started_at: is_playing.then(Instant::now),
+        },
+    );
+}
+
+fn start_ncm_scrobble_segment(data: &web::Data<Arc<AppState>>, session_id: i64) {
+    let mut state = data.ncm_scrobble.lock();
+    if let Some(session) = state.sessions.get_mut(&session_id) {
+        if session.segment_started_at.is_none() {
+            session.segment_started_at = Some(Instant::now());
+        }
+    }
+}
+
+fn stop_ncm_scrobble_segment(data: &web::Data<Arc<AppState>>, session_id: i64) {
+    let mut state = data.ncm_scrobble.lock();
+    if let Some(session) = state.sessions.get_mut(&session_id) {
+        stop_ncm_scrobble_segment_inner(session);
+    }
+}
+
+fn sync_ncm_scrobble_segment_from_shared(
+    data: &web::Data<Arc<AppState>>,
+    shared_state: &Arc<SharedState>,
+) {
+    let Some(session_id) = *data.active_session_id.lock() else {
+        return;
+    };
+    let is_audible_playback = shared_state.state.load() == PlayerState::Playing
+        && !shared_state.is_loading.load(Ordering::Acquire);
+    if is_audible_playback {
+        start_ncm_scrobble_segment(data, session_id);
+    } else {
+        stop_ncm_scrobble_segment(data, session_id);
+    }
+}
+
+fn finish_ncm_scrobble_session(data: &web::Data<Arc<AppState>>, session_id: i64, reason: &str) {
+    let finished = {
+        let mut state = data.ncm_scrobble.lock();
+        let Some(mut session) = state.sessions.remove(&session_id) else {
+            return;
+        };
+        stop_ncm_scrobble_segment_inner(&mut session);
+        session
+    };
+
+    let listen_secs = finished.accumulated.as_secs();
+    if listen_secs < NCM_SCROBBLE_MIN_LISTEN_SECS {
+        log::debug!(
+            "Skipping NCM scrobble for song {} after {}s ({})",
+            finished.song_id,
+            listen_secs,
+            reason
+        );
+        return;
+    }
+
+    let app_state = Arc::clone(data.get_ref());
+    let source_path = finished.source_path;
+    let song_id = finished.song_id;
+    let reason = reason.to_string();
+    actix_rt::spawn(async move {
+        submit_ncm_scrobble(app_state, source_path, song_id, listen_secs, reason).await;
+    });
+}
+
+fn stop_ncm_scrobble_segment_inner(session: &mut NcmScrobbleSession) {
+    if let Some(started_at) = session.segment_started_at.take() {
+        session.accumulated += started_at.elapsed();
+    }
+}
+
+async fn submit_ncm_scrobble(
+    data: Arc<AppState>,
+    source_path: String,
+    song_id: i64,
+    listen_secs: u64,
+    reason: String,
+) {
+    let cookie = match data.app_db.active_ncm_cookie() {
+        Ok(Some(cookie)) => cookie,
+        Ok(None) => {
+            log::debug!(
+                "Skipping NCM scrobble for song {} without active cookie",
+                song_id
+            );
+            return;
+        }
+        Err(err) => {
+            log::warn!("Failed to read active NCM cookie for scrobble: {}", err);
+            return;
+        }
+    };
+
+    let query = Query::new()
+        .cookie(&cookie)
+        .param("id", &song_id.to_string())
+        .param("sourceid", "")
+        .param("time", &listen_secs.to_string());
+
+    match data.ncm_client.scrobble(&query).await {
+        Ok(_) => {
+            if let Err(err) = data
+                .app_db
+                .mark_ncm_track_scrobbled(&source_path, listen_secs)
+            {
+                log::warn!(
+                    "Failed to mark NCM song {} scrobbled after submit: {}",
+                    song_id,
+                    err
+                );
+            }
+            log::info!(
+                "NCM scrobble song {} after {}s ({})",
+                song_id,
+                listen_secs,
+                reason
+            );
+        }
+        Err(err) => {
+            log::warn!(
+                "NCM scrobble song {} after {}s failed: {}",
+                song_id,
+                listen_secs,
+                err
+            );
+        }
+    }
+}
+
 fn emit_playback_event(data: &web::Data<Arc<AppState>>, event: u32) {
     let player = data.player.lock();
     let shared = player.shared_state();
@@ -386,6 +541,8 @@ pub(crate) fn spawn_playback_supervisor(state: &Arc<AppState>) -> actix_rt::task
                     Err(e) => log::warn!("Supervisor failed to preload next queue entry: {}", e),
                 }
             }
+
+            sync_ncm_scrobble_segment_from_shared(&data, &shared_state);
 
             let end_count = shared_state.playback_end_count.load(Ordering::Acquire);
             while *last_count < end_count {
@@ -445,6 +602,7 @@ fn load_queue_entry_for_playback(
 
     let previous_session = { data.active_session_id.lock().take() };
     if let Some(session_id) = previous_session {
+        finish_ncm_scrobble_session(data, session_id, "replaced");
         if let Err(e) = data
             .app_db
             .finish_playback_session(session_id, "replaced", &snapshot)
@@ -463,6 +621,12 @@ fn load_queue_entry_for_playback(
         &snapshot,
     )?;
     *data.active_session_id.lock() = Some(session_id);
+    begin_ncm_scrobble_session(
+        data,
+        session_id,
+        &entry.source_path,
+        state_response.is_playing && !state_response.is_loading,
+    );
     let payload = serde_json::json!({
         "media_id": media_id.ok(),
         "kind": if autoplay { "queue_autoplay" } else { "queue_load" },
@@ -528,6 +692,7 @@ fn finish_active_session_on_natural_end(data: &web::Data<Arc<AppState>>) {
     }
 
     if let Some(session_id) = data.active_session_id.lock().take() {
+        finish_ncm_scrobble_session(data, session_id, "ended");
         if let Err(e) = data
             .app_db
             .finish_playback_session(session_id, "ended", &snapshot)
@@ -1359,6 +1524,7 @@ async fn load(data: web::Data<Arc<AppState>>, body: web::Json<LoadRequest>) -> H
 
             let previous_session = { data.active_session_id.lock().take() };
             if let Some(session_id) = previous_session {
+                finish_ncm_scrobble_session(&data, session_id, "replaced");
                 if let Err(e) = data
                     .app_db
                     .finish_playback_session(session_id, "replaced", &snapshot)
@@ -1378,6 +1544,12 @@ async fn load(data: web::Data<Arc<AppState>>, body: web::Json<LoadRequest>) -> H
             ) {
                 Ok(session_id) => {
                     *data.active_session_id.lock() = Some(session_id);
+                    begin_ncm_scrobble_session(
+                        &data,
+                        session_id,
+                        &path,
+                        state_response.is_playing && !state_response.is_loading,
+                    );
                     let payload = serde_json::json!({
                         "media_id": media_id.ok(),
                         "kind": if autoplay { "autoplay" } else { "load" }
@@ -1426,7 +1598,9 @@ async fn play(data: web::Data<Arc<AppState>>) -> HttpResponse {
 
     match play_result {
         Ok((snapshot, current_path, state_response, shared_state)) => {
-            if let Some(session_id) = *data.active_session_id.lock() {
+            let active_session_id = { *data.active_session_id.lock() };
+            if let Some(session_id) = active_session_id {
+                sync_ncm_scrobble_segment_from_shared(&data, &shared_state);
                 if let Err(e) = data
                     .app_db
                     .update_playback_session(session_id, "playing", &snapshot)
@@ -1469,7 +1643,9 @@ async fn pause(data: web::Data<Arc<AppState>>) -> HttpResponse {
 
     match pause_result {
         Ok((snapshot, current_path, state_response, shared_state)) => {
-            if let Some(session_id) = *data.active_session_id.lock() {
+            let active_session_id = { *data.active_session_id.lock() };
+            if let Some(session_id) = active_session_id {
+                sync_ncm_scrobble_segment_from_shared(&data, &shared_state);
                 if let Err(e) = data
                     .app_db
                     .update_playback_session(session_id, "paused", &snapshot)
@@ -1513,6 +1689,7 @@ async fn stop(data: web::Data<Arc<AppState>>) -> HttpResponse {
         )
     };
     if let Some(session_id) = data.active_session_id.lock().take() {
+        finish_ncm_scrobble_session(&data, session_id, "stopped");
         if let Err(e) =
             data.app_db
                 .finish_playback_session(session_id, "stopped", &snapshot_before_stop)

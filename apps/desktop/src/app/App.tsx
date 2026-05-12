@@ -16,7 +16,7 @@ import { createApiClient } from "../shared/api/client";
 import { useTranslation } from "../shared/i18n";
 import { NcmAccountProvider } from "../shared/state/NcmAccountContext";
 import { UISearchProvider } from "../shared/state/UISearchContext";
-import { AppScrobbleBridge, useAppController } from "./useAppController";
+import { useAppController } from "./useAppController";
 
 const api = createApiClient();
 
@@ -32,10 +32,6 @@ function AppContent() {
 
   return (
     <>
-      <AppScrobbleBridge
-        currentTrackRef={controller.currentTrackRef}
-        isPlaying={() => Boolean(controller.player()?.is_playing)}
-      />
       <UISearchProvider activePage={controller.activePage}>
         <AppShell
           sidebar={

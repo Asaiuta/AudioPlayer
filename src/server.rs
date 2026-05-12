@@ -11,7 +11,7 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime::{Builder as TokioRuntimeBuilder, Runtime as TokioRuntime};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
@@ -61,9 +61,23 @@ pub struct AppState {
     pub shutdown_handle: Mutex<Option<ServerHandle>>,
     /// Active playback session id in the domain database
     pub active_session_id: Mutex<Option<i64>>,
+    /// Backend-owned NCM scrobble session accumulator
+    pub ncm_scrobble: Mutex<NcmScrobbleState>,
     /// Per-run bearer token shared with the supervising Tauri host. Validated by
     /// the auth middleware on every HTTP route and by the WebSocket handshake.
     pub api_token: Arc<String>,
+}
+
+#[derive(Default)]
+pub struct NcmScrobbleState {
+    pub sessions: HashMap<i64, NcmScrobbleSession>,
+}
+
+pub struct NcmScrobbleSession {
+    pub source_path: String,
+    pub song_id: i64,
+    pub accumulated: Duration,
+    pub segment_started_at: Option<Instant>,
 }
 
 /// Own the dedicated analysis runtime and guarantee it is torn down on a plain
@@ -1007,6 +1021,7 @@ pub async fn run_server(
         analysis_task_timeout_secs,
         shutdown_handle: Mutex::new(None),
         active_session_id: Mutex::new(None),
+        ncm_scrobble: Mutex::new(NcmScrobbleState::default()),
         api_token: Arc::clone(&api_token),
     });
 

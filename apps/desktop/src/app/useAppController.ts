@@ -6,7 +6,6 @@ import type {
   NcmTrackSupplement
 } from "../features/online/ncmPlayback";
 import type { UserPlaylistMode } from "../features/online/ncmPlaylistSummary";
-import { useNcmScrobbleEffect } from "../features/online/useNcmScrobbleEffect";
 import type {
   PlayerState,
   QueueEntry,
@@ -108,17 +107,6 @@ export interface AppController {
   setSettingsOpen: (value: boolean) => void;
   setPreloadRequested: (value: boolean) => void;
   isPlaceholderPage: typeof isPlaceholderPage;
-}
-
-export function AppScrobbleBridge(props: {
-  currentTrackRef: Accessor<NcmTrackReference | undefined>;
-  isPlaying: Accessor<boolean>;
-}) {
-  useNcmScrobbleEffect({
-    currentTrackRef: props.currentTrackRef,
-    isPlaying: props.isPlaying
-  });
-  return null;
 }
 
 export function useAppController(api: ApiClient): AppController {

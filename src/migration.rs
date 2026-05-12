@@ -37,6 +37,9 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), String> {
     if current < 7 {
         apply_ncm_accounts_migration(conn)?;
     }
+    if current < 8 {
+        apply_ncm_track_sources_migration(conn)?;
+    }
 
     Ok(())
 }
@@ -178,6 +181,38 @@ fn apply_ncm_accounts_migration(conn: &mut Connection) -> Result<(), String> {
         "#,
     )
     .map_err(|e| format!("Failed to create NCM account tables: {}", e))?;
+
+    record_version_tx(&tx, version)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit migration {}: {}", version, e))?;
+    log::info!("Applied app database migration {}", version);
+    Ok(())
+}
+
+fn apply_ncm_track_sources_migration(conn: &mut Connection) -> Result<(), String> {
+    let version = 8;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start migration {} transaction: {}", version, e))?;
+
+    tx.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS ncm_track_sources (
+            media_id        TEXT PRIMARY KEY,
+            source_path     TEXT NOT NULL,
+            song_id         INTEGER NOT NULL,
+            source_page_url TEXT,
+            resolved_at     INTEGER NOT NULL,
+            scrobbled_at    INTEGER,
+            scrobble_secs   INTEGER,
+            FOREIGN KEY(media_id) REFERENCES media_items(media_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_ncm_track_sources_song_id
+            ON ncm_track_sources(song_id);
+        "#,
+    )
+    .map_err(|e| format!("Failed to create NCM track source table: {}", e))?;
 
     record_version_tx(&tx, version)?;
     tx.commit()
@@ -435,5 +470,38 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, 7);
+    }
+
+    #[test]
+    fn ncm_track_sources_migration_creates_mapping_table() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE media_items (
+                media_id       TEXT PRIMARY KEY,
+                source_path    TEXT NOT NULL UNIQUE,
+                source_kind    TEXT NOT NULL,
+                added_at       INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at) VALUES (7, 100);
+            "#,
+        )
+        .unwrap();
+
+        apply_ncm_track_sources_migration(&mut conn).unwrap();
+
+        assert!(column_exists(&conn, "ncm_track_sources", "song_id").unwrap());
+        assert!(column_exists(&conn, "ncm_track_sources", "scrobble_secs").unwrap());
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 8);
     }
 }

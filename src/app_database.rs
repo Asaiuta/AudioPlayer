@@ -200,6 +200,17 @@ pub struct NcmAccountUpsert {
     pub signin_at_ms: Option<i64>,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NcmTrackSourceRecord {
+    pub media_id: String,
+    pub source_path: String,
+    pub song_id: i64,
+    pub source_page_url: Option<String>,
+    pub resolved_at_epoch_secs: u64,
+    pub scrobbled_at_epoch_secs: Option<u64>,
+    pub scrobble_secs: Option<u64>,
+}
+
 pub struct AppDatabase {
     conn: Mutex<Connection>,
     db_path: PathBuf,
@@ -244,6 +255,18 @@ fn ncm_account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NcmAccountR
         signin_at_ms: row.get(6)?,
         added_at_ms: row.get(7)?,
         refreshed_at_ms: row.get(8)?,
+    })
+}
+
+fn ncm_track_source_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NcmTrackSourceRecord> {
+    Ok(NcmTrackSourceRecord {
+        media_id: row.get(0)?,
+        source_path: row.get(1)?,
+        song_id: row.get(2)?,
+        source_page_url: row.get(3)?,
+        resolved_at_epoch_secs: row.get::<_, i64>(4)? as u64,
+        scrobbled_at_epoch_secs: row.get::<_, Option<i64>>(5)?.map(|value| value as u64),
+        scrobble_secs: row.get::<_, Option<i64>>(6)?.map(|value| value as u64),
     })
 }
 
@@ -1115,6 +1138,76 @@ impl AppDatabase {
         )
         .map_err(|e| format!("Failed to update external media metadata: {}", e))?;
         Ok(media_id_for_path(source_path))
+    }
+
+    pub fn record_ncm_track_source(
+        &self,
+        source_path: &str,
+        song_id: i64,
+        source_page_url: Option<&str>,
+    ) -> Result<NcmTrackSourceRecord, String> {
+        if song_id <= 0 {
+            return Err("NCM song id must be positive".to_string());
+        }
+        let media_id = self.record_media_stub(source_path)?;
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = now_epoch_secs_i64();
+        conn.execute(
+            r#"
+            INSERT INTO ncm_track_sources (
+                media_id, source_path, song_id, source_page_url, resolved_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            ON CONFLICT(media_id) DO UPDATE SET
+                source_path = excluded.source_path,
+                song_id = excluded.song_id,
+                source_page_url = excluded.source_page_url,
+                resolved_at = excluded.resolved_at
+            "#,
+            params![media_id, source_path, song_id, source_page_url, now],
+        )
+        .map_err(|e| format!("Failed to record NCM track source: {}", e))?;
+        read_ncm_track_source_from_conn(&conn, &media_id)
+    }
+
+    pub fn ncm_track_source_for_path(
+        &self,
+        source_path: &str,
+    ) -> Result<Option<NcmTrackSourceRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let media_id = media_id_for_path(source_path);
+        conn.query_row(
+            r#"
+            SELECT media_id, source_path, song_id, source_page_url,
+                   resolved_at, scrobbled_at, scrobble_secs
+            FROM ncm_track_sources
+            WHERE media_id = ?1
+            "#,
+            params![media_id],
+            ncm_track_source_from_row,
+        )
+        .optional()
+        .map_err(|e| format!("Failed to read NCM track source: {}", e))
+    }
+
+    pub fn mark_ncm_track_scrobbled(
+        &self,
+        source_path: &str,
+        scrobble_secs: u64,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let media_id = media_id_for_path(source_path);
+        conn.execute(
+            r#"
+            UPDATE ncm_track_sources
+            SET scrobbled_at = ?2,
+                scrobble_secs = ?3
+            WHERE media_id = ?1
+            "#,
+            params![media_id, now_epoch_secs_i64(), scrobble_secs as i64],
+        )
+        .map_err(|e| format!("Failed to mark NCM track scrobbled: {}", e))?;
+        Ok(())
     }
 
     pub fn media_metadata_for_path(
@@ -2456,6 +2549,23 @@ fn read_ncm_account_from_conn(conn: &Connection, user_id: i64) -> Result<NcmAcco
     .map_err(|e| format!("Failed to read NCM account {}: {}", user_id, e))
 }
 
+fn read_ncm_track_source_from_conn(
+    conn: &Connection,
+    media_id: &str,
+) -> Result<NcmTrackSourceRecord, String> {
+    conn.query_row(
+        r#"
+        SELECT media_id, source_path, song_id, source_page_url,
+               resolved_at, scrobbled_at, scrobble_secs
+        FROM ncm_track_sources
+        WHERE media_id = ?1
+        "#,
+        params![media_id],
+        ncm_track_source_from_row,
+    )
+    .map_err(|e| format!("Failed to read NCM track source '{}': {}", media_id, e))
+}
+
 fn active_ncm_user_id_from_conn(conn: &Connection) -> Result<Option<i64>, String> {
     conn.query_row(
         "SELECT active_user_id FROM ncm_account_state WHERE state_key = 'active'",
@@ -2586,6 +2696,28 @@ mod tests {
         let (accounts, active_user_id) = db.list_ncm_accounts().unwrap();
         assert!(accounts.is_empty());
         assert_eq!(active_user_id, None);
+    }
+
+    #[test]
+    fn persists_ncm_track_source_and_scrobble_marker() {
+        let db = AppDatabase::in_memory().unwrap();
+        let source_path = "https://stream.example.test/song.mp3";
+
+        let record = db
+            .record_ncm_track_source(source_path, 42, Some("https://music.163.com/#/song?id=42"))
+            .unwrap();
+
+        assert_eq!(record.song_id, 42);
+        assert_eq!(record.source_path, source_path);
+        assert_eq!(
+            db.ncm_track_source_for_path(source_path).unwrap().unwrap(),
+            record
+        );
+
+        db.mark_ncm_track_scrobbled(source_path, 37).unwrap();
+        let updated = db.ncm_track_source_for_path(source_path).unwrap().unwrap();
+        assert_eq!(updated.scrobble_secs, Some(37));
+        assert!(updated.scrobbled_at_epoch_secs.is_some());
     }
 
     #[test]
@@ -2843,6 +2975,8 @@ mod tests {
         assert!(db
             .has_column("playback_queue_entries", "shuffle_index")
             .unwrap());
+        assert!(db.has_column("ncm_track_sources", "song_id").unwrap());
+        assert!(db.has_column("ncm_track_sources", "scrobble_secs").unwrap());
 
         let conn = db.conn.lock().unwrap();
         let versions = conn
@@ -2852,7 +2986,7 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
         let index_count: i64 = conn
             .query_row(

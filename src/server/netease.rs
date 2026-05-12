@@ -725,6 +725,17 @@ async fn resolve_ncm_track(
             err
         );
     }
+    if let Err(err) = data.app_db.record_ncm_track_source(
+        &track.stream_url,
+        track.song_id,
+        Some(track.source_page_url.as_str()),
+    ) {
+        log::warn!(
+            "Failed to persist NCM track source for song {}: {}",
+            track.song_id,
+            err
+        );
+    }
 
     log::info!(
         "NCM resolve track {} -> OK ({:.1?})",
