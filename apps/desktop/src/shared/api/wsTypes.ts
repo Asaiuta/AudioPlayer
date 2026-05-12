@@ -7,6 +7,8 @@ export type WsEvent =
       file_path: string | null;
       duration: number;
       media_id: string | null;
+      ncm_song_id: number | null;
+      ncm_source_page_url: string | null;
       title: string | null;
       artist: string | null;
       album: string | null;
@@ -16,7 +18,7 @@ export type WsEvent =
   | { type: "playback_ended"; position: number }
   | { type: "needs_preload"; remaining_secs: number }
   | { type: "spectrum_data"; data: number[] }
-  | { type: "queue_updated"; queue: unknown[] }
+  | { type: "queue_updated"; queueLength: number | null }
   | { type: "play"; position: number; timestamp: number }
   | { type: "pause"; position: number; timestamp: number }
   | { type: "stop"; position: number; timestamp: number }
@@ -35,6 +37,9 @@ const readString = (value: unknown): string | null =>
 
 const readNullableString = (value: unknown): string | null =>
   value === null ? null : readString(value);
+
+const readNullableNumber = (value: unknown): number | null =>
+  value === null ? null : readNumber(value);
 
 const readNumberArray = (value: unknown): number[] | null => {
   if (!Array.isArray(value)) {
@@ -82,6 +87,8 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
         file_path: filePath,
         duration,
         media_id: readNullableString(raw.media_id),
+        ncm_song_id: readNullableNumber(raw.ncm_song_id),
+        ncm_source_page_url: readNullableString(raw.ncm_source_page_url),
         title: readNullableString(raw.title),
         artist: readNullableString(raw.artist),
         album: readNullableString(raw.album),
@@ -102,8 +109,7 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
       return data ? { type: eventType, data } : null;
     }
     case "queue_updated": {
-      const queue = Array.isArray(raw.queue) ? raw.queue : null;
-      return queue !== null ? { type: eventType, queue } : null;
+      return { type: eventType, queueLength: readNumber(raw.queue_length) };
     }
     case "play":
     case "pause":

@@ -88,6 +88,8 @@ export interface PlayerState {
   duration: number;
   current_time: number;
   file_path: string | null;
+  ncm_song_id: number | null;
+  ncm_source_page_url: string | null;
   volume: number;
   device_id: number | null;
   exclusive_mode: boolean;
@@ -166,6 +168,61 @@ export interface MediaItem {
   updated_at_epoch_secs: number;
 }
 
+export interface LibraryTrackSummary {
+  track_key: number;
+  media_id: string;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  track_number: number | null;
+  file_name: string;
+  folder_key: string;
+  folder_label: string;
+  duration_secs: number | null;
+  has_cover_art: boolean;
+  external_artwork_url: string | null;
+  size_bytes: number | null;
+  added_at_epoch_secs: number;
+  updated_at_epoch_secs: number;
+}
+
+export interface LibraryFolderSummary {
+  key: string;
+  label: string;
+  path: string;
+  count: number;
+}
+
+export interface LibraryTrackSummariesResponse {
+  revision: string;
+  total_count: number;
+  total_size_bytes: number;
+  folders: LibraryFolderSummary[];
+  tracks: LibraryTrackSummary[];
+}
+
+export interface LibraryTrackDetail {
+  track_key: number;
+  item: MediaItem;
+}
+
+export interface LocalPlaylist {
+  playlist_id: string;
+  name: string;
+  description: string | null;
+  cover_media_id: string | null;
+  cover_has_cover_art: boolean;
+  cover_external_artwork_url: string | null;
+  track_count: number;
+  created_at_epoch_secs: number;
+  updated_at_epoch_secs: number;
+}
+
+export interface LocalPlaylistDetail {
+  playlist: LocalPlaylist;
+  items: MediaItem[];
+}
+
 export interface QueueEntry {
   queue_id: string;
   entry_id: number;
@@ -175,6 +232,12 @@ export interface QueueEntry {
   status: string;
   added_at_epoch_secs: number;
   updated_at_epoch_secs: number;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  duration_secs: number | null;
+  has_cover_art: boolean;
+  external_artwork_url: string | null;
 }
 
 export interface WebDavSource {
@@ -191,6 +254,8 @@ export interface PlaybackHistoryEntry {
   id: number;
   session_id: number | null;
   media_id: string | null;
+  ncm_song_id: number | null;
+  ncm_source_page_url: string | null;
   source_path: string;
   event_type: string;
   event_at_epoch_secs: number;

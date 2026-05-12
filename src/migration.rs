@@ -40,6 +40,9 @@ pub fn run_migrations(conn: &mut Connection) -> Result<(), String> {
     if current < 8 {
         apply_ncm_track_sources_migration(conn)?;
     }
+    if current < 9 {
+        apply_local_playlists_migration(conn)?;
+    }
 
     Ok(())
 }
@@ -213,6 +216,49 @@ fn apply_ncm_track_sources_migration(conn: &mut Connection) -> Result<(), String
         "#,
     )
     .map_err(|e| format!("Failed to create NCM track source table: {}", e))?;
+
+    record_version_tx(&tx, version)?;
+    tx.commit()
+        .map_err(|e| format!("Failed to commit migration {}: {}", version, e))?;
+    log::info!("Applied app database migration {}", version);
+    Ok(())
+}
+
+fn apply_local_playlists_migration(conn: &mut Connection) -> Result<(), String> {
+    let version = 9;
+    let tx = conn
+        .transaction()
+        .map_err(|e| format!("Failed to start migration {} transaction: {}", version, e))?;
+
+    tx.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS local_playlists (
+            playlist_id    TEXT PRIMARY KEY,
+            name           TEXT NOT NULL,
+            description    TEXT,
+            cover_media_id TEXT,
+            created_at     INTEGER NOT NULL,
+            updated_at     INTEGER NOT NULL,
+            FOREIGN KEY(cover_media_id) REFERENCES media_items(media_id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS local_playlist_items (
+            playlist_id    TEXT NOT NULL,
+            media_id       TEXT NOT NULL,
+            position_index INTEGER NOT NULL,
+            added_at       INTEGER NOT NULL,
+            PRIMARY KEY(playlist_id, media_id),
+            FOREIGN KEY(playlist_id) REFERENCES local_playlists(playlist_id) ON DELETE CASCADE,
+            FOREIGN KEY(media_id) REFERENCES media_items(media_id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_local_playlists_updated_at
+            ON local_playlists(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_local_playlist_items_order
+            ON local_playlist_items(playlist_id, position_index ASC, media_id ASC);
+        "#,
+    )
+    .map_err(|e| format!("Failed to create local playlist tables: {}", e))?;
 
     record_version_tx(&tx, version)?;
     tx.commit()
@@ -503,5 +549,38 @@ mod tests {
             })
             .unwrap();
         assert_eq!(version, 8);
+    }
+
+    #[test]
+    fn local_playlists_migration_creates_playlist_tables() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"
+            CREATE TABLE media_items (
+                media_id       TEXT PRIMARY KEY,
+                source_path    TEXT NOT NULL UNIQUE,
+                source_kind    TEXT NOT NULL,
+                added_at       INTEGER NOT NULL,
+                updated_at     INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INTEGER PRIMARY KEY,
+                applied_at INTEGER NOT NULL
+            );
+            INSERT INTO schema_version (version, applied_at) VALUES (8, 100);
+            "#,
+        )
+        .unwrap();
+
+        apply_local_playlists_migration(&mut conn).unwrap();
+
+        assert!(column_exists(&conn, "local_playlists", "name").unwrap());
+        assert!(column_exists(&conn, "local_playlist_items", "position_index").unwrap());
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        assert_eq!(version, 9);
     }
 }

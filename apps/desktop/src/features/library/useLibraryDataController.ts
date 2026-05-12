@@ -1,12 +1,18 @@
-import { createEffect, createMemo, createSignal, onMount } from "solid-js";
+import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
 import { createApiClient } from "../../shared/api/client";
-import type { LibraryRoot, LibraryScanTask, MediaItem } from "../../shared/api/types";
+import type { LibraryRoot, LibraryScanTask, LocalPlaylist, MediaItem } from "../../shared/api/types";
 import type { TranslationKey } from "../../shared/i18n";
+import type {
+  LibraryWorkerFolderGroup,
+  LibraryWorkerRequest,
+  LibraryWorkerResponse,
+  LibraryWorkerRow
+} from "./libraryWorker";
 
 const api = createApiClient();
-const PAGE_SIZE = 100;
 const ALL_FOLDERS_VALUE = "__all";
+const DEFAULT_LIBRARY_RANGE = { start: 0, end: 80 };
 
 interface Feedback {
   tone: "neutral" | "success" | "error";
@@ -20,8 +26,28 @@ interface ScanProgress {
   removed: number;
 }
 
-export interface LibraryListItem extends MediaItem {
+export interface LibraryListItem {
   id: string;
+  trackKey?: number;
+  media_id?: string | null;
+  source_path?: string | null;
+  source_kind?: string;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  track_number?: number | null;
+  disc_number?: number | null;
+  genre?: string | null;
+  year?: number | null;
+  duration_secs: number | null;
+  sample_rate?: number | null;
+  channels?: number | null;
+  has_cover_art?: boolean;
+  external_artwork_url?: string | null;
+  size_bytes?: number | null;
+  updated_at_epoch_secs?: number | null;
+  added_at_epoch_secs?: number | null;
+  fileName?: string | null;
   artworkUrl: string | null;
 }
 
@@ -34,6 +60,32 @@ export interface LibraryGroup {
 }
 
 export type LibraryTab = "songs" | "artists" | "albums" | "playlists" | "folders";
+export type LibrarySortField =
+  | "default"
+  | "title"
+  | "artist"
+  | "album"
+  | "trackNumber"
+  | "filename"
+  | "duration"
+  | "size"
+  | "createTime"
+  | "updatedTime";
+export type LibrarySortOrder = "default" | "asc" | "desc";
+
+export interface LibrarySortState {
+  field: LibrarySortField;
+  order: LibrarySortOrder;
+}
+
+export interface LibraryFolderNode {
+  key: string;
+  label: string;
+  totalCount: number;
+  directCount: number;
+  depth: number;
+  children: LibraryFolderNode[];
+}
 
 interface UseLibraryDataControllerOptions {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
@@ -46,7 +98,26 @@ const adaptItem = (item: MediaItem): LibraryListItem => ({
   artworkUrl: item.has_cover_art ? api.getCoverArtUrl(item.media_id) : item.external_artwork_url
 });
 
-const matchesSearch = (item: MediaItem, query: string) => {
+const adaptWorkerRow = (row: LibraryWorkerRow): LibraryListItem => ({
+  id: row.id,
+  trackKey: row.trackKey,
+  media_id: row.media_id,
+  source_path: row.source_path,
+  title: row.title,
+  artist: row.artist,
+  album: row.album,
+  track_number: row.track_number,
+  duration_secs: row.duration_secs,
+  size_bytes: row.size_bytes,
+  added_at_epoch_secs: row.added_at_epoch_secs,
+  updated_at_epoch_secs: row.updated_at_epoch_secs,
+  fileName: row.fileName,
+  artworkUrl: row.hasCoverArt
+    ? api.getLibraryTrackCoverArtUrl(row.trackKey)
+    : row.externalArtworkUrl
+});
+
+const matchesSearch = (item: LibraryListItem, query: string) => {
   if (!query) return true;
   const haystacks = [item.title, item.artist, item.album, item.source_path];
   return haystacks.some((value) => value?.toLowerCase().includes(query));
@@ -72,6 +143,166 @@ const folderPathFromSource = (sourcePath: string) => {
 const folderNameFromPath = (path: string) => {
   const normalized = normalizePath(path).replace(/\/+$/, "");
   return normalized.split("/").filter(Boolean).pop() ?? path;
+};
+
+const pathContainsFolder = (parentFolder: string, childFolder: string) => {
+  const parent = normalizePath(parentFolder).replace(/\/+$/, "");
+  const child = normalizePath(childFolder).replace(/\/+$/, "");
+  return child === parent || child.startsWith(`${parent}/`);
+};
+
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+const compareText = (left: string | null | undefined, right: string | null | undefined) =>
+  collator.compare(left?.trim() ?? "", right?.trim() ?? "");
+
+const sortItems = (
+  items: readonly LibraryListItem[],
+  sort: LibrarySortState
+): LibraryListItem[] => {
+  if (sort.field === "default" || sort.order === "default") {
+    return [...items];
+  }
+
+  const factor = sort.order === "asc" ? 1 : -1;
+  return [...items].sort((left, right) => {
+    let result = 0;
+    switch (sort.field) {
+      case "title":
+        result = compareText(
+          left.title ?? folderNameFromPath(left.source_path ?? left.id),
+          right.title ?? folderNameFromPath(right.source_path ?? right.id)
+        );
+        break;
+      case "album":
+        result = compareText(left.album, right.album);
+        break;
+      case "artist":
+        result = compareText(left.artist, right.artist);
+        break;
+      case "trackNumber":
+        result = (left.track_number ?? 0) - (right.track_number ?? 0);
+        break;
+      case "filename":
+        result = compareText(
+          left.fileName ?? folderNameFromPath(left.source_path ?? left.id),
+          right.fileName ?? folderNameFromPath(right.source_path ?? right.id)
+        );
+        break;
+      case "duration":
+        result = (left.duration_secs ?? 0) - (right.duration_secs ?? 0);
+        break;
+      case "size":
+        result = (left.size_bytes ?? 0) - (right.size_bytes ?? 0);
+        break;
+      case "createTime":
+        result = (left.added_at_epoch_secs ?? 0) - (right.added_at_epoch_secs ?? 0);
+        break;
+      case "updatedTime":
+        result = (left.updated_at_epoch_secs ?? 0) - (right.updated_at_epoch_secs ?? 0);
+        break;
+      case "default":
+        result = 0;
+        break;
+      default: {
+        const _exhaustive: never = sort.field;
+        throw new Error(`Unhandled library sort field: ${_exhaustive}`);
+      }
+    }
+    return result * factor;
+  });
+};
+
+interface MutableFolderNode {
+  key: string;
+  label: string;
+  directCount: number;
+  totalCount: number;
+  depth: number;
+  children: Map<string, MutableFolderNode>;
+}
+
+const toFolderNode = (node: MutableFolderNode): LibraryFolderNode => ({
+  key: node.key,
+  label: node.label,
+  directCount: node.directCount,
+  totalCount: node.totalCount,
+  depth: node.depth,
+  children: [...node.children.values()]
+    .sort((left, right) => collator.compare(left.label, right.label))
+    .map(toFolderNode)
+});
+
+const compactFolderNode = (node: LibraryFolderNode, depth: number): LibraryFolderNode => {
+  let current = node;
+  let label = node.label;
+
+  while (current.children.length === 1 && current.directCount === 0) {
+    const child = current.children[0];
+    const separator = child.key.includes("\\") ? "\\" : "/";
+    label = `${label}${separator}${child.label}`;
+    current = child;
+  }
+
+  return {
+    key: current.key,
+    label,
+    directCount: current.directCount,
+    totalCount: node.totalCount,
+    depth,
+    children: current.children.map((child) => compactFolderNode(child, depth + 1))
+  };
+};
+
+const buildFolderTree = (items: readonly LibraryListItem[]): LibraryFolderNode[] => {
+  const roots = new Map<string, MutableFolderNode>();
+  const nodeByPath = new Map<string, MutableFolderNode>();
+
+  const ensureNode = (key: string, label: string, depth: number, parent?: MutableFolderNode) => {
+    const existing = nodeByPath.get(key);
+    if (existing) return existing;
+    const node: MutableFolderNode = {
+      key,
+      label,
+      directCount: 0,
+      totalCount: 0,
+      depth,
+      children: new Map<string, MutableFolderNode>()
+    };
+    nodeByPath.set(key, node);
+    if (parent) {
+      parent.children.set(key, node);
+    } else {
+      roots.set(key, node);
+    }
+    return node;
+  };
+
+  items.forEach((item) => {
+    const folderPath = folderPathFromSource(item.source_path ?? item.id);
+    const normalized = normalizePath(folderPath).replace(/\/+$/, "");
+    const prefix = normalized.startsWith("/") ? "/" : "";
+    const segments = normalized.split("/").filter(Boolean);
+    let parent: MutableFolderNode | undefined;
+    let currentPath = prefix;
+
+    segments.forEach((segment, index) => {
+      currentPath =
+        currentPath === "/" || currentPath === ""
+          ? `${currentPath}${segment}`
+          : `${currentPath}/${segment}`;
+      parent = ensureNode(currentPath, segment, index, parent);
+      parent.totalCount += 1;
+      if (index === segments.length - 1) {
+        parent.directCount += 1;
+      }
+    });
+  });
+
+  return [...roots.values()]
+    .sort((left, right) => collator.compare(left.label, right.label))
+    .map(toFolderNode)
+    .map((node) => compactFolderNode(node, 0));
 };
 
 const splitArtists = (artist: string | null, fallback: string) =>
@@ -110,10 +341,25 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const { t, globalQuery } = options;
   const [roots, setRoots] = createSignal<LibraryRoot[]>([]);
   const [allItems, setAllItems] = createSignal<MediaItem[]>([]);
-  const [visibleLimit, setVisibleLimit] = createSignal(PAGE_SIZE);
+  const [legacyItemsLoaded, setLegacyItemsLoaded] = createSignal<boolean>(false);
+  const [libraryRevision, setLibraryRevision] = createSignal<string | null>(null);
+  const [libraryTotalCount, setLibraryTotalCount] = createSignal<number>(0);
+  const [virtualRows, setVirtualRows] = createSignal<LibraryListItem[]>([]);
+  const [virtualTotal, setVirtualTotal] = createSignal<number>(0);
+  const [virtualRange, setVirtualRange] =
+    createSignal<{ start: number; end: number }>(DEFAULT_LIBRARY_RANGE);
+  const [folderOptions, setFolderOptions] = createSignal<LibraryWorkerFolderGroup[]>([]);
+  const [workerReady, setWorkerReady] = createSignal<boolean>(false);
+  const [debouncedQueries, setDebouncedQueries] = createSignal<string[]>([]);
+  const [virtualSizeBytes, setVirtualSizeBytes] = createSignal<number>(0);
+  const [localPlaylists, setLocalPlaylists] = createSignal<LocalPlaylist[]>([]);
+  const [selectedPlaylistId, setSelectedPlaylistId] = createSignal<string | null>(null);
+  const [selectedPlaylistItems, setSelectedPlaylistItems] = createSignal<LibraryListItem[]>([]);
   const [activeTab, setActiveTab] = createSignal<LibraryTab>("songs");
+  const [sort, setSort] = createSignal<LibrarySortState>({ field: "default", order: "default" });
   const [localQuery, setLocalQuery] = createSignal("");
   const [selectedFolder, setSelectedFolder] = createSignal(ALL_FOLDERS_VALUE);
+  const [selectedMediaIds, setSelectedMediaIds] = createSignal<string[]>([]);
   const [manageOpen, setManageOpen] = createSignal(false);
   const [isFetching, setIsFetching] = createSignal(false);
   const [isScanning, setIsScanning] = createSignal(false);
@@ -127,6 +373,19 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const readErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : t("common.error.requestFailed");
 
+  let worker: Worker | null = null;
+  let workerRequestId = 0;
+  let latestInitRequestId = 0;
+  let latestViewRequestId = 0;
+  const detailCache = new Map<number, MediaItem>();
+  const pendingTrackKeyRequests = new Map<
+    number,
+    {
+      resolve: (trackKeys: number[]) => void;
+      reject: (error: Error) => void;
+    }
+  >();
+
   const setKeyedFeedback = (tone: Feedback["tone"], key: TranslationKey) => {
     setFeedbackKey(key);
     setFeedback({ tone, message: t(key) });
@@ -135,6 +394,133 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const setRawFeedback = (tone: Feedback["tone"], message: string) => {
     setFeedbackKey(null);
     setFeedback({ tone, message });
+  };
+
+  const rejectPendingTrackKeyRequests = (message: string) => {
+    pendingTrackKeyRequests.forEach((pending) => {
+      pending.reject(new Error(message));
+    });
+    pendingTrackKeyRequests.clear();
+  };
+
+  const ensureWorker = () => {
+    if (worker) return worker;
+    worker = new Worker(new URL("./libraryWorker.ts", import.meta.url), { type: "module" });
+    worker.onmessage = (event: MessageEvent<LibraryWorkerResponse>) => {
+      const message = event.data;
+      if (message.type === "READY") {
+        if (message.requestId === latestInitRequestId) {
+          setWorkerReady(true);
+          setVirtualTotal(message.total);
+        }
+        return;
+      }
+      if (message.type === "TRACK_KEYS_RESULT") {
+        const pending = pendingTrackKeyRequests.get(message.requestId);
+        if (pending) {
+          pendingTrackKeyRequests.delete(message.requestId);
+          pending.resolve(message.trackKeys);
+        }
+        return;
+      }
+      if (message.requestId !== latestViewRequestId) {
+        return;
+      }
+      setVirtualRows(message.rows.map(adaptWorkerRow));
+      setVirtualTotal(message.total);
+      setVirtualSizeBytes(message.totalSizeBytes);
+      setFolderOptions(message.folders);
+    };
+    worker.onerror = () => {
+      setWorkerReady(false);
+      rejectPendingTrackKeyRequests("Library worker failed");
+    };
+    return worker;
+  };
+
+  onCleanup(() => {
+    rejectPendingTrackKeyRequests("Library worker was disposed");
+    worker?.terminate();
+    worker = null;
+  });
+
+  const currentWorkerViewInput = () => ({
+    queries: debouncedQueries(),
+    folderKey: selectedFolder() === ALL_FOLDERS_VALUE ? null : selectedFolder(),
+    sort: sort()
+  });
+
+  const postWorkerView = () => {
+    if (!workerReady()) return;
+    const target = ensureWorker();
+    const requestId = workerRequestId + 1;
+    workerRequestId = requestId;
+    latestViewRequestId = requestId;
+    const view = currentWorkerViewInput();
+    const message: LibraryWorkerRequest = {
+      type: "VIEW",
+      requestId,
+      queries: view.queries,
+      folderKey: view.folderKey,
+      sort: view.sort,
+      range: virtualRange()
+    };
+    target.postMessage(message);
+  };
+
+  const requestWorkerTrackKeys = async (): Promise<number[]> => {
+    if (!workerReady()) {
+      throw new Error(t("common.error.requestFailed"));
+    }
+    const target = ensureWorker();
+    const requestId = workerRequestId + 1;
+    workerRequestId = requestId;
+    const view = currentWorkerViewInput();
+    const message: LibraryWorkerRequest = {
+      type: "TRACK_KEYS",
+      requestId,
+      queries: view.queries,
+      folderKey: view.folderKey,
+      sort: view.sort
+    };
+    const trackKeys = await new Promise<number[]>((resolve, reject) => {
+      pendingTrackKeyRequests.set(requestId, { resolve, reject });
+      target.postMessage(message);
+    });
+    if (trackKeys.length === 0) {
+      throw new Error(t("library.tracks.emptyFilter"));
+    }
+    return trackKeys;
+  };
+
+  const updateVirtualRange = (range: { start: number; end: number }) => {
+    setVirtualRange((current) =>
+      current.start === range.start && current.end === range.end ? current : range
+    );
+  };
+
+  const selectedFolderPath = createMemo<string | null>(() => {
+    const selected = selectedFolder();
+    if (selected === ALL_FOLDERS_VALUE) return null;
+    return folderOptions().find((folder) => folder.key === selected)?.path ?? null;
+  });
+
+  const detailForTrackKey = async (trackKey: number): Promise<MediaItem> => {
+    const cached = detailCache.get(trackKey);
+    if (cached) return cached;
+    const detail = await api.getLibraryTrackDetail(trackKey);
+    detailCache.set(trackKey, detail.item);
+    return detail.item;
+  };
+
+  const ensureItemDetail = async (item: LibraryListItem): Promise<MediaItem | null> => {
+    if (item.source_path && item.media_id) {
+      return item as MediaItem;
+    }
+    if (item.trackKey === undefined) {
+      return null;
+    }
+    return detailForTrackKey(item.trackKey);
   };
 
   const refreshRoots = async () => {
@@ -149,13 +535,77 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const refreshItems = async () => {
     setIsFetching(true);
     try {
-      const list = await api.getMediaItems(PAGE_SIZE, true);
-      setAllItems(list);
-      setVisibleLimit((current) => Math.min(Math.max(PAGE_SIZE, current), list.length || PAGE_SIZE));
+      const response = await api.getLibraryTrackSummaries();
+      detailCache.clear();
+      setAllItems([]);
+      setLegacyItemsLoaded(false);
+      setLibraryRevision(response.revision);
+      setLibraryTotalCount(response.total_count);
+      setVirtualTotal(response.total_count);
+      setVirtualSizeBytes(response.total_size_bytes);
+      setWorkerReady(false);
+      rejectPendingTrackKeyRequests("Library index refreshed");
+      const target = ensureWorker();
+      const requestId = workerRequestId + 1;
+      workerRequestId = requestId;
+      latestInitRequestId = requestId;
+      latestViewRequestId = 0;
+      const message: LibraryWorkerRequest = {
+        type: "INIT",
+        requestId,
+        tracks: response.tracks,
+        folders: response.folders
+      };
+      target.postMessage(message);
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
     } finally {
       setIsFetching(false);
+    }
+  };
+
+  const refreshLegacyItems = async () => {
+    if (legacyItemsLoaded()) return;
+    setIsFetching(true);
+    try {
+      const list = await api.getMediaItems(undefined, true);
+      setAllItems(list);
+      setLegacyItemsLoaded(true);
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+    } finally {
+      setIsFetching(false);
+    }
+  };
+
+  const refreshSelectedPlaylist = async (playlistId = selectedPlaylistId()) => {
+    if (!playlistId) {
+      setSelectedPlaylistItems([]);
+      return;
+    }
+
+    try {
+      const detail = await api.getLocalPlaylist(playlistId);
+      setSelectedPlaylistId(detail.playlist.playlist_id);
+      setSelectedPlaylistItems(detail.items.map(adaptItem));
+    } catch (error) {
+      setSelectedPlaylistId(null);
+      setSelectedPlaylistItems([]);
+      setRawFeedback("error", readErrorMessage(error));
+    }
+  };
+
+  const refreshPlaylists = async () => {
+    try {
+      const playlists = await api.listLocalPlaylists();
+      setLocalPlaylists(playlists);
+      const selected = selectedPlaylistId();
+      const nextSelected =
+        playlists.find((playlist) => playlist.playlist_id === selected)?.playlist_id ?? null;
+      setSelectedPlaylistId(nextSelected);
+      await refreshSelectedPlaylist(nextSelected);
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
     }
   };
 
@@ -185,6 +635,34 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   onMount(() => {
     void refreshRoots();
     void refreshItems();
+    void refreshPlaylists();
+  });
+
+  createEffect(() => {
+    const nextQueries = [globalQuery(), localQuery()]
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => value.length > 0);
+    const timer = window.setTimeout(() => {
+      setDebouncedQueries(nextQueries);
+      setVirtualRange(DEFAULT_LIBRARY_RANGE);
+    }, 180);
+    onCleanup(() => window.clearTimeout(timer));
+  });
+
+  createEffect(() => {
+    workerReady();
+    debouncedQueries();
+    selectedFolder();
+    sort();
+    virtualRange();
+    postWorkerView();
+  });
+
+  createEffect(() => {
+    const tab = activeTab();
+    if (tab === "artists" || tab === "albums" || tab === "folders") {
+      void refreshLegacyItems();
+    }
   });
 
   const adaptedItems = createMemo(() => allItems().map(adaptItem));
@@ -198,27 +676,56 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     if (queries.length === 0) return adaptedItems();
     return adaptedItems().filter((item) => queries.every((query) => matchesSearch(item, query)));
   });
-  const folderGroups = createMemo<LibraryGroup[]>(() =>
-    groupByKey(
+  const folderGroups = createMemo<LibraryGroup[]>(() => {
+    const options = folderOptions();
+    if (options.length > 0) {
+      return options.map((folder) => ({
+        key: folder.key,
+        label: folder.label,
+        songs: [],
+        artworkUrl: null,
+        detail: folder.path
+      }));
+    }
+    return groupByKey(
       queryFilteredItems(),
-      (item) => [folderPathFromSource(item.source_path)],
+      (item) => [folderPathFromSource(item.source_path ?? item.id)],
       (key) => key
-    ).map((group) => ({ ...group, label: folderNameFromPath(group.key) }))
-  );
+    ).map((group) => ({ ...group, label: folderNameFromPath(group.key) }));
+  });
+  const folderTree = createMemo<LibraryFolderNode[]>(() => buildFolderTree(queryFilteredItems()));
   const folderFilteredItems = createMemo(() => {
     const selected = selectedFolder();
     if (selected === ALL_FOLDERS_VALUE) return queryFilteredItems();
-    return queryFilteredItems().filter((item) => folderPathFromSource(item.source_path) === selected);
+    const selectedPath = selectedFolderPath() ?? selected;
+    return queryFilteredItems().filter((item) =>
+      pathContainsFolder(selectedPath, folderPathFromSource(item.source_path ?? item.id))
+    );
   });
-  const filteredItems = createMemo(() => folderFilteredItems().slice(0, visibleLimit()));
-  const reachedEnd = createMemo(() => filteredItems().length >= folderFilteredItems().length);
+  const legacyFilteredItems = createMemo(() => sortItems(folderFilteredItems(), sort()));
+  const filteredItems = createMemo(() =>
+    activeTab() === "songs" ? virtualRows() : legacyFilteredItems()
+  );
   const artistGroups = createMemo<LibraryGroup[]>(() =>
-    groupByKey(folderFilteredItems(), (item) => splitArtists(item.artist, t("library.group.unknownArtist")))
+    groupByKey(legacyFilteredItems(), (item) => splitArtists(item.artist, t("library.group.unknownArtist")))
   );
   const albumGroups = createMemo<LibraryGroup[]>(() =>
-    groupByKey(folderFilteredItems(), (item) => [fallbackLabel(item.album, t("library.group.unknownAlbum"))])
+    groupByKey(legacyFilteredItems(), (item) => [fallbackLabel(item.album, t("library.group.unknownAlbum"))])
   );
+  const selectedPlaylistSortedItems = createMemo(() =>
+    sortItems(selectedPlaylistItems(), sort())
+  );
+  const selectedItems = createMemo<LibraryListItem[]>(() => {
+    const ids = new Set(selectedMediaIds());
+    if (ids.size === 0) return [];
+    const sourceItems =
+      activeTab() === "playlists" ? selectedPlaylistSortedItems() : filteredItems();
+    return sourceItems.filter((item) => ids.has(item.id));
+  });
   const visibleSizeGb = createMemo<number>(() => {
+    if (activeTab() === "songs") {
+      return Number((virtualSizeBytes() / (1024 * 1024 * 1024)).toFixed(2));
+    }
     const totalBytes = folderFilteredItems().reduce((total, item) => total + (item.size_bytes ?? 0), 0);
     return Number((totalBytes / (1024 * 1024 * 1024)).toFixed(2));
   });
@@ -246,7 +753,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
       const finalScanned = task.result?.scanned_files ?? result.scanned_files;
       const finalIndexed = task.result?.indexed_files ?? result.indexed_files;
       const finalRemoved = task.result?.removed_files ?? 0;
-      await Promise.all([refreshRoots(), refreshItems()]);
+      await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
       setRawFeedback(
         "success",
         t("library.feedback.scanComplete", {
@@ -285,7 +792,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
       const finalScanned = task.result?.scanned_files ?? result.scanned_files;
       const finalIndexed = task.result?.indexed_files ?? result.indexed_files;
       const finalRemoved = task.result?.removed_files ?? 0;
-      await Promise.all([refreshRoots(), refreshItems()]);
+      await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
       setRawFeedback(
         "success",
         t("library.feedback.rescanComplete", {
@@ -302,22 +809,46 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     }
   };
 
-  const handleLoadMore = () => {
-    if (reachedEnd() || isFetching()) return;
-    setVisibleLimit((prev) => prev + PAGE_SIZE);
-  };
-
   const playItem = async (item: LibraryListItem, contextItems: readonly LibraryListItem[] = filteredItems()) => {
     setKeyedFeedback("neutral", "library.feedback.initial");
     try {
-      const paths = contextItems.map((contextItem) => contextItem.source_path);
-      const queue = await api.replaceQueue(paths.length > 0 ? paths : [item.source_path]);
-      const contextIndex = contextItems.findIndex((contextItem) => contextItem.media_id === item.media_id);
-      const entry = contextIndex >= 0 ? queue[contextIndex] : undefined;
-      if (!entry) {
-        throw new Error(t("common.error.requestFailed"));
+      if (item.trackKey !== undefined) {
+        const trackKeys = await requestWorkerTrackKeys();
+        await api.replaceQueueFromTrackKeys({
+          trackKeys,
+          startTrackKey: item.trackKey
+        });
+      } else {
+        const paths = contextItems
+          .map((contextItem) => contextItem.source_path)
+          .filter((path): path is string => Boolean(path));
+        const itemPath = item.source_path;
+        if (!itemPath) {
+          throw new Error(t("common.error.requestFailed"));
+        }
+        const queue = await api.replaceQueue(paths.length > 0 ? paths : [itemPath]);
+        const contextIndex = contextItems.findIndex((contextItem) => contextItem.id === item.id);
+        const entry = contextIndex >= 0 ? queue[contextIndex] : undefined;
+        if (!entry) {
+          throw new Error(t("common.error.requestFailed"));
+        }
+        await api.playFromQueue({ entryId: entry.entry_id, sourcePath: entry.source_path });
       }
-      await api.playFromQueue({ entryId: entry.entry_id, sourcePath: entry.source_path });
+      setKeyedFeedback("neutral", "library.feedback.initial");
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const playCurrentSongView = async () => {
+    setKeyedFeedback("neutral", "library.feedback.initial");
+    try {
+      const trackKeys = await requestWorkerTrackKeys();
+      await api.replaceQueueFromTrackKeys({
+        trackKeys,
+        startTrackKey: null
+      });
       setKeyedFeedback("neutral", "library.feedback.initial");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
@@ -327,21 +858,174 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
 
   const enqueueItem = async (item: LibraryListItem) => {
     try {
-      await api.enqueueTrack(item.source_path);
-      setRawFeedback("success", t("library.feedback.added", { title: item.title ?? item.source_path }));
+      const detail = await ensureItemDetail(item);
+      if (!detail) {
+        throw new Error(t("common.error.requestFailed"));
+      }
+      await api.enqueueTrack(detail.source_path);
+      setRawFeedback("success", t("library.feedback.added", { title: item.title ?? detail.source_path }));
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
       throw error;
     }
   };
 
+  const enqueueItems = async (items: readonly LibraryListItem[]) => {
+    if (items.length === 0) return;
+    try {
+      for (const item of items) {
+        const detail = await ensureItemDetail(item);
+        if (detail) {
+          await api.enqueueTrack(detail.source_path);
+        }
+      }
+      setRawFeedback("success", t("library.feedback.addedMany", { count: items.length }));
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const selectLocalPlaylist = async (playlistId: string) => {
+    if (!playlistId) {
+      setSelectedPlaylistId(null);
+      setSelectedPlaylistItems([]);
+      return;
+    }
+    setSelectedPlaylistId(playlistId);
+    await refreshSelectedPlaylist(playlistId);
+  };
+
+  const createLocalPlaylist = async (name: string, description?: string | null) => {
+    try {
+      const playlist = await api.createLocalPlaylist({ name, description });
+      await refreshPlaylists();
+      await selectLocalPlaylist(playlist.playlist_id);
+      setRawFeedback("success", t("library.playlists.feedback.created", { name: playlist.name }));
+      return playlist;
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const deleteLocalPlaylist = async (playlistId: string) => {
+    try {
+      await api.deleteLocalPlaylist(playlistId);
+      if (selectedPlaylistId() === playlistId) {
+        setSelectedPlaylistId(null);
+        setSelectedPlaylistItems([]);
+      }
+      await refreshPlaylists();
+      setRawFeedback("success", t("library.playlists.feedback.deleted"));
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const addItemsToPlaylist = async (playlistId: string, items: readonly LibraryListItem[]) => {
+    const details = await Promise.all(items.map(ensureItemDetail));
+    const mediaIds = [...new Set(details.flatMap((item) => (item ? [item.media_id] : [])))];
+    if (mediaIds.length === 0) return 0;
+    try {
+      const addedCount = await api.addMediaToLocalPlaylist(playlistId, mediaIds);
+      await refreshPlaylists();
+      if (selectedPlaylistId() === playlistId) {
+        await refreshSelectedPlaylist(playlistId);
+      }
+      setRawFeedback("success", t("library.playlists.feedback.added", { count: addedCount }));
+      return addedCount;
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const removeItemsFromSelectedPlaylist = async (items: readonly LibraryListItem[]) => {
+    const playlistId = selectedPlaylistId();
+    if (!playlistId || items.length === 0) return 0;
+    const details = await Promise.all(items.map(ensureItemDetail));
+    const mediaIds = [...new Set(details.flatMap((item) => (item ? [item.media_id] : [])))];
+    try {
+      const removedCount = await api.removeMediaFromLocalPlaylist(playlistId, mediaIds);
+      await refreshPlaylists();
+      await refreshSelectedPlaylist(playlistId);
+      setSelectedMediaIds([]);
+      setRawFeedback("success", t("library.playlists.feedback.removed", { count: removedCount }));
+      return removedCount;
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const deleteItemsFromLibrary = async (items: readonly LibraryListItem[]) => {
+    const details = await Promise.all(items.map(ensureItemDetail));
+    const mediaIds = [...new Set(details.flatMap((item) => (item ? [item.media_id] : [])))];
+    if (mediaIds.length === 0) return 0;
+    try {
+      const deletedCount = await api.deleteMediaItems(mediaIds);
+      await Promise.all([refreshItems(), refreshPlaylists()]);
+      await refreshSelectedPlaylist();
+      setSelectedMediaIds([]);
+      setRawFeedback("success", t("library.feedback.deleted", { count: deletedCount }));
+      return deletedCount;
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
+  const updateSort = (field: LibrarySortField) => {
+    setSort((current) => {
+      if (field === "default") {
+        return { field: "default", order: "default" };
+      }
+      if (current.field === field) {
+        return {
+          field,
+          order: current.order === "asc" ? "desc" : "asc"
+        };
+      }
+      return {
+        field,
+        order:
+          field === "duration" || field === "size" || field === "createTime" || field === "updatedTime"
+            ? "desc"
+            : "asc"
+      };
+    });
+  };
+
+  const updateSortOrder = (order: LibrarySortOrder) => {
+    setSort((current) => {
+      if (order === "default") {
+        return { field: "default", order: "default" };
+      }
+      if (current.field === "default") {
+        return { field: "title", order };
+      }
+      return { ...current, order };
+    });
+  };
+
   const notifyCopyPath = () => {
     setRawFeedback("success", t("media.copy.success"));
+  };
+
+  const copyItemPath = async (item: LibraryListItem) => {
+    const detail = await ensureItemDetail(item);
+    if (!detail || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+    await navigator.clipboard.writeText(detail.source_path);
   };
 
   const handleRefresh = () => {
     void refreshRoots();
     void refreshItems();
+    void refreshPlaylists();
   };
 
   const formatScanTimestamp = (epochSecs: number | null) => {
@@ -358,39 +1042,72 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     }
   });
 
+  createEffect(() => {
+    activeTab();
+    selectedFolder();
+    selectedPlaylistId();
+    localQuery();
+    globalQuery();
+    setSelectedMediaIds([]);
+  });
+
   return {
     roots,
     allItems,
+    libraryRevision,
+    libraryTotalCount,
+    virtualTotal,
+    virtualRange,
+    setVirtualRange: updateVirtualRange,
+    localPlaylists,
+    selectedPlaylistId,
+    selectedPlaylistItems,
+    selectedPlaylistSortedItems,
     filteredItems,
     folderFilteredItems,
     artistGroups,
     albumGroups,
     folderGroups,
+    folderTree,
     activeTab,
     setActiveTab,
+    sort,
+    updateSort,
+    updateSortOrder,
     localQuery,
     setLocalQuery,
     selectedFolder,
     setSelectedFolder,
+    selectedMediaIds,
+    setSelectedMediaIds,
+    selectedItems,
     manageOpen,
     setManageOpen,
     isFetching,
     isScanning,
     scanProgress,
     feedback,
-    reachedEnd,
     visibleSizeGb,
     formatScanTimestamp,
     playItem,
+    playCurrentSongView,
     enqueueItem,
+    enqueueItems,
+    selectLocalPlaylist,
+    createLocalPlaylist,
+    deleteLocalPlaylist,
+    addItemsToPlaylist,
+    removeItemsFromSelectedPlaylist,
+    deleteItemsFromLibrary,
     notifyCopyPath,
+    copyItemPath,
     handleScan,
     handleRescan,
-    handleLoadMore,
     handleRefresh,
     refreshItems,
-    refreshRoots
+    refreshRoots,
+    refreshPlaylists
   };
 }
 
-export { ALL_FOLDERS_VALUE, PAGE_SIZE };
+export { ALL_FOLDERS_VALUE };

@@ -4,10 +4,11 @@
 //! process restarts: WebDAV sources, media metadata, playback sessions/history,
 //! active device/DSP snapshots, queue snapshot, and analysis task records.
 
-use rand::seq::SliceRandom;
-use rusqlite::{params, Connection, OptionalExtension, ToSql};
+use rand::{seq::SliceRandom, Rng};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, ToSql};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -51,6 +52,8 @@ pub struct PlaybackHistoryEntry {
     pub id: i64,
     pub session_id: Option<i64>,
     pub media_id: Option<String>,
+    pub ncm_song_id: Option<i64>,
+    pub ncm_source_page_url: Option<String>,
     pub source_path: String,
     pub event_type: String,
     pub event_at_epoch_secs: u64,
@@ -83,6 +86,91 @@ pub struct MediaItemRecord {
     pub external_artwork_url: Option<String>,
     pub size_bytes: Option<u64>,
     pub updated_at_epoch_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryTrackSummaryRecord {
+    pub track_key: i64,
+    pub media_id: String,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub track_number: Option<u32>,
+    pub file_name: String,
+    pub folder_key: String,
+    #[serde(skip_serializing)]
+    pub folder_path: String,
+    pub folder_label: String,
+    pub duration_secs: Option<f64>,
+    pub has_cover_art: bool,
+    pub external_artwork_url: Option<String>,
+    pub size_bytes: Option<u64>,
+    pub added_at_epoch_secs: u64,
+    pub updated_at_epoch_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryFolderSummaryRecord {
+    pub key: String,
+    pub label: String,
+    pub path: String,
+    pub count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryTrackDetailRecord {
+    pub track_key: i64,
+    pub item: MediaItemRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibrarySummaryStatsRecord {
+    pub total_count: u64,
+    pub total_size_bytes: u64,
+    pub revision: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum LibrarySortField {
+    Default,
+    Title,
+    Album,
+    Duration,
+    Size,
+}
+
+#[derive(Debug, Clone)]
+pub enum LibrarySortOrder {
+    Default,
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone)]
+pub struct LibraryTrackQuery {
+    pub search: Option<String>,
+    pub folder_path: Option<String>,
+    pub sort_field: LibrarySortField,
+    pub sort_order: LibrarySortOrder,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalPlaylistRecord {
+    pub playlist_id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub cover_media_id: Option<String>,
+    pub cover_has_cover_art: bool,
+    pub cover_external_artwork_url: Option<String>,
+    pub track_count: u64,
+    pub created_at_epoch_secs: u64,
+    pub updated_at_epoch_secs: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalPlaylistDetailRecord {
+    pub playlist: LocalPlaylistRecord,
+    pub items: Vec<MediaItemRecord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -151,6 +239,12 @@ pub struct QueueEntryRecord {
     pub status: String,
     pub added_at_epoch_secs: u64,
     pub updated_at_epoch_secs: u64,
+    pub title: Option<String>,
+    pub artist: Option<String>,
+    pub album: Option<String>,
+    pub duration_secs: Option<f64>,
+    pub has_cover_art: bool,
+    pub external_artwork_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -217,29 +311,284 @@ pub struct AppDatabase {
 }
 
 fn media_item_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<MediaItemRecord> {
-    let source_path: String = row.get(1)?;
-    let stored_size: Option<i64> = row.get(16)?;
+    media_item_from_row_with_offset(row, 0)
+}
+
+fn media_item_from_row_with_offset(
+    row: &rusqlite::Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<MediaItemRecord> {
+    let source_path: String = row.get(offset + 1)?;
+    let stored_size: Option<i64> = row.get(offset + 16)?;
     Ok(MediaItemRecord {
-        media_id: row.get(0)?,
+        media_id: row.get(offset)?,
         source_path: source_path.clone(),
-        source_kind: row.get(2)?,
-        title: row.get(3)?,
-        artist: row.get(4)?,
-        album: row.get(5)?,
-        track_number: row.get::<_, Option<i64>>(6)?.map(|v| v as u32),
-        disc_number: row.get::<_, Option<i64>>(7)?.map(|v| v as u32),
-        genre: row.get(8)?,
-        year: row.get::<_, Option<i64>>(9)?.map(|v| v as u32),
-        duration_secs: row.get(10)?,
-        sample_rate: row.get::<_, Option<i64>>(11)?.map(|v| v as u32),
-        channels: row.get::<_, Option<i64>>(12)?.map(|v| v as u32),
-        has_cover_art: row.get::<_, i64>(14)? != 0,
-        external_artwork_url: row.get(15)?,
+        source_kind: row.get(offset + 2)?,
+        title: row.get(offset + 3)?,
+        artist: row.get(offset + 4)?,
+        album: row.get(offset + 5)?,
+        track_number: row.get::<_, Option<i64>>(offset + 6)?.map(|v| v as u32),
+        disc_number: row.get::<_, Option<i64>>(offset + 7)?.map(|v| v as u32),
+        genre: row.get(offset + 8)?,
+        year: row.get::<_, Option<i64>>(offset + 9)?.map(|v| v as u32),
+        duration_secs: row.get(offset + 10)?,
+        sample_rate: row.get::<_, Option<i64>>(offset + 11)?.map(|v| v as u32),
+        channels: row.get::<_, Option<i64>>(offset + 12)?.map(|v| v as u32),
+        has_cover_art: row.get::<_, i64>(offset + 14)? != 0,
+        external_artwork_url: row.get(offset + 15)?,
         size_bytes: stored_size
             .map(|v| v as u64)
             .or_else(|| file_size_for_source_path(&source_path)),
-        updated_at_epoch_secs: row.get::<_, i64>(13)? as u64,
+        updated_at_epoch_secs: row.get::<_, i64>(offset + 13)? as u64,
     })
+}
+
+fn queue_entry_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QueueEntryRecord> {
+    Ok(QueueEntryRecord {
+        queue_id: row.get(0)?,
+        entry_id: row.get(1)?,
+        position_index: row.get(2)?,
+        shuffle_index: row.get(3)?,
+        source_path: row.get(4)?,
+        media_id: row.get(5)?,
+        status: row.get(6)?,
+        added_at_epoch_secs: row.get::<_, i64>(7)? as u64,
+        updated_at_epoch_secs: row.get::<_, i64>(8)? as u64,
+        title: row.get(9)?,
+        artist: row.get(10)?,
+        album: row.get(11)?,
+        duration_secs: row.get(12)?,
+        has_cover_art: row.get::<_, i64>(13)? != 0,
+        external_artwork_url: row.get(14)?,
+    })
+}
+
+const QUEUE_ENTRY_SELECT_WITH_METADATA: &str = r#"
+    SELECT q.queue_id, q.entry_id, q.position_index, q.shuffle_index, q.source_path, q.media_id,
+           q.status, q.added_at, q.updated_at,
+           m.title, m.artist, m.album, m.duration_secs,
+           EXISTS (
+               SELECT 1
+               FROM cover_art_cache
+               WHERE cover_art_cache.media_id = q.media_id
+               LIMIT 1
+           ) AS has_cover_art,
+           m.external_artwork_url
+    FROM playback_queue_entries q
+    LEFT JOIN media_items m ON m.media_id = q.media_id
+"#;
+
+fn library_track_summary_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<LibraryTrackSummaryRecord> {
+    let source_path: String = row.get(1)?;
+    let (folder_path, folder_label, file_name) = split_source_path_for_library(&source_path);
+    let stored_size: Option<i64> = row.get(12)?;
+    Ok(LibraryTrackSummaryRecord {
+        track_key: row.get(0)?,
+        media_id: row.get(7)?,
+        title: row.get(2)?,
+        artist: row.get(3)?,
+        album: row.get(4)?,
+        track_number: row.get::<_, Option<i64>>(5)?.map(|value| value as u32),
+        file_name,
+        folder_key: stable_key_for_text(&folder_path),
+        folder_path,
+        folder_label,
+        duration_secs: row.get(6)?,
+        has_cover_art: row.get::<_, i64>(10)? != 0,
+        external_artwork_url: row.get(11)?,
+        size_bytes: stored_size
+            .map(|value| value as u64)
+            .or_else(|| file_size_for_source_path(&source_path)),
+        added_at_epoch_secs: row.get::<_, i64>(8)? as u64,
+        updated_at_epoch_secs: row.get::<_, i64>(9)? as u64,
+    })
+}
+
+fn split_source_path_for_library(source_path: &str) -> (String, String, String) {
+    let normalized = normalize_media_path_for_id(source_path)
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+    let Some(index) = normalized.rfind('/') else {
+        return (String::new(), String::new(), normalized.trim().to_string());
+    };
+    let folder_path = normalized[..index].to_string();
+    let file_name = normalized[index + 1..].to_string();
+    let folder_label = folder_path
+        .rsplit('/')
+        .find(|part| !part.is_empty())
+        .unwrap_or(folder_path.as_str())
+        .to_string();
+    (folder_path, folder_label, file_name)
+}
+
+fn stable_key_for_text(value: &str) -> String {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let hash = value.as_bytes().iter().fold(FNV_OFFSET, |acc, byte| {
+        (acc ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
+    });
+    format!("{:016x}", hash)
+}
+
+fn search_like_pattern(value: &str) -> Option<String> {
+    let trimmed = value.trim().to_lowercase();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "%{}%",
+        trimmed
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_")
+    ))
+}
+
+fn normalized_folder_prefix(value: &str) -> Option<String> {
+    let normalized = normalize_media_path_for_id(value)
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_string();
+    if normalized.trim().is_empty() {
+        return None;
+    }
+    Some(format!("{}/%", normalized))
+}
+
+fn library_order_clause(query: &LibraryTrackQuery) -> &'static str {
+    match (&query.sort_field, &query.sort_order) {
+        (LibrarySortField::Title, LibrarySortOrder::Asc) => {
+            "lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
+        }
+        (LibrarySortField::Title, LibrarySortOrder::Desc) => {
+            "lower(COALESCE(NULLIF(title, ''), source_path)) DESC, media_id DESC"
+        }
+        (LibrarySortField::Album, LibrarySortOrder::Asc) => {
+            "lower(COALESCE(album, '')) ASC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
+        }
+        (LibrarySortField::Album, LibrarySortOrder::Desc) => {
+            "lower(COALESCE(album, '')) DESC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
+        }
+        (LibrarySortField::Duration, LibrarySortOrder::Asc) => {
+            "COALESCE(duration_secs, 0) ASC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
+        }
+        (LibrarySortField::Duration, LibrarySortOrder::Desc) => {
+            "COALESCE(duration_secs, 0) DESC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
+        }
+        (LibrarySortField::Size, LibrarySortOrder::Asc) => {
+            "COALESCE(size_bytes, 0) ASC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
+        }
+        (LibrarySortField::Size, LibrarySortOrder::Desc) => {
+            "COALESCE(size_bytes, 0) DESC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
+        }
+        _ => "lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC",
+    }
+}
+
+fn local_playlist_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalPlaylistRecord> {
+    Ok(LocalPlaylistRecord {
+        playlist_id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get(2)?,
+        cover_media_id: row.get(3)?,
+        cover_has_cover_art: row.get::<_, i64>(4)? != 0,
+        cover_external_artwork_url: row.get(5)?,
+        track_count: row.get::<_, i64>(6)? as u64,
+        created_at_epoch_secs: row.get::<_, i64>(7)? as u64,
+        updated_at_epoch_secs: row.get::<_, i64>(8)? as u64,
+    })
+}
+
+fn read_local_playlist_by_id(
+    conn: &Connection,
+    playlist_id: &str,
+) -> Result<Option<LocalPlaylistRecord>, String> {
+    conn.query_row(
+        r#"
+        SELECT p.playlist_id,
+               p.name,
+               p.description,
+               cover.media_id AS cover_media_id,
+               CASE
+                   WHEN cover.media_id IS NULL THEN 0
+                   ELSE EXISTS (
+                       SELECT 1
+                       FROM cover_art_cache
+                       WHERE cover_art_cache.media_id = cover.media_id
+                       LIMIT 1
+                   )
+               END AS cover_has_cover_art,
+               cover.external_artwork_url,
+               (
+                   SELECT COUNT(*)
+                   FROM local_playlist_items count_items
+                   WHERE count_items.playlist_id = p.playlist_id
+               ) AS track_count,
+               p.created_at,
+               p.updated_at
+        FROM local_playlists p
+        LEFT JOIN media_items cover ON cover.media_id = COALESCE(
+            p.cover_media_id,
+            (
+                SELECT first_item.media_id
+                FROM local_playlist_items first_item
+                WHERE first_item.playlist_id = p.playlist_id
+                ORDER BY first_item.position_index ASC, first_item.added_at DESC, first_item.media_id ASC
+                LIMIT 1
+            )
+        )
+        WHERE p.playlist_id = ?1
+        "#,
+        params![playlist_id],
+        local_playlist_from_row,
+    )
+    .optional()
+    .map_err(|e| format!("Failed to read local playlist '{}': {}", playlist_id, e))
+}
+
+fn reindex_local_playlist_items_tx(
+    tx: &rusqlite::Transaction<'_>,
+    playlist_id: &str,
+) -> Result<(), String> {
+    let media_ids = {
+        let mut stmt = tx
+            .prepare(
+                r#"
+                SELECT media_id
+                FROM local_playlist_items
+                WHERE playlist_id = ?1
+                ORDER BY position_index ASC, added_at DESC, media_id ASC
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare local playlist reindex query: {}", e))?;
+        let media_ids = stmt
+            .query_map(params![playlist_id], |row| row.get::<_, String>(0))
+            .map_err(|e| format!("Failed to query local playlist item order: {}", e))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode local playlist item order: {}", e))?;
+        media_ids
+    };
+
+    for (index, media_id) in media_ids.iter().enumerate() {
+        tx.execute(
+            r#"
+            UPDATE local_playlist_items
+            SET position_index = ?3
+            WHERE playlist_id = ?1 AND media_id = ?2
+            "#,
+            params![playlist_id, media_id, index as i64],
+        )
+        .map_err(|e| {
+            format!(
+                "Failed to reindex local playlist item '{}': {}",
+                media_id, e
+            )
+        })?;
+    }
+    Ok(())
 }
 
 fn ncm_account_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<NcmAccountRecord> {
@@ -1429,7 +1778,8 @@ impl AppDatabase {
         let mut stmt = conn
             .prepare(
                 r#"
-                SELECT h.id, h.session_id, h.media_id, h.source_path, h.event_type, h.event_at,
+                SELECT h.id, h.session_id, h.media_id, n.song_id, n.source_page_url,
+                       h.source_path, h.event_type, h.event_at,
                        h.position_secs, h.payload_json, m.title, m.artist, m.album, m.duration_secs,
                        EXISTS (
                            SELECT 1
@@ -1440,6 +1790,7 @@ impl AppDatabase {
                        m.external_artwork_url
                 FROM playback_history h
                 LEFT JOIN media_items m ON m.media_id = h.media_id
+                LEFT JOIN ncm_track_sources n ON n.media_id = h.media_id
                 ORDER BY h.event_at DESC, h.id DESC
                 LIMIT ?1
                 "#,
@@ -1448,24 +1799,26 @@ impl AppDatabase {
 
         let rows = stmt
             .query_map(params![limit as i64], |row| {
-                let payload_json: Option<String> = row.get(7)?;
+                let payload_json: Option<String> = row.get(9)?;
                 Ok(PlaybackHistoryEntry {
                     id: row.get(0)?,
                     session_id: row.get(1)?,
                     media_id: row.get(2)?,
-                    source_path: row.get(3)?,
-                    event_type: row.get(4)?,
-                    event_at_epoch_secs: row.get::<_, i64>(5)? as u64,
-                    position_secs: row.get(6)?,
+                    ncm_song_id: row.get(3)?,
+                    ncm_source_page_url: row.get(4)?,
+                    source_path: row.get(5)?,
+                    event_type: row.get(6)?,
+                    event_at_epoch_secs: row.get::<_, i64>(7)? as u64,
+                    position_secs: row.get(8)?,
                     payload: payload_json
                         .as_deref()
                         .and_then(|value| serde_json::from_str(value).ok()),
-                    title: row.get(8)?,
-                    artist: row.get(9)?,
-                    album: row.get(10)?,
-                    duration_secs: row.get(11)?,
-                    has_cover_art: row.get::<_, i64>(12)? != 0,
-                    external_artwork_url: row.get(13)?,
+                    title: row.get(10)?,
+                    artist: row.get(11)?,
+                    album: row.get(12)?,
+                    duration_secs: row.get(13)?,
+                    has_cover_art: row.get::<_, i64>(14)? != 0,
+                    external_artwork_url: row.get(15)?,
                 })
             })
             .map_err(|e| format!("Failed to query playback history: {}", e))?;
@@ -1531,6 +1884,616 @@ impl AppDatabase {
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to decode media items list: {}", e))
+    }
+
+    pub fn library_summary_stats(&self) -> Result<LibrarySummaryStatsRecord, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            r#"
+            SELECT COUNT(*),
+                   COALESCE(SUM(COALESCE(size_bytes, 0)), 0),
+                   COALESCE(MAX(updated_at), 0)
+            FROM media_items
+            "#,
+            [],
+            |row| {
+                let total_count = row.get::<_, i64>(0)? as u64;
+                let total_size_bytes = row.get::<_, i64>(1)? as u64;
+                let max_updated = row.get::<_, i64>(2)?;
+                Ok(LibrarySummaryStatsRecord {
+                    total_count,
+                    total_size_bytes,
+                    revision: format!("{}:{}", total_count, max_updated),
+                })
+            },
+        )
+        .map_err(|e| format!("Failed to read library summary stats: {}", e))
+    }
+
+    pub fn list_library_track_summaries(&self) -> Result<Vec<LibraryTrackSummaryRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT rowid, source_path, title, artist, album, track_number, duration_secs,
+                       media_id, added_at, updated_at,
+                       EXISTS (
+                           SELECT 1
+                           FROM cover_art_cache
+                           WHERE cover_art_cache.media_id = media_items.media_id
+                           LIMIT 1
+                       ) AS has_cover_art,
+                       external_artwork_url,
+                       size_bytes
+                FROM media_items
+                ORDER BY lower(COALESCE(NULLIF(title, ''), source_path)), media_id
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare library summaries query: {}", e))?;
+
+        let rows = stmt
+            .query_map([], library_track_summary_from_row)
+            .map_err(|e| format!("Failed to query library summaries: {}", e))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode library summaries: {}", e))
+    }
+
+    pub fn library_folder_summaries_for_tracks(
+        &self,
+        tracks: &[LibraryTrackSummaryRecord],
+    ) -> Vec<LibraryFolderSummaryRecord> {
+        let mut folders = HashMap::<String, LibraryFolderSummaryRecord>::new();
+        for track in tracks {
+            let entry = folders.entry(track.folder_key.clone()).or_insert_with(|| {
+                LibraryFolderSummaryRecord {
+                    key: track.folder_key.clone(),
+                    label: if track.folder_label.is_empty() {
+                        track.folder_path.clone()
+                    } else {
+                        track.folder_label.clone()
+                    },
+                    path: track.folder_path.clone(),
+                    count: 0,
+                }
+            });
+            entry.count += 1;
+        }
+        let mut folders = folders.into_values().collect::<Vec<_>>();
+        folders.sort_by(|left, right| {
+            left.label
+                .to_lowercase()
+                .cmp(&right.label.to_lowercase())
+                .then_with(|| left.path.to_lowercase().cmp(&right.path.to_lowercase()))
+        });
+        folders
+    }
+
+    pub fn library_track_detail(
+        &self,
+        track_key: i64,
+    ) -> Result<Option<LibraryTrackDetailRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            r#"
+            SELECT rowid, media_id, source_path, source_kind, title, artist, album, track_number, disc_number,
+                   genre, year, duration_secs, sample_rate, channels, updated_at,
+                   EXISTS (
+                       SELECT 1
+                       FROM cover_art_cache
+                       WHERE cover_art_cache.media_id = media_items.media_id
+                       LIMIT 1
+                   ) AS has_cover_art,
+                   external_artwork_url,
+                   size_bytes
+            FROM media_items
+            WHERE rowid = ?1
+            LIMIT 1
+            "#,
+            params![track_key],
+            |row| {
+                Ok(LibraryTrackDetailRecord {
+                    track_key: row.get(0)?,
+                    item: media_item_from_row_with_offset(row, 1)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Failed to read library track detail '{}': {}", track_key, e))
+    }
+
+    pub fn media_id_for_track_key(&self, track_key: i64) -> Result<Option<String>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT media_id FROM media_items WHERE rowid = ?1 LIMIT 1",
+            params![track_key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| format!("Failed to read media id for track '{}': {}", track_key, e))
+    }
+
+    pub fn source_path_for_track_key(&self, track_key: i64) -> Result<Option<String>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            "SELECT source_path FROM media_items WHERE rowid = ?1 LIMIT 1",
+            params![track_key],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| {
+            format!(
+                "Failed to read source path for track '{}': {}",
+                track_key, e
+            )
+        })
+    }
+
+    pub fn source_paths_for_track_keys(
+        &self,
+        track_keys: &[i64],
+    ) -> Result<Vec<(i64, String)>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut path_by_key = HashMap::with_capacity(track_keys.len());
+        for chunk in track_keys.chunks(500) {
+            if chunk.is_empty() {
+                continue;
+            }
+            let placeholders = std::iter::repeat("?")
+                .take(chunk.len())
+                .collect::<Vec<_>>()
+                .join(",");
+            let sql = format!(
+                "SELECT rowid, source_path FROM media_items WHERE rowid IN ({})",
+                placeholders
+            );
+            let mut stmt = conn
+                .prepare(&sql)
+                .map_err(|e| format!("Failed to prepare library track key lookup: {}", e))?;
+            let rows = stmt
+                .query_map(params_from_iter(chunk.iter()), |row| {
+                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                })
+                .map_err(|e| format!("Failed to query library track key lookup: {}", e))?;
+            for row in rows {
+                let (track_key, source_path) =
+                    row.map_err(|e| format!("Failed to decode library track key lookup: {}", e))?;
+                path_by_key.insert(track_key, source_path);
+            }
+        }
+        Ok(track_keys
+            .iter()
+            .filter_map(|track_key| {
+                path_by_key
+                    .get(track_key)
+                    .map(|source_path| (*track_key, source_path.clone()))
+            })
+            .collect())
+    }
+
+    pub fn source_paths_for_library_query(
+        &self,
+        query: &LibraryTrackQuery,
+    ) -> Result<Vec<(i64, String)>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let search = search_like_pattern(query.search.as_deref().unwrap_or(""));
+        let folder_prefix = query
+            .folder_path
+            .as_deref()
+            .and_then(normalized_folder_prefix);
+        let order_clause = library_order_clause(query);
+        let sql = format!(
+            r#"
+            SELECT rowid, source_path
+            FROM media_items
+            WHERE (?1 IS NULL OR (
+                    lower(COALESCE(title, '')) LIKE ?1 ESCAPE '\'
+                 OR lower(COALESCE(artist, '')) LIKE ?1 ESCAPE '\'
+                 OR lower(COALESCE(album, '')) LIKE ?1 ESCAPE '\'
+                 OR lower(REPLACE(source_path, '\', '/')) LIKE ?1 ESCAPE '\'
+            ))
+              AND (?2 IS NULL OR REPLACE(source_path, '\', '/') LIKE ?2)
+            ORDER BY {}
+            "#,
+            order_clause
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| format!("Failed to prepare library queue query: {}", e))?;
+        let rows = stmt
+            .query_map(params![search, folder_prefix], |row| {
+                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| format!("Failed to query library queue paths: {}", e))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode library queue paths: {}", e))
+    }
+
+    pub fn queue_entry_at_position(
+        &self,
+        queue_id: &str,
+        position_index: i64,
+    ) -> Result<Option<QueueEntryRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let sql = format!(
+            r#"
+            {}
+            WHERE q.queue_id = ?1 AND q.position_index = ?2
+            LIMIT 1
+            "#,
+            QUEUE_ENTRY_SELECT_WITH_METADATA
+        );
+        conn.query_row(
+            &sql,
+            params![queue_id, position_index],
+            queue_entry_from_row,
+        )
+        .optional()
+        .map_err(|e| {
+            format!(
+                "Failed to read queue entry at position {}: {}",
+                position_index, e
+            )
+        })
+    }
+
+    pub fn delete_media_items(&self, media_ids: &[String]) -> Result<u64, String> {
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start media delete transaction: {}", e))?;
+        let mut removed = 0_u64;
+        let mut seen = std::collections::HashSet::new();
+
+        for media_id in media_ids {
+            let trimmed = media_id.trim();
+            if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+                continue;
+            }
+            let changed = tx
+                .execute(
+                    "DELETE FROM media_items WHERE media_id = ?1",
+                    params![trimmed],
+                )
+                .map_err(|e| format!("Failed to delete media item '{}': {}", trimmed, e))?;
+            removed += changed as u64;
+        }
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit media delete transaction: {}", e))?;
+        Ok(removed)
+    }
+
+    pub fn list_local_playlists(&self) -> Result<Vec<LocalPlaylistRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT p.playlist_id,
+                       p.name,
+                       p.description,
+                       cover.media_id AS cover_media_id,
+                       CASE
+                           WHEN cover.media_id IS NULL THEN 0
+                           ELSE EXISTS (
+                               SELECT 1
+                               FROM cover_art_cache
+                               WHERE cover_art_cache.media_id = cover.media_id
+                               LIMIT 1
+                           )
+                       END AS cover_has_cover_art,
+                       cover.external_artwork_url,
+                       (
+                           SELECT COUNT(*)
+                           FROM local_playlist_items count_items
+                           WHERE count_items.playlist_id = p.playlist_id
+                       ) AS track_count,
+                       p.created_at,
+                       p.updated_at
+                FROM local_playlists p
+                LEFT JOIN media_items cover ON cover.media_id = COALESCE(
+                    p.cover_media_id,
+                    (
+                        SELECT first_item.media_id
+                        FROM local_playlist_items first_item
+                        WHERE first_item.playlist_id = p.playlist_id
+                        ORDER BY first_item.position_index ASC, first_item.added_at DESC, first_item.media_id ASC
+                        LIMIT 1
+                    )
+                )
+                ORDER BY p.updated_at DESC, lower(p.name), p.playlist_id
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare local playlists query: {}", e))?;
+
+        let rows = stmt
+            .query_map([], local_playlist_from_row)
+            .map_err(|e| format!("Failed to query local playlists: {}", e))?;
+
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode local playlists: {}", e))
+    }
+
+    pub fn create_local_playlist(
+        &self,
+        name: &str,
+        description: Option<&str>,
+    ) -> Result<LocalPlaylistRecord, String> {
+        let trimmed_name = name.trim();
+        if trimmed_name.is_empty() {
+            return Err("Playlist name cannot be empty".to_string());
+        }
+
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let now = now_epoch_secs_i64();
+        let random_suffix: u32 = rand::thread_rng().gen_range(1000..=9999);
+        let playlist_id = format!("local-{}-{}", now, random_suffix);
+        let trimmed_description = description.map(str::trim).filter(|value| !value.is_empty());
+
+        conn.execute(
+            r#"
+            INSERT INTO local_playlists (playlist_id, name, description, created_at, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?4)
+            "#,
+            params![playlist_id, trimmed_name, trimmed_description, now],
+        )
+        .map_err(|e| format!("Failed to create local playlist '{}': {}", trimmed_name, e))?;
+
+        read_local_playlist_by_id(&conn, &playlist_id)?
+            .ok_or_else(|| format!("Failed to read created local playlist '{}'", playlist_id))
+    }
+
+    pub fn update_local_playlist(
+        &self,
+        playlist_id: &str,
+        name: Option<&str>,
+        description: Option<&str>,
+    ) -> Result<Option<LocalPlaylistRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let Some(current) = read_local_playlist_by_id(&conn, playlist_id)? else {
+            return Ok(None);
+        };
+        let next_name = name
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or(current.name.as_str());
+        let next_description = description
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or(current.description);
+        let now = now_epoch_secs_i64();
+
+        conn.execute(
+            r#"
+            UPDATE local_playlists
+            SET name = ?2,
+                description = ?3,
+                updated_at = ?4
+            WHERE playlist_id = ?1
+            "#,
+            params![playlist_id, next_name, next_description, now],
+        )
+        .map_err(|e| format!("Failed to update local playlist '{}': {}", playlist_id, e))?;
+
+        read_local_playlist_by_id(&conn, playlist_id)
+    }
+
+    pub fn delete_local_playlist(&self, playlist_id: &str) -> Result<bool, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let changed = conn
+            .execute(
+                "DELETE FROM local_playlists WHERE playlist_id = ?1",
+                params![playlist_id],
+            )
+            .map_err(|e| format!("Failed to delete local playlist '{}': {}", playlist_id, e))?;
+        Ok(changed > 0)
+    }
+
+    pub fn get_local_playlist(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Option<LocalPlaylistDetailRecord>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let Some(playlist) = read_local_playlist_by_id(&conn, playlist_id)? else {
+            return Ok(None);
+        };
+
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT media_items.media_id, media_items.source_path, media_items.source_kind,
+                       media_items.title, media_items.artist, media_items.album,
+                       media_items.track_number, media_items.disc_number,
+                       media_items.genre, media_items.year, media_items.duration_secs,
+                       media_items.sample_rate, media_items.channels, media_items.updated_at,
+                       EXISTS (
+                           SELECT 1
+                           FROM cover_art_cache
+                           WHERE cover_art_cache.media_id = media_items.media_id
+                           LIMIT 1
+                       ) AS has_cover_art,
+                       media_items.external_artwork_url,
+                       media_items.size_bytes
+                FROM local_playlist_items
+                JOIN media_items ON media_items.media_id = local_playlist_items.media_id
+                WHERE local_playlist_items.playlist_id = ?1
+                ORDER BY local_playlist_items.position_index ASC,
+                         local_playlist_items.added_at DESC,
+                         local_playlist_items.media_id ASC
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare local playlist items query: {}", e))?;
+
+        let rows = stmt
+            .query_map(params![playlist_id], media_item_from_row)
+            .map_err(|e| format!("Failed to query local playlist items: {}", e))?;
+        let items = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode local playlist items: {}", e))?;
+
+        Ok(Some(LocalPlaylistDetailRecord { playlist, items }))
+    }
+
+    pub fn add_media_to_local_playlist(
+        &self,
+        playlist_id: &str,
+        media_ids: &[String],
+    ) -> Result<u64, String> {
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start local playlist append transaction: {}", e))?;
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM local_playlists WHERE playlist_id = ?1",
+                params![playlist_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to inspect local playlist '{}': {}", playlist_id, e))?;
+        if exists.is_none() {
+            return Err(format!("Local playlist '{}' not found", playlist_id));
+        }
+
+        let existing = {
+            let mut stmt = tx
+                .prepare("SELECT media_id FROM local_playlist_items WHERE playlist_id = ?1")
+                .map_err(|e| format!("Failed to prepare local playlist membership query: {}", e))?;
+            let media_ids = stmt
+                .query_map(params![playlist_id], |row| row.get::<_, String>(0))
+                .map_err(|e| format!("Failed to query local playlist membership: {}", e))?
+                .collect::<Result<std::collections::HashSet<_>, _>>()
+                .map_err(|e| format!("Failed to decode local playlist membership: {}", e))?;
+            media_ids
+        };
+
+        let mut seen = std::collections::HashSet::new();
+        let mut additions = Vec::new();
+        for media_id in media_ids {
+            let trimmed = media_id.trim();
+            if trimmed.is_empty() || existing.contains(trimmed) || !seen.insert(trimmed.to_string())
+            {
+                continue;
+            }
+            let media_exists = tx
+                .query_row(
+                    "SELECT 1 FROM media_items WHERE media_id = ?1",
+                    params![trimmed],
+                    |row| row.get::<_, i64>(0),
+                )
+                .optional()
+                .map_err(|e| format!("Failed to inspect media item '{}': {}", trimmed, e))?;
+            if media_exists.is_some() {
+                additions.push(trimmed.to_string());
+            }
+        }
+
+        if additions.is_empty() {
+            tx.commit().map_err(|e| {
+                format!(
+                    "Failed to commit empty local playlist append transaction: {}",
+                    e
+                )
+            })?;
+            return Ok(0);
+        }
+
+        tx.execute(
+            r#"
+            UPDATE local_playlist_items
+            SET position_index = position_index + ?2
+            WHERE playlist_id = ?1
+            "#,
+            params![playlist_id, additions.len() as i64],
+        )
+        .map_err(|e| format!("Failed to shift local playlist positions: {}", e))?;
+
+        let now = now_epoch_secs_i64();
+        for (index, media_id) in additions.iter().enumerate() {
+            tx.execute(
+                r#"
+                INSERT INTO local_playlist_items (playlist_id, media_id, position_index, added_at)
+                VALUES (?1, ?2, ?3, ?4)
+                "#,
+                params![playlist_id, media_id, index as i64, now],
+            )
+            .map_err(|e| {
+                format!(
+                    "Failed to add media item '{}' to local playlist '{}': {}",
+                    media_id, playlist_id, e
+                )
+            })?;
+        }
+
+        tx.execute(
+            "UPDATE local_playlists SET updated_at = ?2 WHERE playlist_id = ?1",
+            params![playlist_id, now],
+        )
+        .map_err(|e| format!("Failed to update local playlist timestamp: {}", e))?;
+        tx.commit()
+            .map_err(|e| format!("Failed to commit local playlist append transaction: {}", e))?;
+        Ok(additions.len() as u64)
+    }
+
+    pub fn remove_media_from_local_playlist(
+        &self,
+        playlist_id: &str,
+        media_ids: &[String],
+    ) -> Result<u64, String> {
+        let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("Failed to start local playlist removal transaction: {}", e))?;
+        let exists = tx
+            .query_row(
+                "SELECT 1 FROM local_playlists WHERE playlist_id = ?1",
+                params![playlist_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to inspect local playlist '{}': {}", playlist_id, e))?;
+        if exists.is_none() {
+            return Err(format!("Local playlist '{}' not found", playlist_id));
+        }
+
+        let mut removed = 0_u64;
+        let mut seen = std::collections::HashSet::new();
+
+        for media_id in media_ids {
+            let trimmed = media_id.trim();
+            if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
+                continue;
+            }
+            let changed = tx
+                .execute(
+                    r#"
+                    DELETE FROM local_playlist_items
+                    WHERE playlist_id = ?1 AND media_id = ?2
+                    "#,
+                    params![playlist_id, trimmed],
+                )
+                .map_err(|e| {
+                    format!(
+                        "Failed to remove media item '{}' from local playlist '{}': {}",
+                        trimmed, playlist_id, e
+                    )
+                })?;
+            removed += changed as u64;
+        }
+
+        if removed > 0 {
+            reindex_local_playlist_items_tx(&tx, playlist_id)?;
+            tx.execute(
+                "UPDATE local_playlists SET updated_at = ?2 WHERE playlist_id = ?1",
+                params![playlist_id, now_epoch_secs_i64()],
+            )
+            .map_err(|e| format!("Failed to update local playlist timestamp: {}", e))?;
+        }
+
+        tx.commit()
+            .map_err(|e| format!("Failed to commit local playlist removal transaction: {}", e))?;
+        Ok(removed)
     }
 
     /// Load a snapshot of existing local media items for incremental scanning.
@@ -2109,31 +3072,20 @@ impl AppDatabase {
 
     pub fn list_queue_entries(&self, queue_id: &str) -> Result<Vec<QueueEntryRecord>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let sql = format!(
+            r#"
+            {}
+            WHERE q.queue_id = ?1
+            ORDER BY COALESCE(q.shuffle_index, q.position_index) ASC, q.entry_id ASC
+            "#,
+            QUEUE_ENTRY_SELECT_WITH_METADATA
+        );
         let mut stmt = conn
-            .prepare(
-                r#"
-                SELECT queue_id, entry_id, position_index, shuffle_index, source_path, media_id, status, added_at, updated_at
-                FROM playback_queue_entries
-                WHERE queue_id = ?1
-                ORDER BY COALESCE(shuffle_index, position_index) ASC, entry_id ASC
-                "#,
-            )
+            .prepare(&sql)
             .map_err(|e| format!("Failed to prepare queue entries query: {}", e))?;
 
         let rows = stmt
-            .query_map(params![queue_id], |row| {
-                Ok(QueueEntryRecord {
-                    queue_id: row.get(0)?,
-                    entry_id: row.get(1)?,
-                    position_index: row.get(2)?,
-                    shuffle_index: row.get(3)?,
-                    source_path: row.get(4)?,
-                    media_id: row.get(5)?,
-                    status: row.get(6)?,
-                    added_at_epoch_secs: row.get::<_, i64>(7)? as u64,
-                    updated_at_epoch_secs: row.get::<_, i64>(8)? as u64,
-                })
-            })
+            .query_map(params![queue_id], queue_entry_from_row)
             .map_err(|e| format!("Failed to query queue entries: {}", e))?;
 
         rows.collect::<Result<Vec<_>, _>>()
@@ -2148,12 +3100,12 @@ impl AppDatabase {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let after_media_id = after_source_path.map(media_id_for_path);
 
-        let query_with_cursor = r#"
-            SELECT queue_id, entry_id, position_index, shuffle_index, source_path, media_id, status, added_at, updated_at
-            FROM playback_queue_entries
-            WHERE queue_id = ?1
-              AND status IN ('queued', 'preloading')
-              AND COALESCE(shuffle_index, position_index) > COALESCE(
+        let query_with_cursor = format!(
+            r#"
+            {}
+            WHERE q.queue_id = ?1
+              AND q.status IN ('queued', 'preloading')
+              AND COALESCE(q.shuffle_index, q.position_index) > COALESCE(
                   (
                       SELECT COALESCE(q2.shuffle_index, q2.position_index)
                       FROM playback_queue_entries q2
@@ -2163,37 +3115,35 @@ impl AppDatabase {
                   ),
                   -1
               )
-            ORDER BY COALESCE(shuffle_index, position_index) ASC, entry_id ASC
+            ORDER BY COALESCE(q.shuffle_index, q.position_index) ASC, q.entry_id ASC
             LIMIT 1
-        "#;
+            "#,
+            QUEUE_ENTRY_SELECT_WITH_METADATA
+        );
 
-        let query_without_cursor = r#"
-            SELECT queue_id, entry_id, position_index, shuffle_index, source_path, media_id, status, added_at, updated_at
-            FROM playback_queue_entries
-            WHERE queue_id = ?1
-              AND status IN ('queued', 'preloading')
-            ORDER BY COALESCE(shuffle_index, position_index) ASC, entry_id ASC
+        let query_without_cursor = format!(
+            r#"
+            {}
+            WHERE q.queue_id = ?1
+              AND q.status IN ('queued', 'preloading')
+            ORDER BY COALESCE(q.shuffle_index, q.position_index) ASC, q.entry_id ASC
             LIMIT 1
-        "#;
-
-        let mapper = |row: &rusqlite::Row<'_>| -> rusqlite::Result<QueueEntryRecord> {
-            Ok(QueueEntryRecord {
-                queue_id: row.get(0)?,
-                entry_id: row.get(1)?,
-                position_index: row.get(2)?,
-                shuffle_index: row.get(3)?,
-                source_path: row.get(4)?,
-                media_id: row.get(5)?,
-                status: row.get(6)?,
-                added_at_epoch_secs: row.get::<_, i64>(7)? as u64,
-                updated_at_epoch_secs: row.get::<_, i64>(8)? as u64,
-            })
-        };
+            "#,
+            QUEUE_ENTRY_SELECT_WITH_METADATA
+        );
 
         let result = if let Some(media_id) = after_media_id.as_deref() {
-            conn.query_row(query_with_cursor, params![queue_id, media_id], mapper)
+            conn.query_row(
+                &query_with_cursor,
+                params![queue_id, media_id],
+                queue_entry_from_row,
+            )
         } else {
-            conn.query_row(query_without_cursor, params![queue_id], mapper)
+            conn.query_row(
+                &query_without_cursor,
+                params![queue_id],
+                queue_entry_from_row,
+            )
         };
 
         result
@@ -2213,33 +3163,31 @@ impl AppDatabase {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.query_row(
             r#"
-            SELECT queue_id, entry_id, position_index, shuffle_index, source_path, media_id, status, added_at, updated_at
-            FROM playback_queue_entries
-            WHERE queue_id = ?1
-              AND COALESCE(shuffle_index, position_index) < (
+            SELECT q.queue_id, q.entry_id, q.position_index, q.shuffle_index, q.source_path, q.media_id,
+                   q.status, q.added_at, q.updated_at,
+                   m.title, m.artist, m.album, m.duration_secs,
+                   EXISTS (
+                       SELECT 1
+                       FROM cover_art_cache
+                       WHERE cover_art_cache.media_id = q.media_id
+                       LIMIT 1
+                   ) AS has_cover_art,
+                   m.external_artwork_url
+            FROM playback_queue_entries q
+            LEFT JOIN media_items m ON m.media_id = q.media_id
+            WHERE q.queue_id = ?1
+              AND COALESCE(q.shuffle_index, q.position_index) < (
                   SELECT COALESCE(q2.shuffle_index, q2.position_index)
                   FROM playback_queue_entries q2
                   WHERE q2.queue_id = ?1 AND q2.media_id = ?2
                   ORDER BY COALESCE(q2.shuffle_index, q2.position_index) ASC, q2.entry_id ASC
                   LIMIT 1
               )
-            ORDER BY COALESCE(shuffle_index, position_index) DESC, entry_id DESC
+            ORDER BY COALESCE(q.shuffle_index, q.position_index) DESC, q.entry_id DESC
             LIMIT 1
             "#,
             params![queue_id, media_id],
-            |row| {
-                Ok(QueueEntryRecord {
-                    queue_id: row.get(0)?,
-                    entry_id: row.get(1)?,
-                    position_index: row.get(2)?,
-                    shuffle_index: row.get(3)?,
-                    source_path: row.get(4)?,
-                    media_id: row.get(5)?,
-                    status: row.get(6)?,
-                    added_at_epoch_secs: row.get::<_, i64>(7)? as u64,
-                    updated_at_epoch_secs: row.get::<_, i64>(8)? as u64,
-                })
-            },
+            queue_entry_from_row,
         )
         .optional()
         .map_err(|e| format!("Failed to peek previous queue entry: {}", e))
@@ -2749,6 +3697,37 @@ mod tests {
     }
 
     #[test]
+    fn playback_history_includes_ncm_track_identity() {
+        let db = AppDatabase::in_memory().unwrap();
+        let path = "https://m701.music.126.net/song.mp3";
+        db.record_external_media_metadata(
+            path,
+            Some("NCM Song"),
+            Some("NCM Artist"),
+            Some("NCM Album"),
+            Some(187.0),
+            Some("https://p1.music.126.net/cover.jpg"),
+        )
+        .unwrap();
+        db.record_ncm_track_source(path, 12345, Some("https://music.163.com/#/song?id=12345"))
+            .unwrap();
+        db.append_playback_history(None, path, "play", Some(0.0), None)
+            .unwrap();
+
+        let history = db.recent_playback_history(10).unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].ncm_song_id, Some(12345));
+        assert_eq!(
+            history[0].ncm_source_page_url.as_deref(),
+            Some("https://music.163.com/#/song?id=12345")
+        );
+        assert_eq!(
+            history[0].external_artwork_url.as_deref(),
+            Some("https://p1.music.126.net/cover.jpg")
+        );
+    }
+
+    #[test]
     fn empty_stream_metadata_does_not_clear_external_metadata() {
         let db = AppDatabase::in_memory().unwrap();
         let path = "https://music.example.test/transient-stream.mp3";
@@ -2779,6 +3758,34 @@ mod tests {
         assert_eq!(
             item.external_artwork_url.as_deref(),
             Some("https://img.example.test/song.jpg")
+        );
+    }
+
+    #[test]
+    fn list_queue_entries_includes_media_display_metadata() {
+        let db = AppDatabase::in_memory().unwrap();
+        let path = "https://music.example.test/queued-stream.mp3";
+        db.record_external_media_metadata(
+            path,
+            Some("Queued Song"),
+            Some("Queued Artist"),
+            Some("Queued Album"),
+            Some(199.5),
+            Some("https://img.example.test/queued.jpg"),
+        )
+        .unwrap();
+        db.append_queue_entry("active", path).unwrap();
+
+        let queue = db.list_queue_entries("active").unwrap();
+
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0].title.as_deref(), Some("Queued Song"));
+        assert_eq!(queue[0].artist.as_deref(), Some("Queued Artist"));
+        assert_eq!(queue[0].album.as_deref(), Some("Queued Album"));
+        assert_eq!(queue[0].duration_secs, Some(199.5));
+        assert_eq!(
+            queue[0].external_artwork_url.as_deref(),
+            Some("https://img.example.test/queued.jpg")
         );
     }
 
@@ -2977,6 +3984,10 @@ mod tests {
             .unwrap());
         assert!(db.has_column("ncm_track_sources", "song_id").unwrap());
         assert!(db.has_column("ncm_track_sources", "scrobble_secs").unwrap());
+        assert!(db.has_column("local_playlists", "playlist_id").unwrap());
+        assert!(db
+            .has_column("local_playlist_items", "position_index")
+            .unwrap());
 
         let conn = db.conn.lock().unwrap();
         let versions = conn
@@ -2986,7 +3997,7 @@ mod tests {
             .unwrap()
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
-        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
         let index_count: i64 = conn
             .query_row(
@@ -2996,6 +4007,75 @@ mod tests {
             )
             .unwrap();
         assert_eq!(index_count, 1);
+    }
+
+    #[test]
+    fn local_playlists_prepend_remove_and_cascade_deleted_media() {
+        let db = AppDatabase::in_memory().unwrap();
+        let media_a = db.record_media_stub("D:/music/a.flac").unwrap();
+        let media_b = db.record_media_stub("D:/music/b.flac").unwrap();
+        let media_c = db.record_media_stub("D:/music/c.flac").unwrap();
+        let playlist = db.create_local_playlist("Road", Some("drive")).unwrap();
+
+        assert_eq!(
+            db.add_media_to_local_playlist(
+                &playlist.playlist_id,
+                &[media_a.clone(), media_b.clone()]
+            )
+            .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.add_media_to_local_playlist(&playlist.playlist_id, &[media_c.clone()])
+                .unwrap(),
+            1
+        );
+        let detail = db
+            .get_local_playlist(&playlist.playlist_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            detail
+                .items
+                .iter()
+                .map(|item| item.media_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![media_c.as_str(), media_a.as_str(), media_b.as_str()]
+        );
+        assert_eq!(detail.playlist.track_count, 3);
+
+        assert_eq!(
+            db.remove_media_from_local_playlist(&playlist.playlist_id, &[media_a.clone()])
+                .unwrap(),
+            1
+        );
+        let detail = db
+            .get_local_playlist(&playlist.playlist_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            detail
+                .items
+                .iter()
+                .map(|item| item.media_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![media_c.as_str(), media_b.as_str()]
+        );
+
+        assert_eq!(db.delete_media_items(&[media_c.clone()]).unwrap(), 1);
+        let detail = db
+            .get_local_playlist(&playlist.playlist_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            detail
+                .items
+                .iter()
+                .map(|item| item.media_id.as_str())
+                .collect::<Vec<_>>(),
+            vec![media_b.as_str()]
+        );
+        assert_eq!(detail.playlist.track_count, 1);
     }
 
     #[test]
@@ -3419,5 +4499,50 @@ mod tests {
         .unwrap();
         let queue = db.list_queue_entries("active").unwrap();
         assert_eq!(queue[0].status, "played");
+    }
+
+    #[test]
+    fn library_track_key_lookup_preserves_order_and_keeps_summaries_light() {
+        let db = AppDatabase::in_memory().unwrap();
+        let media_a = db.record_media_stub("D:/music/a.flac").unwrap();
+        let media_b = db.record_media_stub("D:/music/b.flac").unwrap();
+        db.record_media_stub("D:/music/nested/c.flac").unwrap();
+
+        let summaries = db.list_library_track_summaries().unwrap();
+        let key_for_media = |media_id: &str| {
+            summaries
+                .iter()
+                .find(|track| track.media_id == media_id)
+                .map(|track| track.track_key)
+                .unwrap()
+        };
+        let key_a = key_for_media(&media_a);
+        let key_b = key_for_media(&media_b);
+        let missing_key = summaries
+            .iter()
+            .map(|track| track.track_key)
+            .max()
+            .unwrap_or(0)
+            + 10_000;
+
+        let rows = db
+            .source_paths_for_track_keys(&[key_b, missing_key, key_a, key_b])
+            .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                (key_b, "D:/music/b.flac".to_string()),
+                (key_a, "D:/music/a.flac".to_string()),
+                (key_b, "D:/music/b.flac".to_string())
+            ]
+        );
+
+        let folders = db.library_folder_summaries_for_tracks(&summaries);
+        assert!(folders
+            .iter()
+            .any(|folder| folder.path == "D:/music" && folder.count == 2));
+        let serialized = serde_json::to_value(&summaries[0]).unwrap();
+        assert!(serialized.get("folder_path").is_none());
+        assert!(serialized.get("media_id").is_some());
     }
 }

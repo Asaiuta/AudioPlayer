@@ -1,14 +1,14 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import {
   IconAlbum,
   IconArtist,
   IconFolder,
-  IconMusic,
-  IconPlaylist
+  IconMusic
 } from "../../components/icons";
 import { MediaList } from "../../components/media/MediaList";
-import type { MediaContextAction } from "../../components/media/MediaList";
+import type { MediaContextAction, MediaSortField, MediaSortOrder, MediaSortState } from "../../components/media/MediaList";
 import { useTranslation } from "../../shared/i18n";
+import { useUISettings } from "../../shared/state/useUISettings";
 import type { LibraryListItem } from "./useLibraryDataController";
 
 export interface LibraryGroup {
@@ -27,13 +27,15 @@ interface LibraryGroupedViewProps {
   currentTrackPath: string | null;
   isPlaying: boolean;
   isLoading: boolean;
+  sort?: MediaSortState;
+  contextActions?: readonly MediaContextAction[];
+  deleteActionLabel?: string;
+  onSortChange?: (field: MediaSortField) => void;
+  onSortOrderChange?: (order: MediaSortOrder) => void;
+  onActiveItemsChange?: (items: LibraryListItem[]) => void;
   onPlay: (item: LibraryListItem, contextItems: readonly LibraryListItem[]) => void;
   onEnqueue: (item: LibraryListItem) => void;
   onContextAction: (action: MediaContextAction, item: LibraryListItem) => void;
-}
-
-interface LibraryPlaylistPlaceholderProps {
-  onManageRoots: () => void;
 }
 
 const iconForKind = (kind: LibraryGroupedKind) => {
@@ -53,6 +55,7 @@ const iconForKind = (kind: LibraryGroupedKind) => {
 
 export function LibraryGroupedView(props: LibraryGroupedViewProps) {
   const { t } = useTranslation();
+  const uiSettings = useUISettings();
   const [selectedKey, setSelectedKey] = createSignal<string | null>(props.groups[0]?.key ?? null);
 
   const selectedGroup = createMemo<LibraryGroup | null>(() => {
@@ -60,6 +63,10 @@ export function LibraryGroupedView(props: LibraryGroupedViewProps) {
     const first = props.groups[0] ?? null;
     if (!selected) return first;
     return props.groups.find((group) => group.key === selected) ?? first;
+  });
+
+  createEffect(() => {
+    props.onActiveItemsChange?.(selectedGroup()?.songs ?? []);
   });
 
   const emptyLabel = createMemo(() => {
@@ -85,19 +92,22 @@ export function LibraryGroupedView(props: LibraryGroupedViewProps) {
           <For each={props.groups}>
             {(group) => {
               const active = () => selectedGroup()?.key === group.key;
+              const coverVisible = () => props.kind !== "albums" || !uiSettings.hiddenCovers.album;
               const artworkInitial = () => (group.label.trim().slice(0, 1) || "#").toUpperCase();
               return (
                 <button
                   type="button"
                   class="local-browser-card"
-                  classList={{ "is-active": active() }}
+                  classList={{ "is-active": active(), "is-cover-hidden": !coverVisible() }}
                   onClick={() => setSelectedKey(group.key)}
                 >
-                  <span class="local-browser-cover" aria-hidden="true">
-                    <Show when={group.artworkUrl} fallback={<span>{artworkInitial()}</span>}>
-                      <img src={group.artworkUrl ?? ""} alt="" />
-                    </Show>
-                  </span>
+                  <Show when={coverVisible()}>
+                    <span class="local-browser-cover" aria-hidden="true">
+                      <Show when={group.artworkUrl} fallback={<span>{artworkInitial()}</span>}>
+                        <img src={group.artworkUrl ?? ""} alt="" />
+                      </Show>
+                    </span>
+                  </Show>
                   <span class="local-browser-copy">
                     <span class="local-browser-name" title={group.label}>{group.label}</span>
                     <span class="local-browser-count">
@@ -127,30 +137,17 @@ export function LibraryGroupedView(props: LibraryGroupedViewProps) {
                 isLoading={props.isLoading}
                 emptyState={emptyLabel()}
                 hideSize={props.kind !== "folders"}
+                hideArtwork={props.kind === "albums"}
+                contextActions={props.contextActions}
+                deleteActionLabel={props.deleteActionLabel}
+                sort={props.sort}
+                onSortChange={props.onSortChange}
+                onSortOrderChange={props.onSortOrderChange}
               />
             )}
           </Show>
         </div>
       </div>
     </Show>
-  );
-}
-
-export function LibraryPlaylistPlaceholder(props: LibraryPlaylistPlaceholderProps) {
-  const { t } = useTranslation();
-  return (
-    <div class="local-playlist-placeholder" role="status">
-      <span class="empty-tab-icon" aria-hidden="true">
-        <IconPlaylist />
-      </span>
-      <div class="local-playlist-placeholder-copy">
-        <strong>{t("library.tabs.playlists")}</strong>
-        <span>{t("library.tabs.placeholder.playlists")}</span>
-      </div>
-      <button type="button" class="ghost-button page-action" onClick={props.onManageRoots}>
-        <IconFolder />
-        <span>{t("library.action.manageRoots")}</span>
-      </button>
-    </div>
   );
 }

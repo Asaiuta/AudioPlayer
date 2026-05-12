@@ -233,49 +233,31 @@ async fn websocket(
                                 Some(shared_state.channels.load(std::sync::atomic::Ordering::Relaxed) as usize),
                             );
                         }
-                        let media_id = file_path
-                            .as_deref()
-                            .map(crate::app_database::media_id_for_path);
-                        let stored = file_path
-                            .as_deref()
-                            .and_then(|path| data.app_db.media_metadata_for_path(path).ok().flatten());
-                        let title = metadata.title.or_else(|| stored.as_ref().and_then(|item| item.title.clone()));
-                        let artist = metadata.artist.or_else(|| stored.as_ref().and_then(|item| item.artist.clone()));
-                        let album = metadata.album.or_else(|| stored.as_ref().and_then(|item| item.album.clone()));
-                        let stored_has_cover_art = stored
-                            .as_ref()
-                            .map(|item| item.has_cover_art)
-                            .unwrap_or(false);
-                        let external_artwork_url =
-                            stored.and_then(|item| item.external_artwork_url);
-                        let has_cover_art = metadata.cover_art.is_some() || stored_has_cover_art;
-                        let msg = serde_json::json!({
-                            "type": "track_changed",
-                            "file_path": file_path,
-                            "duration": shared_state.duration_secs(),
-                            "media_id": media_id,
-                            "title": title,
-                            "artist": artist,
-                            "album": album,
-                            "has_cover_art": has_cover_art,
-                            "external_artwork_url": external_artwork_url,
-                        });
+                        let msg = {
+                            let player = data.player.lock();
+                            let state = get_enriched_player_state(&player, &data.app_db);
+                            let mut value = serde_json::to_value(state).unwrap_or_else(|_| {
+                                serde_json::json!({
+                                    "file_path": file_path,
+                                    "duration": shared_state.duration_secs(),
+                                })
+                            });
+                            if let serde_json::Value::Object(ref mut object) = value {
+                                object.insert(
+                                    "type".to_string(),
+                                    serde_json::Value::String("track_changed".to_string()),
+                                );
+                            }
+                            value
+                        };
                         if session.text(msg.to_string()).await.is_err() {
                             break;
                         }
                     }
 
                     if events & EVENT_QUEUE_UPDATED != 0 {
-                        let queue = match data.app_db.list_queue_entries("active") {
-                            Ok(entries) => entries,
-                            Err(e) => {
-                                log::warn!("Failed to load queue for websocket update: {}", e);
-                                Vec::new()
-                            }
-                        };
                         let msg = serde_json::json!({
                             "type": "queue_updated",
-                            "queue": queue,
                         });
                         if session.text(msg.to_string()).await.is_err() {
                             break;

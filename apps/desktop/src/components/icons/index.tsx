@@ -428,6 +428,15 @@ export function IconPlaylist(props: IconProps) {
   );
 }
 
+export function IconThumbDown(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M7.2 3.5h7.4a1.7 1.7 0 0 1 1.7 1.7v5.1a1.7 1.7 0 0 1-1.7 1.7h-2.4l-1.1 3.1a1.4 1.4 0 0 1-2.6-.3V12H5.3a1.7 1.7 0 0 1-1.6-2.2l1.4-4.9a1.9 1.9 0 0 1 2.1-1.4Z" />
+      <path d="M7.2 3.7V12" />
+    </svg>
+  );
+}
+
 export function IconStar(props: IconProps) {
   return (
     <svg {...baseProps} {...props}>
@@ -440,6 +449,23 @@ export function IconChevronDown(props: IconProps) {
   return (
     <svg {...baseProps} {...props}>
       <path d="M6 8l4 4 4-4" />
+    </svg>
+  );
+}
+
+export function IconChevronUp(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M6 12l4-4 4 4" />
+    </svg>
+  );
+}
+
+export function IconLocation(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M10 17.5s5.5-4.8 5.5-9.2A5.5 5.5 0 0 0 4.5 8.3c0 4.4 5.5 9.2 5.5 9.2z" />
+      <circle cx="10" cy="8.5" r="1.8" />
     </svg>
   );
 }

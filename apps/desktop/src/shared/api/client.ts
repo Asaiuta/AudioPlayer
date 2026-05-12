@@ -3,6 +3,12 @@ import type {
   ApiStatus,
   AudioDeviceInfo,
   DevicesResponse,
+  LibraryTrackDetail,
+  LibraryFolderSummary,
+  LibraryTrackSummariesResponse,
+  LibraryTrackSummary,
+  LocalPlaylist,
+  LocalPlaylistDetail,
   PlaybackHistoryEntry,
   LibraryRoot,
   LibraryScanTask,
@@ -42,6 +48,18 @@ export interface ApiClient {
   scanLibraryRoot: (path: string, displayName?: string, sourceKey?: string) => Promise<ScanResult>;
   getLibraryScanTask: (taskId: number) => Promise<LibraryScanTask>;
   getMediaItems: (limit?: number, all?: boolean) => Promise<MediaItem[]>;
+  getLibraryTrackSummaries: () => Promise<LibraryTrackSummariesResponse>;
+  getLibraryTrackDetail: (trackKey: number) => Promise<LibraryTrackDetail>;
+  replaceQueueFromLibraryQuery: (input: LibraryQueueQueryInput) => Promise<LibraryQueuePlaybackResult>;
+  replaceQueueFromTrackKeys: (input: LibraryQueueTrackKeysInput) => Promise<LibraryQueuePlaybackResult>;
+  deleteMediaItems: (mediaIds: string[]) => Promise<number>;
+  listLocalPlaylists: () => Promise<LocalPlaylist[]>;
+  createLocalPlaylist: (input: LocalPlaylistCreateInput) => Promise<LocalPlaylist>;
+  updateLocalPlaylist: (playlistId: string, input: LocalPlaylistUpdateInput) => Promise<LocalPlaylist>;
+  deleteLocalPlaylist: (playlistId: string) => Promise<void>;
+  getLocalPlaylist: (playlistId: string) => Promise<LocalPlaylistDetail>;
+  addMediaToLocalPlaylist: (playlistId: string, mediaIds: string[]) => Promise<number>;
+  removeMediaFromLocalPlaylist: (playlistId: string, mediaIds: string[]) => Promise<number>;
   saveExternalMediaMetadata: (metadata: ExternalMediaMetadataInput) => Promise<string>;
   resolveNcmTrack: (input: ResolveNcmTrackInput) => Promise<ResolvedNcmTrack>;
   playNcmTrack: (input: ResolveNcmTrackInput) => Promise<NcmTrackPlaybackResult>;
@@ -61,9 +79,12 @@ export interface ApiClient {
   listNcmDailySongTracks: () => Promise<NcmTrackSummary[]>;
   listNcmSongDetailTracks: (ids: number[]) => Promise<NcmTrackSummary[]>;
   listNcmPersonalFmTracks: () => Promise<NcmTrackSummary[]>;
+  trashNcmPersonalFmTrack: (songId: number) => Promise<void>;
   listNcmAlbumTracks: (id: number) => Promise<NcmTrackSummary[]>;
   listNcmArtistTracks: (id: number) => Promise<NcmTrackSummary[]>;
   getNcmLikelistIds: (uid: number) => Promise<number[]>;
+  listNcmCloudTracks: (input: ListNcmCloudTracksInput) => Promise<NcmCloudTracksPage>;
+  deleteNcmCloudTrack: (songId: number) => Promise<void>;
   getNcmHomeFeed: (input?: GetNcmHomeFeedInput) => Promise<NcmHomeFeed>;
   listNcmDiscoverPlaylists: (input: ListNcmDiscoverPlaylistsInput) => Promise<NcmDiscoverCardsPage>;
   listNcmDiscoverAlbums: (input: ListNcmDiscoverAlbumsInput) => Promise<NcmDiscoverCardsPage>;
@@ -92,6 +113,7 @@ export interface ApiClient {
   getCurrentLyrics: () => Promise<{ lyrics: ParsedLyricLine[]; source: string | null }>;
   // Cover Art
   getCoverArtUrl: (mediaId: string) => string;
+  getLibraryTrackCoverArtUrl: (trackKey: number) => string;
 }
 
 interface LoadOptions {
@@ -108,6 +130,24 @@ export interface QueueAdjacent {
   nextEntryId: number | null;
 }
 
+export interface LibraryQueueQueryInput {
+  search?: string | null;
+  folderPath?: string | null;
+  sortField?: string | null;
+  sortOrder?: string | null;
+  startTrackKey?: number | null;
+}
+
+export interface LibraryQueueTrackKeysInput {
+  trackKeys: number[];
+  startTrackKey?: number | null;
+}
+
+export interface LibraryQueuePlaybackResult {
+  state: PlayerState;
+  queuedCount: number;
+}
+
 export interface ExternalMediaMetadataInput {
   source_path: string;
   title?: string | null;
@@ -115,6 +155,16 @@ export interface ExternalMediaMetadataInput {
   album?: string | null;
   duration_secs?: number | null;
   external_artwork_url?: string | null;
+}
+
+export interface LocalPlaylistCreateInput {
+  name: string;
+  description?: string | null;
+}
+
+export interface LocalPlaylistUpdateInput {
+  name?: string | null;
+  description?: string | null;
 }
 
 export interface ResolveNcmTrackInput {
@@ -241,6 +291,19 @@ export interface NcmTrackSummary {
   album: string | null;
   duration_secs: number | null;
   artworkUrl: string | null;
+  size_bytes?: number | null;
+}
+
+export interface ListNcmCloudTracksInput {
+  limit?: number;
+  offset?: number;
+}
+
+export interface NcmCloudTracksPage {
+  tracks: NcmTrackSummary[];
+  count: number;
+  sizeBytes: number;
+  maxSizeBytes: number;
 }
 
 export interface GetNcmHomeFeedInput {
@@ -550,6 +613,7 @@ const playerStateIntegerFields = ["output_bits"] as const;
 
 const playerStateNullableIntegerFields = [
   "device_id",
+  "ncm_song_id",
   "target_samplerate",
   "track_number",
   "disc_number",
@@ -579,6 +643,7 @@ const playerStateNullableStringFields = [
   "album",
   "genre",
   "media_id",
+  "ncm_source_page_url",
   "external_artwork_url"
 ] as const;
 
@@ -750,6 +815,181 @@ const parseStatusMessage = (value: unknown) => {
   return {
     status: parseStatus(value.status),
     message: typeof value.message === "string" ? value.message : null
+  };
+};
+
+const parseLocalPlaylist = (value: unknown): LocalPlaylist | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (
+    !isString(value.playlist_id) ||
+    !isString(value.name) ||
+    !isNullableString(value.description) ||
+    !isNullableString(value.cover_media_id) ||
+    !isBoolean(value.cover_has_cover_art) ||
+    !isNullableString(value.cover_external_artwork_url) ||
+    !isInteger(value.track_count) ||
+    !isInteger(value.created_at_epoch_secs) ||
+    !isInteger(value.updated_at_epoch_secs)
+  ) {
+    return null;
+  }
+
+  return value as unknown as LocalPlaylist;
+};
+
+const parseLibraryTrackSummary = (value: unknown): LibraryTrackSummary | null => {
+  if (!isRecord(value)) return null;
+  if (
+    !isInteger(value.track_key) ||
+    !isString(value.media_id) ||
+    !isNullableString(value.title) ||
+    !isNullableString(value.artist) ||
+    !isNullableString(value.album) ||
+    !isNullableInteger(value.track_number) ||
+    !isString(value.file_name) ||
+    !isString(value.folder_key) ||
+    !isString(value.folder_label) ||
+    !isNullableNumber(value.duration_secs) ||
+    !isBoolean(value.has_cover_art) ||
+    !isNullableString(value.external_artwork_url) ||
+    !isNullableInteger(value.size_bytes) ||
+    !isInteger(value.added_at_epoch_secs) ||
+    !isInteger(value.updated_at_epoch_secs)
+  ) {
+    return null;
+  }
+  return value as unknown as LibraryTrackSummary;
+};
+
+const parseLibraryFolderSummary = (value: unknown): LibraryFolderSummary | null => {
+  if (!isRecord(value)) return null;
+  if (
+    !isString(value.key) ||
+    !isString(value.label) ||
+    !isString(value.path) ||
+    !isInteger(value.count)
+  ) {
+    return null;
+  }
+  return value as unknown as LibraryFolderSummary;
+};
+
+const parseLibraryTrackSummariesResponse = (value: unknown): LibraryTrackSummariesResponse => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid library track summaries response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load library tracks");
+  }
+  if (
+    !isString(value.revision) ||
+    !isInteger(value.total_count) ||
+    !isInteger(value.total_size_bytes) ||
+    !Array.isArray(value.folders) ||
+    !Array.isArray(value.tracks)
+  ) {
+    throw new Error("Invalid library track summaries payload");
+  }
+  const folders = value.folders.map(parseLibraryFolderSummary);
+  const tracks = value.tracks.map(parseLibraryTrackSummary);
+  if (folders.some((folder) => folder === null) || tracks.some((track) => track === null)) {
+    throw new Error("Invalid library track summaries payload");
+  }
+  return {
+    revision: value.revision,
+    total_count: value.total_count,
+    total_size_bytes: value.total_size_bytes,
+    folders: folders as LibraryFolderSummary[],
+    tracks: tracks as LibraryTrackSummary[]
+  };
+};
+
+const parseLibraryTrackDetailResponse = (value: unknown): LibraryTrackDetail => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid library track detail response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load library track");
+  }
+  if (!isInteger(value.track_key) || !isRecord(value.item)) {
+    throw new Error("Invalid library track detail payload");
+  }
+  return {
+    track_key: value.track_key,
+    item: value.item as unknown as MediaItem
+  };
+};
+
+const parseLibraryQueuePlaybackResponse = (value: unknown): LibraryQueuePlaybackResult => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid library queue response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to play library tracks");
+  }
+  if (!isRecord(value.state) || !isInteger(value.queued_count)) {
+    throw new Error("Invalid library queue payload");
+  }
+  return {
+    state: value.state as unknown as PlayerState,
+    queuedCount: value.queued_count
+  };
+};
+
+const parseLocalPlaylistsResponse = (value: unknown): LocalPlaylist[] => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid local playlists response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load local playlists");
+  }
+  if (!Array.isArray(value.playlists)) {
+    throw new Error("Invalid local playlists payload");
+  }
+  const playlists = value.playlists.map(parseLocalPlaylist);
+  if (playlists.some((playlist) => playlist === null)) {
+    throw new Error("Invalid local playlists payload");
+  }
+  return playlists as LocalPlaylist[];
+};
+
+const parseLocalPlaylistResponse = (value: unknown): LocalPlaylist => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid local playlist response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to save local playlist");
+  }
+  const playlist = parseLocalPlaylist(value.playlist);
+  if (!playlist) {
+    throw new Error("Invalid local playlist payload");
+  }
+  return playlist;
+};
+
+const parseLocalPlaylistDetailResponse = (value: unknown): LocalPlaylistDetail => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid local playlist detail response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load local playlist");
+  }
+  const playlist = parseLocalPlaylist(value.playlist);
+  if (!playlist || !Array.isArray(value.items)) {
+    throw new Error("Invalid local playlist detail payload");
+  }
+  return {
+    playlist,
+    items: value.items as MediaItem[]
   };
 };
 
@@ -1049,7 +1289,8 @@ const parseNcmTrackSummary = (value: unknown): NcmTrackSummary | null => {
     artist: value.artist,
     album: value.album,
     duration_secs: value.duration_secs,
-    artworkUrl: value.artwork_url
+    artworkUrl: value.artwork_url,
+    size_bytes: isNullableInteger(value.size_bytes) ? value.size_bytes : null
   };
 };
 
@@ -1069,6 +1310,34 @@ const parseNcmTracksResponse = (value: unknown): NcmTrackSummary[] => {
     throw new Error("Invalid NCM tracks payload");
   }
   return tracks as NcmTrackSummary[];
+};
+
+const parseNcmCloudTracksResponse = (value: unknown): NcmCloudTracksPage => {
+  if (!isRecord(value)) {
+    throw new Error("Invalid NCM cloud response shape");
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : "Failed to load NCM cloud tracks");
+  }
+  if (
+    !Array.isArray(value.tracks) ||
+    !isInteger(value.count) ||
+    !isInteger(value.size_bytes) ||
+    !isInteger(value.max_size_bytes)
+  ) {
+    throw new Error("Invalid NCM cloud payload");
+  }
+  const tracks = value.tracks.map(parseNcmTrackSummary);
+  if (tracks.some((track) => track === null)) {
+    throw new Error("Invalid NCM cloud payload");
+  }
+  return {
+    tracks: tracks as NcmTrackSummary[],
+    count: value.count,
+    sizeBytes: value.size_bytes,
+    maxSizeBytes: value.max_size_bytes
+  };
 };
 
 const parseNcmHomeFeedCard = (value: unknown): NcmHomeFeedCard | null => {
@@ -1599,6 +1868,104 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     }
     return json.media_items as MediaItem[];
   },
+  getLibraryTrackSummaries: async () => {
+    const json = await requestJson(baseUrl, "/domain/library/track_summaries");
+    return parseLibraryTrackSummariesResponse(json);
+  },
+  getLibraryTrackDetail: async (trackKey: number) => {
+    const json = await requestJson(baseUrl, `/domain/library/tracks/${encodeURIComponent(String(trackKey))}`);
+    return parseLibraryTrackDetailResponse(json);
+  },
+  replaceQueueFromLibraryQuery: async (input: LibraryQueueQueryInput) => {
+    const json = await requestJson(baseUrl, "/domain/library/queue_from_query", {
+      method: "POST",
+      body: JSON.stringify({
+        search: input.search ?? null,
+        folder_path: input.folderPath ?? null,
+        sort_field: input.sortField ?? null,
+        sort_order: input.sortOrder ?? null,
+        start_track_key: input.startTrackKey ?? null
+      })
+    });
+    return parseLibraryQueuePlaybackResponse(json);
+  },
+  replaceQueueFromTrackKeys: async (input: LibraryQueueTrackKeysInput) => {
+    const json = await requestJson(baseUrl, "/domain/library/queue_from_track_keys", {
+      method: "POST",
+      body: JSON.stringify({
+        track_keys: input.trackKeys,
+        start_track_key: input.startTrackKey ?? null
+      })
+    });
+    return parseLibraryQueuePlaybackResponse(json);
+  },
+  deleteMediaItems: async (mediaIds: string[]) => {
+    const json = await requestJson(baseUrl, "/domain/media_items/delete", {
+      method: "POST",
+      body: JSON.stringify({ media_ids: mediaIds })
+    });
+    if (!isRecord(json) || json.status !== "success" || !isInteger(json.deleted_count)) {
+      throw new Error("Failed to delete media items");
+    }
+    return json.deleted_count;
+  },
+  listLocalPlaylists: async () => {
+    const json = await requestJson(baseUrl, "/domain/local_playlists");
+    return parseLocalPlaylistsResponse(json);
+  },
+  createLocalPlaylist: async (input: LocalPlaylistCreateInput) => {
+    const json = await requestJson(baseUrl, "/domain/local_playlists", {
+      method: "POST",
+      body: JSON.stringify({
+        name: input.name,
+        description: input.description ?? null
+      })
+    });
+    return parseLocalPlaylistResponse(json);
+  },
+  updateLocalPlaylist: async (playlistId: string, input: LocalPlaylistUpdateInput) => {
+    const json = await requestJson(baseUrl, `/domain/local_playlists/${encodeURIComponent(playlistId)}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        name: input.name ?? null,
+        description: input.description ?? null
+      })
+    });
+    return parseLocalPlaylistResponse(json);
+  },
+  deleteLocalPlaylist: async (playlistId: string) => {
+    const json = await requestJson(baseUrl, `/domain/local_playlists/${encodeURIComponent(playlistId)}`, {
+      method: "DELETE"
+    });
+    const response = parseStatusMessage(json);
+    if (response.status === "error") {
+      throw new Error(response.message ?? "Failed to delete local playlist");
+    }
+  },
+  getLocalPlaylist: async (playlistId: string) => {
+    const json = await requestJson(baseUrl, `/domain/local_playlists/${encodeURIComponent(playlistId)}`);
+    return parseLocalPlaylistDetailResponse(json);
+  },
+  addMediaToLocalPlaylist: async (playlistId: string, mediaIds: string[]) => {
+    const json = await requestJson(baseUrl, `/domain/local_playlists/${encodeURIComponent(playlistId)}/items`, {
+      method: "POST",
+      body: JSON.stringify({ media_ids: mediaIds })
+    });
+    if (!isRecord(json) || json.status !== "success" || !isInteger(json.added_count)) {
+      throw new Error("Failed to add media to local playlist");
+    }
+    return json.added_count;
+  },
+  removeMediaFromLocalPlaylist: async (playlistId: string, mediaIds: string[]) => {
+    const json = await requestJson(baseUrl, `/domain/local_playlists/${encodeURIComponent(playlistId)}/items/remove`, {
+      method: "POST",
+      body: JSON.stringify({ media_ids: mediaIds })
+    });
+    if (!isRecord(json) || json.status !== "success" || !isInteger(json.removed_count)) {
+      throw new Error("Failed to remove media from local playlist");
+    }
+    return json.removed_count;
+  },
   saveExternalMediaMetadata: async (metadata: ExternalMediaMetadataInput) => {
     const json = await requestJson(baseUrl, "/domain/media_items/metadata", {
       method: "POST",
@@ -1753,6 +2120,16 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     });
     return parseNcmTracksResponse(json);
   },
+  trashNcmPersonalFmTrack: async (songId: number) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/personal_fm/trash", {
+      method: "POST",
+      body: JSON.stringify({ song_id: songId })
+    });
+    const response = parseStatusMessage(json);
+    if (response.status === "error") {
+      throw new Error(response.message ?? "Failed to dislike Personal FM track");
+    }
+  },
   listNcmAlbumTracks: async (id: number) => {
     const json = await requestJson(baseUrl, "/domain/ncm/album/tracks", {
       method: "POST",
@@ -1773,6 +2150,26 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       body: JSON.stringify({ uid })
     });
     return parseNcmLikelistIdsResponse(json);
+  },
+  listNcmCloudTracks: async (input: ListNcmCloudTracksInput) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/user/cloud", {
+      method: "POST",
+      body: JSON.stringify({
+        limit: input.limit ?? null,
+        offset: input.offset ?? null
+      })
+    });
+    return parseNcmCloudTracksResponse(json);
+  },
+  deleteNcmCloudTrack: async (songId: number) => {
+    const json = await requestJson(baseUrl, "/domain/ncm/user/cloud/delete", {
+      method: "POST",
+      body: JSON.stringify({ song_id: songId })
+    });
+    const response = parseStatusMessage(json);
+    if (response.status === "error") {
+      throw new Error(response.message ?? "Failed to delete NCM cloud track");
+    }
   },
   getNcmHomeFeed: async (input?: GetNcmHomeFeedInput) => {
     const json = await requestJson(baseUrl, "/domain/ncm/home_feed", {
@@ -1989,6 +2386,15 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       params.set("token", token);
     }
     return `${baseUrl}/domain/media_items/cover_art?${params.toString()}`;
+  },
+  getLibraryTrackCoverArtUrl: (trackKey: number) => {
+    const token = peekApiToken();
+    const params = new URLSearchParams();
+    if (token) {
+      params.set("token", token);
+    }
+    const query = params.toString();
+    return `${baseUrl}/domain/library/tracks/${encodeURIComponent(String(trackKey))}/cover_art${query ? `?${query}` : ""}`;
   }
   };
 };

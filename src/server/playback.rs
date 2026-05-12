@@ -1,6 +1,8 @@
 use super::lyrics;
 use super::*;
-use crate::app_database::{media_id_for_path, QueueEntryRecord};
+use crate::app_database::{
+    media_id_for_path, LibrarySortField, LibrarySortOrder, LibraryTrackQuery, QueueEntryRecord,
+};
 use crate::player::{PlayerState, RepeatMode, SharedState, ShuffleMode};
 use crate::playlist;
 use actix_web::{web, HttpRequest, HttpResponse};
@@ -71,8 +73,60 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
         )
         .route("/domain/media_items", web::get().to(get_media_items))
         .route(
+            "/domain/library/track_summaries",
+            web::get().to(get_library_track_summaries),
+        )
+        .route(
+            "/domain/library/tracks/{track_key}",
+            web::get().to(get_library_track_detail),
+        )
+        .route(
+            "/domain/library/tracks/{track_key}/cover_art",
+            web::get().to(get_library_track_cover_art),
+        )
+        .route(
+            "/domain/library/queue_from_query",
+            web::post().to(replace_queue_from_library_query),
+        )
+        .route(
+            "/domain/library/queue_from_track_keys",
+            web::post().to(replace_queue_from_track_keys),
+        )
+        .route(
+            "/domain/media_items/delete",
+            web::post().to(delete_media_items),
+        )
+        .route(
             "/domain/media_items/metadata",
             web::post().to(upsert_external_media_metadata),
+        )
+        .route(
+            "/domain/local_playlists",
+            web::get().to(list_local_playlists),
+        )
+        .route(
+            "/domain/local_playlists",
+            web::post().to(create_local_playlist),
+        )
+        .route(
+            "/domain/local_playlists/{playlist_id}",
+            web::get().to(get_local_playlist),
+        )
+        .route(
+            "/domain/local_playlists/{playlist_id}",
+            web::patch().to(update_local_playlist),
+        )
+        .route(
+            "/domain/local_playlists/{playlist_id}",
+            web::delete().to(delete_local_playlist),
+        )
+        .route(
+            "/domain/local_playlists/{playlist_id}/items",
+            web::post().to(add_local_playlist_items),
+        )
+        .route(
+            "/domain/local_playlists/{playlist_id}/items/remove",
+            web::post().to(remove_local_playlist_items),
         )
         .route(
             "/domain/media_items/{media_id}/cover_art",
@@ -167,6 +221,53 @@ struct ExternalMediaMetadataRequest {
     album: Option<String>,
     duration_secs: Option<f64>,
     external_artwork_url: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct MediaItemsDeleteRequest {
+    media_ids: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct LibraryTrackPath {
+    track_key: i64,
+}
+
+#[derive(Deserialize)]
+struct LibraryQueueQueryRequest {
+    search: Option<String>,
+    folder_path: Option<String>,
+    sort_field: Option<String>,
+    sort_order: Option<String>,
+    start_track_key: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct LibraryQueueTrackKeysRequest {
+    track_keys: Vec<i64>,
+    start_track_key: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct LocalPlaylistPath {
+    playlist_id: String,
+}
+
+#[derive(Deserialize)]
+struct LocalPlaylistCreateRequest {
+    name: String,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LocalPlaylistUpdateRequest {
+    name: Option<String>,
+    description: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LocalPlaylistItemsRequest {
+    media_ids: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -586,10 +687,9 @@ fn load_queue_entry_for_playback(
         } else {
             player.load_with_credentials(&entry.source_path, credentials.as_ref())?;
         }
-        (get_player_state(&player), player.shared_state())
+        (get_enriched_player_state(&player, &data.app_db), player.shared_state())
     };
 
-    let mut state_response = state_response;
     let media_id = data.app_db.record_media_stub(&entry.source_path);
     if let Err(e) = &media_id {
         log::warn!(
@@ -598,7 +698,6 @@ fn load_queue_entry_for_playback(
             e
         );
     }
-    enrich_state_from_media_database(&data.app_db, &mut state_response);
     let snapshot = playback_runtime_snapshot_from_state(&state_response);
 
     let previous_session = { data.active_session_id.lock().take() };
@@ -668,15 +767,13 @@ pub(super) fn load_validated_path_for_playback(
         } else {
             player.load_with_credentials(path, credentials.as_ref())?;
         }
-        (get_player_state(&player), player.shared_state())
+        (get_enriched_player_state(&player, &data.app_db), player.shared_state())
     };
 
-    let mut state_response = state_response;
     let media_id = data.app_db.record_media_stub(path);
     if let Err(e) = &media_id {
         log::warn!("Failed to ensure media item for '{}': {}", path, e);
     }
-    enrich_state_from_media_database(&data.app_db, &mut state_response);
     let snapshot = playback_runtime_snapshot_from_state(&state_response);
 
     let previous_session = { data.active_session_id.lock().take() };
@@ -1607,7 +1704,7 @@ async fn play(data: web::Data<Arc<AppState>>) -> HttpResponse {
             let shared_state = player.shared_state();
             let snapshot = build_runtime_snapshot(&player);
             let current_path = shared_state.file_path.read().clone();
-            let state_response = get_player_state(&player);
+            let state_response = get_enriched_player_state(&player, &data.app_db);
             (snapshot, current_path, state_response, shared_state)
         })
     };
@@ -1652,7 +1749,7 @@ async fn pause(data: web::Data<Arc<AppState>>) -> HttpResponse {
             let shared_state = player.shared_state();
             let snapshot = build_runtime_snapshot(&player);
             let current_path = shared_state.file_path.read().clone();
-            let state_response = get_player_state(&player);
+            let state_response = get_enriched_player_state(&player, &data.app_db);
             (snapshot, current_path, state_response, shared_state)
         })
     };
@@ -1700,7 +1797,7 @@ async fn stop(data: web::Data<Arc<AppState>>) -> HttpResponse {
         (
             snapshot_before_stop,
             current_path,
-            get_player_state(&player),
+            get_enriched_player_state(&player, &data.app_db),
             shared_state,
         )
     };
@@ -1739,7 +1836,7 @@ async fn seek(data: web::Data<Arc<AppState>>, body: web::Json<SeekRequest>) -> H
             let shared_state = player.shared_state();
             let snapshot = build_runtime_snapshot(&player);
             let current_path = shared_state.file_path.read().clone();
-            let state_response = get_player_state(&player);
+            let state_response = get_enriched_player_state(&player, &data.app_db);
             (snapshot, current_path, state_response, shared_state)
         })
     };
@@ -1793,7 +1890,7 @@ async fn set_repeat_mode(
     player.set_repeat_mode(mode);
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Repeat mode updated",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 
@@ -1825,14 +1922,13 @@ async fn set_shuffle_mode(
     let player = data.player.lock();
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Shuffle mode updated",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 
 async fn get_state(data: web::Data<Arc<AppState>>) -> HttpResponse {
     let player = data.player.lock();
-    let mut state = get_player_state(&player);
-    enrich_state_from_media_database(&data.app_db, &mut state);
+    let state = get_enriched_player_state(&player, &data.app_db);
     HttpResponse::Ok().json(ApiResponse {
         status: "success".into(),
         message: None,
@@ -1888,7 +1984,7 @@ async fn set_volume(
     }
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Volume set",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 
@@ -1937,7 +2033,7 @@ async fn configure_output(
 
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Output configured",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 
@@ -2026,7 +2122,7 @@ async fn configure_resampling(
 
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Resampling settings updated",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 
@@ -2077,7 +2173,7 @@ async fn configure_normalization(
 
     HttpResponse::Ok().json(ApiResponse::success_with_state(
         "Normalization configured",
-        get_player_state(&player),
+        get_enriched_player_state(&player, &data.app_db),
     ))
 }
 
@@ -2669,6 +2765,344 @@ async fn get_media_items(
             "status": "success",
             "media_items": items
         })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn get_library_track_summaries(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let stats = match data.app_db.library_summary_stats() {
+        Ok(stats) => stats,
+        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    };
+    match data.app_db.list_library_track_summaries() {
+        Ok(tracks) => {
+            let folders = data.app_db.library_folder_summaries_for_tracks(&tracks);
+            HttpResponse::Ok().json(serde_json::json!({
+                "status": "success",
+                "revision": stats.revision,
+                "total_count": stats.total_count,
+                "total_size_bytes": stats.total_size_bytes,
+                "folders": folders,
+                "tracks": tracks
+            }))
+        }
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn get_library_track_detail(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LibraryTrackPath>,
+) -> HttpResponse {
+    match data.app_db.library_track_detail(path.track_key) {
+        Ok(Some(detail)) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "track_key": detail.track_key,
+            "item": detail.item
+        })),
+        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Library track not found")),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn get_library_track_cover_art(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LibraryTrackPath>,
+) -> HttpResponse {
+    match data.app_db.media_id_for_track_key(path.track_key) {
+        Ok(Some(media_id)) => get_media_cover_art_by_id(&data, &media_id),
+        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Library track not found")),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+fn parse_library_sort_field(value: Option<&str>) -> LibrarySortField {
+    match value.unwrap_or("default") {
+        "title" => LibrarySortField::Title,
+        "album" => LibrarySortField::Album,
+        "duration" => LibrarySortField::Duration,
+        "size" => LibrarySortField::Size,
+        _ => LibrarySortField::Default,
+    }
+}
+
+fn parse_library_sort_order(value: Option<&str>) -> LibrarySortOrder {
+    match value.unwrap_or("default") {
+        "asc" => LibrarySortOrder::Asc,
+        "desc" => LibrarySortOrder::Desc,
+        _ => LibrarySortOrder::Default,
+    }
+}
+
+fn build_library_query(body: &LibraryQueueQueryRequest) -> LibraryTrackQuery {
+    LibraryTrackQuery {
+        search: body.search.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }),
+        folder_path: body.folder_path.as_ref().and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }),
+        sort_field: parse_library_sort_field(body.sort_field.as_deref()),
+        sort_order: parse_library_sort_order(body.sort_order.as_deref()),
+    }
+}
+
+fn load_replaced_queue_at_position(
+    data: &web::Data<Arc<AppState>>,
+    paths: &[String],
+    start_index: usize,
+) -> Result<StateResponse, String> {
+    if paths.is_empty() {
+        return Err("No library tracks matched the current view".to_string());
+    }
+    data.app_db.replace_queue_entries("active", paths)?;
+    let entry = data
+        .app_db
+        .queue_entry_at_position("active", start_index as i64)?
+        .ok_or_else(|| "Queue entry not found after replacing library queue".to_string())?;
+    let (state, _) = load_queue_entry_for_playback(data, entry, true)?;
+    Ok(state)
+}
+
+fn validate_library_queue_paths(paths: &[String]) -> Result<Vec<String>, String> {
+    let mut validated = Vec::with_capacity(paths.len());
+    for path in paths {
+        validated.push(validate_path(path)?);
+    }
+    Ok(validated)
+}
+
+async fn replace_queue_from_library_query(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<LibraryQueueQueryRequest>,
+) -> HttpResponse {
+    let query = build_library_query(&body);
+    let rows = match data.app_db.source_paths_for_library_query(&query) {
+        Ok(rows) => rows,
+        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    };
+    if rows.is_empty() {
+        return HttpResponse::NotFound().json(ApiResponse::error(
+            "No library tracks matched the current view",
+        ));
+    }
+    let start_index = body
+        .start_track_key
+        .and_then(|key| rows.iter().position(|(track_key, _)| *track_key == key))
+        .unwrap_or(0);
+    if body.start_track_key.is_some()
+        && start_index == 0
+        && rows[0].0 != body.start_track_key.unwrap_or(rows[0].0)
+    {
+        return HttpResponse::NotFound().json(ApiResponse::error(
+            "Start track is not in the current library view",
+        ));
+    }
+    let paths = rows
+        .iter()
+        .map(|(_, source_path)| source_path.clone())
+        .collect::<Vec<_>>();
+    let validated_paths = match validate_library_queue_paths(&paths) {
+        Ok(paths) => paths,
+        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+    };
+    match load_replaced_queue_at_position(&data, &validated_paths, start_index) {
+        Ok(state) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "state": state,
+            "queued_count": validated_paths.len()
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn replace_queue_from_track_keys(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<LibraryQueueTrackKeysRequest>,
+) -> HttpResponse {
+    if body.track_keys.is_empty() {
+        return HttpResponse::BadRequest().json(ApiResponse::error("track_keys cannot be empty"));
+    }
+    let rows = match data.app_db.source_paths_for_track_keys(&body.track_keys) {
+        Ok(rows) => rows,
+        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    };
+    if rows.is_empty() {
+        return HttpResponse::NotFound().json(ApiResponse::error("Library tracks not found"));
+    }
+    let start_index = if let Some(start_track_key) = body.start_track_key {
+        match rows
+            .iter()
+            .position(|(track_key, _)| *track_key == start_track_key)
+        {
+            Some(index) => index,
+            None => {
+                return HttpResponse::NotFound().json(ApiResponse::error(
+                    "Start track is not in the submitted library view",
+                ))
+            }
+        }
+    } else {
+        0
+    };
+    let paths = rows
+        .iter()
+        .map(|(_, source_path)| source_path.clone())
+        .collect::<Vec<_>>();
+    let validated_paths = match validate_library_queue_paths(&paths) {
+        Ok(paths) => paths,
+        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+    };
+    match load_replaced_queue_at_position(&data, &validated_paths, start_index) {
+        Ok(state) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "state": state,
+            "queued_count": validated_paths.len()
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn delete_media_items(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<MediaItemsDeleteRequest>,
+) -> HttpResponse {
+    if body.media_ids.is_empty() {
+        return HttpResponse::BadRequest().json(ApiResponse::error("media_ids cannot be empty"));
+    }
+
+    match data.app_db.delete_media_items(&body.media_ids) {
+        Ok(deleted_count) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "deleted_count": deleted_count
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn list_local_playlists(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    match data.app_db.list_local_playlists() {
+        Ok(playlists) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "playlists": playlists
+        })),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn create_local_playlist(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<LocalPlaylistCreateRequest>,
+) -> HttpResponse {
+    match data
+        .app_db
+        .create_local_playlist(&body.name, body.description.as_deref())
+    {
+        Ok(playlist) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "playlist": playlist
+        })),
+        Err(e) => HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn update_local_playlist(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LocalPlaylistPath>,
+    body: web::Json<LocalPlaylistUpdateRequest>,
+) -> HttpResponse {
+    match data.app_db.update_local_playlist(
+        &path.playlist_id,
+        body.name.as_deref(),
+        body.description.as_deref(),
+    ) {
+        Ok(Some(playlist)) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "playlist": playlist
+        })),
+        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Local playlist not found")),
+        Err(e) => HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn delete_local_playlist(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LocalPlaylistPath>,
+) -> HttpResponse {
+    match data.app_db.delete_local_playlist(&path.playlist_id) {
+        Ok(true) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success"
+        })),
+        Ok(false) => HttpResponse::NotFound().json(ApiResponse::error("Local playlist not found")),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn get_local_playlist(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LocalPlaylistPath>,
+) -> HttpResponse {
+    match data.app_db.get_local_playlist(&path.playlist_id) {
+        Ok(Some(detail)) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "playlist": detail.playlist,
+            "items": detail.items
+        })),
+        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Local playlist not found")),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn add_local_playlist_items(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LocalPlaylistPath>,
+    body: web::Json<LocalPlaylistItemsRequest>,
+) -> HttpResponse {
+    if body.media_ids.is_empty() {
+        return HttpResponse::BadRequest().json(ApiResponse::error("media_ids cannot be empty"));
+    }
+
+    match data
+        .app_db
+        .add_media_to_local_playlist(&path.playlist_id, &body.media_ids)
+    {
+        Ok(added_count) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "added_count": added_count
+        })),
+        Err(e) if e.contains("not found") => HttpResponse::NotFound().json(ApiResponse::error(&e)),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    }
+}
+
+async fn remove_local_playlist_items(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LocalPlaylistPath>,
+    body: web::Json<LocalPlaylistItemsRequest>,
+) -> HttpResponse {
+    if body.media_ids.is_empty() {
+        return HttpResponse::BadRequest().json(ApiResponse::error("media_ids cannot be empty"));
+    }
+
+    match data
+        .app_db
+        .remove_media_from_local_playlist(&path.playlist_id, &body.media_ids)
+    {
+        Ok(removed_count) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "removed_count": removed_count
+        })),
+        Err(e) if e.contains("not found") => HttpResponse::NotFound().json(ApiResponse::error(&e)),
         Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
     }
 }

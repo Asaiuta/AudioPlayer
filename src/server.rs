@@ -496,6 +496,8 @@ pub struct StateResponse {
     current_time: f64,
     file_path: Option<String>,
     media_id: Option<String>,
+    ncm_song_id: Option<i64>,
+    ncm_source_page_url: Option<String>,
     volume: f32,
     device_id: Option<usize>,
     exclusive_mode: bool,
@@ -726,6 +728,8 @@ fn get_player_state(player: &AudioPlayer) -> StateResponse {
         current_time: shared.current_time_secs(),
         file_path,
         media_id,
+        ncm_song_id: None,
+        ncm_source_page_url: None,
         volume,
         device_id: if device_id >= 0 {
             Some(device_id as usize)
@@ -780,6 +784,15 @@ fn get_player_state(player: &AudioPlayer) -> StateResponse {
     }
 }
 
+fn get_enriched_player_state(
+    player: &AudioPlayer,
+    app_db: &crate::app_database::AppDatabase,
+) -> StateResponse {
+    let mut state = get_player_state(player);
+    enrich_state_from_media_database(app_db, &mut state);
+    state
+}
+
 fn enrich_state_from_media_database(
     app_db: &crate::app_database::AppDatabase,
     state: &mut StateResponse,
@@ -824,6 +837,11 @@ fn enrich_state_from_media_database(
     state.has_cover_art = state.has_cover_art || item.has_cover_art;
     if state.external_artwork_url.is_none() {
         state.external_artwork_url = item.external_artwork_url;
+    }
+
+    if let Ok(Some(source)) = app_db.ncm_track_source_for_path(path) {
+        state.ncm_song_id = Some(source.song_id);
+        state.ncm_source_page_url = source.source_page_url;
     }
 }
 

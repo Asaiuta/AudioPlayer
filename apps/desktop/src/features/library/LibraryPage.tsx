@@ -1,21 +1,29 @@
-import { For, Show } from "solid-js";
+import { For, Show, createMemo, createSignal } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
-import type { TranslationKey } from "../../shared/i18n";
 import { useUISearch } from "../../shared/state/UISearchContext";
 import {
   IconChevronDown,
+  IconDelete,
   IconFolder,
   IconList,
   IconMusic,
+  IconPlaylist,
   IconPlayCircle,
+  IconPlus,
+  IconQueueAdd,
   IconRefresh,
   IconSearch,
   IconStorage
 } from "../../components/icons";
+import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
 import { MediaList, type MediaContextAction } from "../../components/media/MediaList";
+import type { LocalPlaylist } from "../../shared/api/types";
 import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { ManageRootsModal } from "./ManageRootsModal";
-import { LibraryGroupedView, LibraryPlaylistPlaceholder } from "./LibraryGroupedView";
+import { LibraryConfirmActionModal, LibraryPlaylistTargetModal } from "./LibraryActionModals";
+import { LibraryFoldersView } from "./LibraryFoldersView";
+import { LibraryGroupedView } from "./LibraryGroupedView";
+import { LibraryPlaylistsView } from "./LibraryPlaylistsView";
 import {
   ALL_FOLDERS_VALUE,
   type LibraryListItem,
@@ -26,15 +34,63 @@ import {
 interface LibraryPageProps {
   onStateRefresh: (expectedPath?: string | null) => Promise<void>;
   currentTrackPath: string | null;
+  currentMediaId: string | null;
   isPlaying: boolean;
 }
 
 export type { LibraryListItem } from "./useLibraryDataController";
 
+type LibraryConfirmAction =
+  | { kind: "delete-library"; items: LibraryListItem[] }
+  | { kind: "remove-playlist-items"; items: LibraryListItem[] }
+  | { kind: "delete-playlist"; playlist: LocalPlaylist };
+
 export function LibraryPage(props: LibraryPageProps) {
   const { t } = useTranslation();
   const { query: globalQuery } = useUISearch();
   const controller = useLibraryDataController({ t, globalQuery });
+  const [playlistModalItems, setPlaylistModalItems] = createSignal<LibraryListItem[] | null>(null);
+  const [confirmAction, setConfirmAction] = createSignal<LibraryConfirmAction | null>(null);
+  const [moreMenu, setMoreMenu] = createSignal({ open: false, x: 0, y: 0 });
+  const [groupPlaybackItems, setGroupPlaybackItems] = createSignal<LibraryListItem[]>([]);
+
+  const activePlaybackItems = createMemo<LibraryListItem[]>(() =>
+    controller.activeTab() === "playlists"
+      ? controller.selectedPlaylistSortedItems()
+      : controller.activeTab() === "artists" || controller.activeTab() === "albums"
+        ? groupPlaybackItems()
+      : controller.filteredItems()
+  );
+  const activePlaybackCount = createMemo<number>(() =>
+    controller.activeTab() === "songs" ? controller.virtualTotal() : activePlaybackItems().length
+  );
+
+  const selectedActionItems = createMemo<LibraryListItem[]>(() => controller.selectedItems());
+  const confirmTitle = createMemo<string>(() => {
+    const action = confirmAction();
+    if (!action) return "";
+    if (action.kind === "delete-playlist") return t("library.playlists.delete.title");
+    if (action.kind === "remove-playlist-items") return t("library.confirm.removePlaylistItems.title");
+    return t("library.confirm.deleteTracks.title");
+  });
+  const confirmBody = createMemo<string>(() => {
+    const action = confirmAction();
+    if (!action) return "";
+    if (action.kind === "delete-playlist") {
+      return t("library.playlists.delete.body", { name: action.playlist.name });
+    }
+    if (action.kind === "remove-playlist-items") {
+      return t("library.confirm.removePlaylistItems.body", { count: action.items.length });
+    }
+    return t("library.confirm.deleteTracks.body", { count: action.items.length });
+  });
+  const confirmLabel = createMemo<string>(() => {
+    const action = confirmAction();
+    if (!action) return t("library.action.confirm");
+    if (action.kind === "delete-playlist") return t("library.action.deletePlaylist");
+    if (action.kind === "remove-playlist-items") return t("library.action.removeFromPlaylist");
+    return t("library.action.deleteFromLibrary");
+  });
 
   const handlePlay = async (
     item: LibraryListItem,
@@ -42,7 +98,7 @@ export function LibraryPage(props: LibraryPageProps) {
   ) => {
     try {
       await controller.playItem(item, contextItems);
-      await props.onStateRefresh(item.source_path);
+      await props.onStateRefresh(item.source_path ?? null);
     } catch {
       // Feedback is handled inside the controller.
     }
@@ -56,21 +112,80 @@ export function LibraryPage(props: LibraryPageProps) {
     }
   };
 
-  const handleContextAction = (action: MediaContextAction) => {
+  const openAddToPlaylist = (items: readonly LibraryListItem[]) => {
+    if (items.length === 0) return;
+    setPlaylistModalItems([...items]);
+  };
+
+  const openCreatePlaylist = () => {
+    setPlaylistModalItems([]);
+  };
+
+  const openDeleteFromLibrary = (items: readonly LibraryListItem[]) => {
+    if (items.length === 0) return;
+    setConfirmAction({ kind: "delete-library", items: [...items] });
+  };
+
+  const openRemoveFromPlaylist = (items: readonly LibraryListItem[]) => {
+    if (items.length === 0) return;
+    setConfirmAction({ kind: "remove-playlist-items", items: [...items] });
+  };
+
+  const handleContextAction = (action: MediaContextAction, item: LibraryListItem) => {
     if (action === "copy-path") {
       controller.notifyCopyPath();
+    } else if (action === "add-to-playlist") {
+      openAddToPlaylist([item]);
+    } else if (action === "delete") {
+      if (controller.activeTab() === "playlists") {
+        openRemoveFromPlaylist([item]);
+      } else {
+        openDeleteFromLibrary([item]);
+      }
     }
   };
 
   const handlePlayAll = () => {
-    const first = controller.filteredItems()[0];
+    if (controller.activeTab() === "songs") {
+      void controller.playCurrentSongView().then(() => props.onStateRefresh(null));
+      return;
+    }
+    const items = activePlaybackItems();
+    const first = items[0];
     if (first) {
-      void handlePlay(first);
+      void handlePlay(first, items);
     }
   };
 
-  const subtitleKey = (): TranslationKey =>
-    controller.reachedEnd() ? "library.subtitle.complete" : "library.subtitle.more";
+  const handleAddToExistingPlaylist = async (
+    playlistId: string,
+    items: readonly LibraryListItem[]
+  ) => {
+    await controller.addItemsToPlaylist(playlistId, items);
+  };
+
+  const handleCreatePlaylistAndMaybeAdd = async (
+    name: string,
+    description: string | null,
+    items: readonly LibraryListItem[]
+  ) => {
+    const playlist = await controller.createLocalPlaylist(name, description);
+    if (items.length > 0) {
+      await controller.addItemsToPlaylist(playlist.playlist_id, items);
+    }
+  };
+
+  const handleConfirmAction = async () => {
+    const action = confirmAction();
+    if (!action) return;
+    if (action.kind === "delete-playlist") {
+      await controller.deleteLocalPlaylist(action.playlist.playlist_id);
+    } else if (action.kind === "remove-playlist-items") {
+      await controller.removeItemsFromSelectedPlaylist(action.items);
+    } else {
+      await controller.deleteItemsFromLibrary(action.items);
+    }
+  };
 
   const tabItems = () => [
     { value: "songs", label: t("library.tabs.songs") },
@@ -80,6 +195,30 @@ export function LibraryPage(props: LibraryPageProps) {
     { value: "folders", label: t("library.tabs.folders") }
   ];
 
+  const moreMenuItems = (): ContextMenuItem[] => [
+    {
+      key: "manage-roots",
+      label: t("library.action.manageRoots"),
+      icon: <IconFolder />
+    },
+    {
+      key: "batch",
+      label: t("library.action.batch"),
+      icon: <IconList />,
+      disabled: activePlaybackItems().length === 0
+    }
+  ];
+
+  const handleMoreMenuSelect = (key: string) => {
+    if (key === "manage-roots") {
+      controller.setManageOpen(true);
+      return;
+    }
+    if (key === "batch") {
+      controller.setSelectedMediaIds(activePlaybackItems().map((item) => item.id));
+    }
+  };
+
   return (
     <section class="panel panel-library panel-page">
       <header class="local-library-head">
@@ -87,11 +226,11 @@ export function LibraryPage(props: LibraryPageProps) {
           <h1>{t("library.title")}</h1>
           <div
             class="local-library-status"
-            aria-label={t(subtitleKey(), { count: controller.folderFilteredItems().length })}
+            aria-label={t("library.subtitle.complete", { count: controller.virtualTotal() })}
           >
             <span class="local-library-status-item">
               <IconMusic />
-              <span>{t("library.status.songCount", { count: controller.folderFilteredItems().length })}</span>
+              <span>{t("library.status.songCount", { count: controller.virtualTotal() })}</span>
             </span>
             <span class="local-library-status-item">
               <IconStorage />
@@ -105,7 +244,7 @@ export function LibraryPage(props: LibraryPageProps) {
               type="button"
               class="primary-button page-action local-library-play"
               onClick={handlePlayAll}
-              disabled={controller.filteredItems().length === 0 || controller.isFetching()}
+              disabled={activePlaybackCount() === 0 || controller.isFetching()}
             >
               <IconPlayCircle />
               <span>{t("library.action.playAll")}</span>
@@ -113,46 +252,73 @@ export function LibraryPage(props: LibraryPageProps) {
             <button
               type="button"
               class="ghost-button page-action local-library-circle"
-              onClick={controller.handleRefresh}
-              disabled={controller.isFetching() || controller.isScanning()}
-              aria-label={t("library.action.refresh")}
-              title={t("library.action.refresh")}
+              onClick={() => {
+                if (controller.activeTab() === "playlists") {
+                  openCreatePlaylist();
+                  return;
+                }
+                void controller.handleRefresh();
+              }}
+              disabled={
+                controller.activeTab() === "playlists"
+                  ? false
+                  : controller.isFetching() || controller.isScanning()
+              }
+              aria-label={
+                controller.activeTab() === "playlists"
+                  ? t("library.action.createPlaylist")
+                  : t("library.action.refresh")
+              }
+              title={
+                controller.activeTab() === "playlists"
+                  ? t("library.action.createPlaylist")
+                  : t("library.action.refresh")
+              }
             >
-              <IconRefresh />
+              <Show when={controller.activeTab() === "playlists"} fallback={<IconRefresh />}>
+                <IconPlus />
+              </Show>
             </button>
             <button
               type="button"
               class="ghost-button page-action local-library-circle"
-              onClick={() => controller.setManageOpen(true)}
-              aria-label={t("library.action.manageRoots")}
-              title={t("library.action.manageRoots")}
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect();
+                setMoreMenu({ open: true, x: rect.left, y: rect.bottom + 6 });
+              }}
+              aria-label={t("library.action.more")}
+              title={t("library.action.more")}
             >
               <IconList />
             </button>
           </div>
           <div class="local-library-menu-right">
-            <label class="local-library-search">
-              <IconSearch />
-              <input
-                value={controller.localQuery()}
-                placeholder={t("library.tracks.fuzzySearch")}
-                autocomplete="off"
-                onInput={(event) => controller.setLocalQuery(event.currentTarget.value)}
-              />
-            </label>
-            <label class="local-library-folder-select" aria-label={t("library.folderFilter.label")}>
-              <IconFolder />
-              <select
-                value={controller.selectedFolder()}
-                onChange={(event) => controller.setSelectedFolder(event.currentTarget.value)}
-              >
-                <option value={ALL_FOLDERS_VALUE}>{t("library.folderFilter.all")}</option>
-                <For each={controller.folderGroups()}>
-                  {(group) => <option value={group.key}>{group.label}</option>}
-                </For>
-              </select>
-              <IconChevronDown />
-            </label>
+            <Show when={controller.libraryTotalCount() > 0}>
+              <label class="local-library-search">
+                <IconSearch />
+                <input
+                  value={controller.localQuery()}
+                  placeholder={t("library.tracks.fuzzySearch")}
+                  autocomplete="off"
+                  onInput={(event) => controller.setLocalQuery(event.currentTarget.value)}
+                />
+              </label>
+            </Show>
+            <Show when={controller.activeTab() !== "folders"}>
+              <label class="local-library-folder-select" aria-label={t("library.folderFilter.label")}>
+                <IconFolder />
+                <select
+                  value={controller.selectedFolder()}
+                  onChange={(event) => controller.setSelectedFolder(event.currentTarget.value)}
+                >
+                  <option value={ALL_FOLDERS_VALUE}>{t("library.folderFilter.all")}</option>
+                  <For each={controller.folderGroups()}>
+                    {(group) => <option value={group.key}>{group.label}</option>}
+                  </For>
+                </select>
+                <IconChevronDown />
+              </label>
+            </Show>
             <SegmentedTabs
               value={controller.activeTab()}
               onChange={(next) => controller.setActiveTab(next as LibraryTab)}
@@ -164,39 +330,103 @@ export function LibraryPage(props: LibraryPageProps) {
       </header>
 
       <div class="local-library-router">
+        <Show when={selectedActionItems().length > 0}>
+          <div class="local-batch-toolbar">
+            <span class="local-batch-count">
+              {t("library.selection.count", { count: selectedActionItems().length })}
+            </span>
+            <button
+              type="button"
+              class="ghost-button page-action"
+              onClick={() => void controller.enqueueItems(selectedActionItems())}
+            >
+              <IconQueueAdd />
+              <span>{t("library.action.enqueueSelected")}</span>
+            </button>
+            <button
+              type="button"
+              class="ghost-button page-action"
+              onClick={() => openAddToPlaylist(selectedActionItems())}
+            >
+              <IconPlaylist />
+              <span>{t("library.action.addToPlaylist")}</span>
+            </button>
+            <Show when={controller.activeTab() === "playlists"}>
+              <button
+                type="button"
+                class="ghost-button page-action"
+                onClick={() => openRemoveFromPlaylist(selectedActionItems())}
+              >
+                <IconDelete />
+                <span>{t("library.action.removeFromPlaylist")}</span>
+              </button>
+            </Show>
+            <button
+              type="button"
+              class="ghost-button page-action danger-button"
+              onClick={() => openDeleteFromLibrary(selectedActionItems())}
+            >
+              <IconDelete />
+              <span>{t("library.action.deleteFromLibrary")}</span>
+            </button>
+            <button
+              type="button"
+              class="ghost-button page-action"
+              onClick={() => controller.setSelectedMediaIds([])}
+            >
+              {t("library.action.clearSelection")}
+            </button>
+          </div>
+        </Show>
+
         <Show when={controller.activeTab() === "songs"}>
           <Show
-            when={controller.filteredItems().length > 0}
+            when={controller.virtualTotal() > 0}
             fallback={
-              <div class="status-line">
-                {controller.allItems().length === 0
-                  ? t("library.tracks.emptyAll")
-                  : t("library.tracks.emptyFilter")}
-              </div>
+              <Show
+                when={controller.libraryTotalCount() === 0}
+                fallback={<div class="status-line">{t("library.tracks.emptyFilter")}</div>}
+              >
+                <div class="local-library-empty" role="status">
+                  <span class="empty-tab-icon" aria-hidden="true">
+                    <IconMusic />
+                  </span>
+                  <span>{t("library.tracks.emptyAll")}</span>
+                  <button
+                    type="button"
+                    class="primary-button page-action"
+                    onClick={() => controller.setManageOpen(true)}
+                  >
+                    <IconFolder />
+                    <span>{t("library.action.manageRoots")}</span>
+                  </button>
+                </div>
+              </Show>
             }
           >
             <MediaList
               items={controller.filteredItems()}
+              totalCount={controller.virtualTotal()}
+              virtualStart={controller.virtualRange().start}
               currentSourcePath={props.currentTrackPath}
+              currentMediaId={props.currentMediaId}
               isPlayingNow={props.isPlaying}
               onPlay={(item) => void handlePlay(item, controller.filteredItems())}
               onEnqueue={(item) => void handleEnqueue(item)}
+              onCopyPath={(item) => void controller.copyItemPath(item)}
               onContextAction={handleContextAction}
+              onVisibleRangeChange={controller.setVirtualRange}
               isLoading={controller.isFetching()}
               emptyState={t("library.tracks.emptyAll")}
+              selectable
+              selectedIds={controller.selectedMediaIds()}
+              onSelectedIdsChange={controller.setSelectedMediaIds}
+              contextActions={["play", "enqueue", "add-to-playlist", "copy-path", "delete"]}
+              deleteActionLabel={t("library.action.deleteFromLibrary")}
+              sort={controller.sort()}
+              onSortChange={controller.updateSort}
+              onSortOrderChange={controller.updateSortOrder}
             />
-          </Show>
-          <Show when={!controller.reachedEnd()}>
-            <div class="button-row">
-              <button
-                type="button"
-                class="ghost-button"
-                onClick={controller.handleLoadMore}
-                disabled={controller.isFetching()}
-              >
-                {controller.isFetching() ? t("library.tracks.loading") : t("library.tracks.loadMore")}
-              </button>
-            </div>
           </Show>
         </Show>
 
@@ -210,6 +440,12 @@ export function LibraryPage(props: LibraryPageProps) {
             onEnqueue={(item) => void handleEnqueue(item)}
             onContextAction={handleContextAction}
             isLoading={controller.isFetching()}
+            contextActions={["play", "enqueue", "add-to-playlist", "copy-path", "delete"]}
+            deleteActionLabel={t("library.action.deleteFromLibrary")}
+            sort={controller.sort()}
+            onSortChange={controller.updateSort}
+            onSortOrderChange={controller.updateSortOrder}
+            onActiveItemsChange={setGroupPlaybackItems}
           />
         </Show>
         <Show when={controller.activeTab() === "albums"}>
@@ -222,21 +458,50 @@ export function LibraryPage(props: LibraryPageProps) {
             onEnqueue={(item) => void handleEnqueue(item)}
             onContextAction={handleContextAction}
             isLoading={controller.isFetching()}
+            contextActions={["play", "enqueue", "add-to-playlist", "copy-path", "delete"]}
+            deleteActionLabel={t("library.action.deleteFromLibrary")}
+            sort={controller.sort()}
+            onSortChange={controller.updateSort}
+            onSortOrderChange={controller.updateSortOrder}
+            onActiveItemsChange={setGroupPlaybackItems}
           />
         </Show>
         <Show when={controller.activeTab() === "playlists"}>
-          <LibraryPlaylistPlaceholder onManageRoots={() => controller.setManageOpen(true)} />
-        </Show>
-        <Show when={controller.activeTab() === "folders"}>
-          <LibraryGroupedView
-            kind="folders"
-            groups={controller.folderGroups()}
+          <LibraryPlaylistsView
+            playlists={controller.localPlaylists()}
+            selectedPlaylistId={controller.selectedPlaylistId()}
+            items={controller.selectedPlaylistSortedItems()}
             currentTrackPath={props.currentTrackPath}
             isPlaying={props.isPlaying}
-            onPlay={(item, groupSongs) => void handlePlay(item, groupSongs)}
+            isLoading={controller.isFetching()}
+            selectedIds={controller.selectedMediaIds()}
+            sort={controller.sort()}
+            onSelectedIdsChange={controller.setSelectedMediaIds}
+            onSortChange={controller.updateSort}
+            onSortOrderChange={controller.updateSortOrder}
+            onSelectPlaylist={(playlistId) => void controller.selectLocalPlaylist(playlistId)}
+            onCreatePlaylist={openCreatePlaylist}
+            onDeletePlaylist={(playlist) => setConfirmAction({ kind: "delete-playlist", playlist })}
+            onPlay={(item, playlistSongs) => void handlePlay(item, playlistSongs)}
             onEnqueue={(item) => void handleEnqueue(item)}
             onContextAction={handleContextAction}
+          />
+        </Show>
+        <Show when={controller.activeTab() === "folders"}>
+          <LibraryFoldersView
+            nodes={controller.folderTree()}
+            selectedFolder={controller.selectedFolder()}
+            items={controller.filteredItems()}
+            currentTrackPath={props.currentTrackPath}
+            isPlaying={props.isPlaying}
             isLoading={controller.isFetching()}
+            sort={controller.sort()}
+            onSortChange={controller.updateSort}
+            onSortOrderChange={controller.updateSortOrder}
+            onSelectFolder={controller.setSelectedFolder}
+            onPlay={(item, folderSongs) => void handlePlay(item, folderSongs)}
+            onEnqueue={(item) => void handleEnqueue(item)}
+            onContextAction={handleContextAction}
           />
         </Show>
       </div>
@@ -252,6 +517,14 @@ export function LibraryPage(props: LibraryPageProps) {
           {controller.feedback().message}
         </div>
       </Show>
+      <ContextMenu
+        open={moreMenu().open}
+        x={moreMenu().x}
+        y={moreMenu().y}
+        items={moreMenuItems()}
+        onSelect={handleMoreMenuSelect}
+        onClose={() => setMoreMenu((current) => ({ ...current, open: false }))}
+      />
       <Show when={controller.scanProgress()}>
         {(progress) => (
           <div class="local-library-scan-progress" role="status">
@@ -272,6 +545,22 @@ export function LibraryPage(props: LibraryPageProps) {
         onAddRoot={controller.handleScan}
         onRescan={controller.handleRescan}
         formatScanTimestamp={controller.formatScanTimestamp}
+      />
+      <LibraryPlaylistTargetModal
+        open={playlistModalItems() !== null}
+        items={playlistModalItems() ?? []}
+        playlists={controller.localPlaylists()}
+        onClose={() => setPlaylistModalItems(null)}
+        onAddToPlaylist={handleAddToExistingPlaylist}
+        onCreateAndAdd={handleCreatePlaylistAndMaybeAdd}
+      />
+      <LibraryConfirmActionModal
+        open={confirmAction() !== null}
+        title={confirmTitle()}
+        body={confirmBody()}
+        confirmLabel={confirmLabel()}
+        onClose={() => setConfirmAction(null)}
+        onConfirm={handleConfirmAction}
       />
     </section>
   );
