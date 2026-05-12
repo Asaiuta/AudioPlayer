@@ -102,6 +102,18 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig) {
             web::post().to(play_from_persistent_queue),
         )
         .route(
+            "/domain/queue/play_next",
+            web::post().to(play_next_queue_entry),
+        )
+        .route(
+            "/domain/queue/play_previous",
+            web::post().to(play_previous_queue_entry),
+        )
+        .route(
+            "/domain/queue/adjacent",
+            web::get().to(get_queue_adjacent_entries),
+        )
+        .route(
             "/domain/queue/{entry_id}",
             web::delete().to(remove_persistent_queue_entry),
         )
@@ -475,6 +487,17 @@ fn load_queue_entry_for_playback(
 
 fn same_media_identity(left: &str, right: &str) -> bool {
     media_id_for_path(left) == media_id_for_path(right)
+}
+
+fn current_queue_cursor_path(data: &web::Data<Arc<AppState>>) -> Option<String> {
+    let player = data.player.lock();
+    let shared = player.shared_state();
+    let current_track_path = shared.current_track_path.read().clone();
+    if current_track_path.is_some() {
+        return current_track_path;
+    }
+    let file_path = shared.file_path.read().clone();
+    file_path
 }
 
 #[cfg(test)]
@@ -2216,6 +2239,91 @@ async fn play_from_persistent_queue(
             e
         ))),
     }
+}
+
+async fn play_next_queue_entry(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let Some(current_path) = current_queue_cursor_path(&data) else {
+        return HttpResponse::NotFound().json(ApiResponse::error("Next queue entry not found"));
+    };
+    let entry = match data
+        .app_db
+        .peek_next_queue_entry("active", Some(&current_path))
+    {
+        Ok(Some(entry)) => entry,
+        Ok(None) => {
+            return HttpResponse::NotFound().json(ApiResponse::error("Next queue entry not found"))
+        }
+        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    };
+
+    match load_queue_entry_for_playback(&data, entry, true) {
+        Ok((state, _shared_state)) => HttpResponse::Ok().json(ApiResponse::success_with_state(
+            "Next queue entry started",
+            state,
+        )),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&format!(
+            "Failed to play next queue entry: {}",
+            e
+        ))),
+    }
+}
+
+async fn play_previous_queue_entry(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let Some(current_path) = current_queue_cursor_path(&data) else {
+        return HttpResponse::NotFound().json(ApiResponse::error("Previous queue entry not found"));
+    };
+    let entry = match data
+        .app_db
+        .peek_previous_queue_entry("active", Some(&current_path))
+    {
+        Ok(Some(entry)) => entry,
+        Ok(None) => {
+            return HttpResponse::NotFound()
+                .json(ApiResponse::error("Previous queue entry not found"))
+        }
+        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    };
+
+    match load_queue_entry_for_playback(&data, entry, true) {
+        Ok((state, _shared_state)) => HttpResponse::Ok().json(ApiResponse::success_with_state(
+            "Previous queue entry started",
+            state,
+        )),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&format!(
+            "Failed to play previous queue entry: {}",
+            e
+        ))),
+    }
+}
+
+async fn get_queue_adjacent_entries(data: web::Data<Arc<AppState>>) -> HttpResponse {
+    let Some(current_path) = current_queue_cursor_path(&data) else {
+        return HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "previous_entry_id": null,
+            "next_entry_id": null
+        }));
+    };
+    let previous = match data
+        .app_db
+        .peek_previous_queue_entry("active", Some(&current_path))
+    {
+        Ok(entry) => entry,
+        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    };
+    let next = match data
+        .app_db
+        .peek_next_queue_entry("active", Some(&current_path))
+    {
+        Ok(entry) => entry,
+        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+    };
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "success",
+        "previous_entry_id": previous.as_ref().map(|entry| entry.entry_id),
+        "next_entry_id": next.as_ref().map(|entry| entry.entry_id)
+    }))
 }
 
 async fn cancel_preload(data: web::Data<Arc<AppState>>) -> HttpResponse {

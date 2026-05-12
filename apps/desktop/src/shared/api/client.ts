@@ -67,6 +67,9 @@ export interface ApiClient {
   removeQueueEntry: (entryId: number) => Promise<QueueEntry[]>;
   clearPersistentQueue: () => Promise<void>;
   playFromQueue: (options?: PlayQueueOptions) => Promise<PlayerState>;
+  playNextQueueEntry: () => Promise<PlayerState>;
+  playPreviousQueueEntry: () => Promise<PlayerState>;
+  getQueueAdjacent: () => Promise<QueueAdjacent>;
   replaceQueue: (paths: string[]) => Promise<QueueEntry[]>;
   // WebDAV
   listWebDavSources: () => Promise<WebDavSource[]>;
@@ -88,6 +91,11 @@ interface LoadOptions {
 export interface PlayQueueOptions {
   entryId?: number;
   sourcePath?: string;
+}
+
+export interface QueueAdjacent {
+  previousEntryId: number | null;
+  nextEntryId: number | null;
 }
 
 export interface ExternalMediaMetadataInput {
@@ -818,6 +826,25 @@ const parseNcmLikelistIdsResponse = (value: unknown): number[] => {
   return ids;
 };
 
+const readNullableIntegerField = (record: Record<string, unknown>, key: string): number | null => {
+  const value = record[key];
+  if (value === null || value === undefined) return null;
+  if (!isInteger(value)) {
+    throw new Error(`Invalid queue adjacent ${key}`);
+  }
+  return value;
+};
+
+const parseQueueAdjacentResponse = (value: unknown): QueueAdjacent => {
+  if (!isRecord(value) || value.status !== "success") {
+    throw new Error("Invalid queue adjacent response");
+  }
+  return {
+    previousEntryId: readNullableIntegerField(value, "previous_entry_id"),
+    nextEntryId: readNullableIntegerField(value, "next_entry_id")
+  };
+};
+
 const requestJson = async (baseUrl: string, path: string, init?: RequestInit) => {
   const runRequest = async (forceTokenRefresh: boolean) => {
     const token = await resolveApiToken(forceTokenRefresh);
@@ -1272,6 +1299,28 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       throw new Error("State missing from response");
     }
     return envelope.state;
+  },
+  playNextQueueEntry: async () => {
+    const envelope = await requestEnvelope(baseUrl, "/domain/queue/play_next", {
+      method: "POST"
+    });
+    if (envelope.status === "error" || !envelope.state) {
+      throw new Error(envelope.message ?? "Failed to play next queue entry");
+    }
+    return envelope.state;
+  },
+  playPreviousQueueEntry: async () => {
+    const envelope = await requestEnvelope(baseUrl, "/domain/queue/play_previous", {
+      method: "POST"
+    });
+    if (envelope.status === "error" || !envelope.state) {
+      throw new Error(envelope.message ?? "Failed to play previous queue entry");
+    }
+    return envelope.state;
+  },
+  getQueueAdjacent: async () => {
+    const json = await requestJson(baseUrl, "/domain/queue/adjacent");
+    return parseQueueAdjacentResponse(json);
   },
   replaceQueue: async (paths: string[]) => {
     const json = await requestJson(baseUrl, "/domain/queue", {

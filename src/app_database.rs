@@ -2108,6 +2108,50 @@ impl AppDatabase {
             .map_err(|e| format!("Failed to peek next queue entry: {}", e))
     }
 
+    pub fn peek_previous_queue_entry(
+        &self,
+        queue_id: &str,
+        before_source_path: Option<&str>,
+    ) -> Result<Option<QueueEntryRecord>, String> {
+        let Some(media_id) = before_source_path.map(media_id_for_path) else {
+            return Ok(None);
+        };
+
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        conn.query_row(
+            r#"
+            SELECT queue_id, entry_id, position_index, shuffle_index, source_path, media_id, status, added_at, updated_at
+            FROM playback_queue_entries
+            WHERE queue_id = ?1
+              AND COALESCE(shuffle_index, position_index) < (
+                  SELECT COALESCE(q2.shuffle_index, q2.position_index)
+                  FROM playback_queue_entries q2
+                  WHERE q2.queue_id = ?1 AND q2.media_id = ?2
+                  ORDER BY COALESCE(q2.shuffle_index, q2.position_index) ASC, q2.entry_id ASC
+                  LIMIT 1
+              )
+            ORDER BY COALESCE(shuffle_index, position_index) DESC, entry_id DESC
+            LIMIT 1
+            "#,
+            params![queue_id, media_id],
+            |row| {
+                Ok(QueueEntryRecord {
+                    queue_id: row.get(0)?,
+                    entry_id: row.get(1)?,
+                    position_index: row.get(2)?,
+                    shuffle_index: row.get(3)?,
+                    source_path: row.get(4)?,
+                    media_id: row.get(5)?,
+                    status: row.get(6)?,
+                    added_at_epoch_secs: row.get::<_, i64>(7)? as u64,
+                    updated_at_epoch_secs: row.get::<_, i64>(8)? as u64,
+                })
+            },
+        )
+        .optional()
+        .map_err(|e| format!("Failed to peek previous queue entry: {}", e))
+    }
+
     pub fn shuffle_entries(&self, queue_id: &str) -> Result<(), String> {
         let mut conn = self.conn.lock().map_err(|e| e.to_string())?;
         let tx = conn
@@ -2905,6 +2949,12 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(next.source_path, "D:/music/c.flac");
+
+        let previous = db
+            .peek_previous_queue_entry("active", Some("D:/music/c.flac"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(previous.source_path, "D:/music/b.flac");
     }
 
     #[test]
@@ -2995,6 +3045,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(next.source_path, "D:\\Music\\b.flac");
+
+        let previous = db
+            .peek_previous_queue_entry("active", Some(r"\\?\D:\Music\c.flac"))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(previous.source_path, "D:\\Music\\b.flac");
     }
 
     #[test]

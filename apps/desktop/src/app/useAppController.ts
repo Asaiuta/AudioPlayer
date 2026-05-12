@@ -18,7 +18,7 @@ import { useEngineSocket } from "../shared/api/useEngineSocket";
 import { useUISettings } from "../shared/state/useUISettings";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
 import { applyDynamicAccent, extractAccent } from "../shared/styles/dynamicAccent";
-import type { ApiClient } from "../shared/api/client";
+import type { ApiClient, QueueAdjacent } from "../shared/api/client";
 import {
   firstNonEmpty,
   readErrorMessage,
@@ -132,6 +132,10 @@ export function useAppController(api: ApiClient): AppController {
   const [preloadRequested, setPreloadRequested] = createSignal(false);
   const [commandError, setCommandError] = createSignal<string | null>(null);
   const [queueEntries, setQueueEntries] = createSignal<QueueEntry[]>([]);
+  const [queueAdjacent, setQueueAdjacent] = createSignal<QueueAdjacent>({
+    previousEntryId: null,
+    nextEntryId: null
+  });
   const [queueDrawerOpen, setQueueDrawerOpen] = createSignal(false);
   const [livePosition, setLivePosition] = createSignal<number | null>(null);
   const [fullPlayerOpen, setFullPlayerOpen] = createSignal(false);
@@ -248,8 +252,14 @@ export function useAppController(api: ApiClient): AppController {
     try {
       const entries = await api.getPersistentQueue();
       setQueueEntries(entries);
+      try {
+        setQueueAdjacent(await api.getQueueAdjacent());
+      } catch {
+        setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
+      }
     } catch {
       setQueueEntries([]);
+      setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
     }
   };
 
@@ -512,39 +522,27 @@ export function useAppController(api: ApiClient): AppController {
     }
   };
 
-  const queueNeighbors = createMemo(() => {
-    const path = currentTrackPath();
-    const entries = queueEntries();
-    if (!path || entries.length === 0) {
-      return { prevEntryId: null as number | null, nextEntryId: null as number | null };
+  const prevEntryId = createMemo(() => queueAdjacent().previousEntryId);
+  const nextEntryId = createMemo(() => queueAdjacent().nextEntryId);
+  const handleSkipPrev = async () => {
+    setCommandError(null);
+    try {
+      const next = await api.playPreviousQueueEntry();
+      applyPlayerState(next);
+      await Promise.all([refreshState(next.file_path), refreshQueue()]);
+    } catch (error) {
+      setCommandError(readErrorMessage(error));
     }
-
-    const mediaId = currentMediaId();
-    const index = entries.findIndex((entry) =>
-      mediaId
-        ? entry.media_id === mediaId || sameMediaPath(entry.source_path, path)
-        : sameMediaPath(entry.source_path, path)
-    );
-    if (index < 0) {
-      return { prevEntryId: null, nextEntryId: null };
-    }
-
-    return {
-      prevEntryId: index > 0 ? entries[index - 1].entry_id : null,
-      nextEntryId: index < entries.length - 1 ? entries[index + 1].entry_id : null
-    };
-  });
-  const prevEntryId = createMemo(() => queueNeighbors().prevEntryId);
-  const nextEntryId = createMemo(() => queueNeighbors().nextEntryId);
-  const handleSkipPrev = () => {
-    const entryId = prevEntryId();
-    if (entryId === null) return;
-    return playQueueEntry(entryId);
   };
-  const handleSkipNext = () => {
-    const entryId = nextEntryId();
-    if (entryId === null) return;
-    return playQueueEntry(entryId);
+  const handleSkipNext = async () => {
+    setCommandError(null);
+    try {
+      const next = await api.playNextQueueEntry();
+      applyPlayerState(next);
+      await Promise.all([refreshState(next.file_path), refreshQueue()]);
+    } catch (error) {
+      setCommandError(readErrorMessage(error));
+    }
   };
   const handlePlayQueueEntry = (entryId: number) => playQueueEntry(entryId, { rethrow: true });
   const handleRemoveQueueEntry = async (entryId: number) => {
