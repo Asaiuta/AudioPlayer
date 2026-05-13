@@ -6,6 +6,9 @@ import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import { snapSeekPositionToLyrics, type NcmLyricLine } from "../features/online/ncmPlayback";
 import { CoverArt } from "./CoverArt";
 import { MarqueeText } from "./MarqueeText";
+import { PlayerProgressEdge } from "./player/PlayerProgressEdge";
+import { PlayerTransportControls } from "./player/PlayerTransportControls";
+import { clamp01, formatTime } from "./player/time";
 import {
   IconControls,
   IconDesktopLyric,
@@ -13,17 +16,11 @@ import {
   IconHeart,
   IconHeartFilled,
   IconList,
-  IconPause,
-  IconPlay,
   IconRepeat,
   IconRepeatOne,
-  IconShuffle,
-  IconSkipNext,
-  IconSkipPrev,
   IconPlaylist,
   IconVolumeHigh,
-  IconVolumeMute,
-  IconSpinner
+  IconVolumeMute
 } from "./icons";
 
 type WsStatus = "connected" | "connecting" | "disconnected";
@@ -61,18 +58,6 @@ interface PlayerBarProps {
 }
 
 const COMMAND_ERROR_AUTO_DISMISS_MS = 4000;
-
-const formatTime = (value: number) => {
-  if (!Number.isFinite(value)) {
-    return "0:00";
-  }
-  const total = Math.max(0, Math.floor(value));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
-
-const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
 const ARTIST_SEPARATOR = /\s*(?:[\/,;&、]|\sfeat\.\s|\sft\.\s)\s*/i;
 const PLAYER_TIME_FORMATS: readonly PlayerTimeFormat[] = [
@@ -504,56 +489,32 @@ export function PlayerBar(props: PlayerBarProps) {
         </div>
       </Show>
       <footer
-        class={`player-bar relative z-10 w-full${isBarVisible() ? " is-visible" : ""}`}
+        class={`player-bar z-10 w-full${isBarVisible() ? " is-visible" : ""}`}
         aria-label={t("player.aria.controls")}
         aria-hidden={!isBarVisible()}
       >
-        <div
-          ref={progressEdgeRef}
-          class={`player-progress-edge absolute left-0 right-0 top--8px h-16px overflow-visible bg-transparent border-0 rounded-none${canSeek() ? " is-interactive" : ""}${isDragging() ? " is-dragging" : ""}`}
-          role={canSeek() ? "slider" : "presentation"}
-          aria-label={canSeek() ? t("player.aria.seek") : undefined}
-          aria-valuemin={canSeek() ? 0 : undefined}
-          aria-valuemax={canSeek() ? Math.round(duration()) : undefined}
-          aria-valuenow={canSeek() ? Math.round(displayTime()) : undefined}
-          tabIndex={canSeek() ? 0 : -1}
+        <PlayerProgressEdge
+          canSeek={canSeek()}
+          isDragging={isDragging()}
+          displayTime={displayTime()}
+          duration={duration()}
+          progress={progress()}
+          loadingProgress={props.loadingProgress}
+          showTooltip={canSeek() && uiSettings.progressTooltipShow}
+          hoverRatio={hoverRatio()}
+          hoverTime={hoverTime()}
+          hoverLyric={nearestLyricText(hoverTime() ?? 0)}
+          seekLabel={t("player.aria.seek")}
+          setRef={(element) => {
+            progressEdgeRef = element;
+          }}
           onClick={handleProgressClick}
           onMouseDown={handleProgressMouseDown}
           onMouseEnter={handleProgressMouseEnter}
           onMouseMove={handleProgressMouseMove}
           onMouseLeave={handleProgressMouseLeave}
           onKeyDown={handleProgressKeyDown}
-        >
-          <div class="player-progress-edge-fill absolute top-1/2 left-0 h-3px" style={{ width: `${progress() * 100}%` }}>
-            <div class="player-progress-edge-thumb absolute top-1/2 right-0 w-14px h-14px opacity-0 pointer-events-none" aria-hidden="true" />
-          </div>
-          <Show when={props.loadingProgress !== null}>
-            <div
-              class="player-progress-edge-loading absolute top-1/2 left-0 h-3px"
-              style={{ width: `${props.loadingProgress ?? 0}%` }}
-              aria-hidden="true"
-            />
-          </Show>
-          <Show
-            when={
-              canSeek() &&
-              uiSettings.progressTooltipShow &&
-              hoverRatio() !== null &&
-              hoverTime() !== null
-            }
-          >
-              <div
-                class="player-progress-tooltip absolute inline-flex items-center gap-1.5 max-w-320px text-xs whitespace-nowrap pointer-events-none"
-                role="tooltip"
-              style={{ left: `${(hoverRatio() ?? 0) * 100}%` }}
-            >
-              <span class="player-progress-tooltip-time font-semibold">{formatTime(hoverTime() ?? 0)}</span>
-              <Show when={nearestLyricText(hoverTime() ?? 0)}>
-                  {(text) => <span class="player-progress-tooltip-lyric overflow-hidden text-ellipsis max-w-240px">{text()}</span>}
-              </Show>
-            </div>
-          </Show>
-        </div>
+        />
 
         <div class={`player-bar-left flex items-center min-w-0 h-full${uiSettings.hiddenCovers.player ? " is-cover-hidden" : ""}`}>
           <Show when={!uiSettings.hiddenCovers.player}>
@@ -664,81 +625,28 @@ export function PlayerBar(props: PlayerBarProps) {
         </div>
 
         <div class="player-bar-center flex items-center justify-center h-full">
-          <div class="player-bar-transport inline-flex items-center gap-2" role="group" aria-label={t("player.aria.transport")}>
-            <button
-              type="button"
-              class={`transport-button mode-button${shuffleActive() ? " is-active" : ""}`}
-              onClick={props.onToggleShuffle}
-              aria-label={shuffleLabel()}
-              aria-pressed={shuffleActive()}
-              title={shuffleLabel()}
-            >
-              <IconShuffle />
-            </button>
-            <button
-              type="button"
-              class="transport-button"
-              onClick={props.onSkipPrev}
-              disabled={!props.canSkipPrev}
-              aria-label={t("player.aria.prev")}
-              title={t("player.title.prev")}
-            >
-              <IconSkipPrev />
-            </button>
-            <button
-              type="button"
-              class={`transport-button transport-primary${props.isPlayLoading ? " is-loading" : ""}`}
-              onClick={handlePlayPauseClick}
-              aria-label={playPauseLabel()}
-              title={playPauseLabel()}
-              disabled={props.isPlayLoading}
-            >
-              <Show
-                when={props.isPlayLoading}
-                fallback={
-                  <Show
-                    when={isPlaying()}
-                    fallback={
-                      <span class="transport-icon-swap" aria-hidden="true">
-                        <IconPlay />
-                      </span>
-                    }
-                  >
-                    <span class="transport-icon-swap" aria-hidden="true">
-                      <IconPause />
-                    </span>
-                  </Show>
-                }
-              >
-                <span class="transport-icon-swap transport-spinner" aria-hidden="true">
-                  <IconSpinner />
-                </span>
-              </Show>
-            </button>
-            <button
-              type="button"
-              class="transport-button"
-              onClick={props.onSkipNext}
-              disabled={!props.canSkipNext}
-              aria-label={t("player.aria.next")}
-              title={t("player.title.next")}
-            >
-              <IconSkipNext />
-            </button>
-            <button
-              type="button"
-              class={`transport-button mode-button${repeatActive() ? " is-active" : ""}`}
-              onClick={props.onCycleRepeat}
-              aria-label={repeatLabel()}
-              aria-pressed={repeatActive()}
-              title={repeatLabel()}
-            >
-              {(() => {
-                const Icon = RepeatIcon();
-                return <Icon />;
-              })()}
-            </button>
-          </div>
+          <PlayerTransportControls
+            isPlaying={isPlaying()}
+            isPlayLoading={Boolean(props.isPlayLoading)}
+            canSkipPrev={props.canSkipPrev}
+            canSkipNext={props.canSkipNext}
+            shuffleActive={shuffleActive()}
+            repeatActive={repeatActive()}
+            repeatIcon={RepeatIcon()}
+            playPauseLabel={playPauseLabel()}
+            shuffleLabel={shuffleLabel()}
+            repeatLabel={repeatLabel()}
+            prevLabel={t("player.aria.prev")}
+            prevTitle={t("player.title.prev")}
+            nextLabel={t("player.aria.next")}
+            nextTitle={t("player.title.next")}
+            transportLabel={t("player.aria.transport")}
+            onPlayPause={handlePlayPauseClick}
+            onSkipPrev={props.onSkipPrev}
+            onSkipNext={props.onSkipNext}
+            onToggleShuffle={props.onToggleShuffle}
+            onCycleRepeat={props.onCycleRepeat}
+          />
         </div>
 
         <div class="player-bar-right flex items-center justify-end h-full">

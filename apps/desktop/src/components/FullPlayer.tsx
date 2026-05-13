@@ -1,22 +1,22 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
-import type { Accessor } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { RepeatMode, ShuffleMode } from "../shared/api/types";
 import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import {
   readSongCommentsPayload,
   songComments,
-  type NcmSongComment,
   type NcmSongCommentsPayload
 } from "../shared/api/ncm/comment";
 import { useTranslation } from "../shared/i18n";
 import {
   findActiveLyricIndex,
   snapSeekPositionToLyrics,
-  type NcmLyricLine,
-  type NcmLyricWord
+  type NcmLyricLine
 } from "../features/online/ncmPlayback";
 import { SpectrumCanvas } from "../features/playback/SpectrumCanvas";
 import { CoverArt } from "./CoverArt";
+import { FullPlayerComments } from "./player/FullPlayerComments";
+import { FullPlayerLyrics } from "./player/FullPlayerLyrics";
+import { clamp01, formatTime } from "./player/time";
 import {
   IconChevronDown,
   IconControls,
@@ -81,35 +81,8 @@ interface FullPlayerProps {
   onToggleLike?: () => void;
 }
 
-const formatTime = (value: number) => {
-  if (!Number.isFinite(value)) return "0:00";
-  const total = Math.max(0, Math.floor(value));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
-
-const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const META_HIDE_DELAY_MS = 3000;
 const clampLyricScrollOffset = (value: number) => Math.min(0.9, Math.max(0.1, value));
-
-const lyricLineProgress = (line: NcmLyricLine, currentTime: number): number => {
-  if (line.endTime === null || line.endTime <= line.time) {
-    return currentTime >= line.time ? 1 : 0;
-  }
-  return clamp01((currentTime - line.time) / (line.endTime - line.time));
-};
-
-const lyricWordProgress = (word: NcmLyricWord, currentTime: number): number => {
-  const duration = word.endTime - word.startTime;
-  if (duration <= 0) {
-    return currentTime >= word.startTime ? 1 : 0;
-  }
-  return clamp01((currentTime - word.startTime) / duration);
-};
-
-const timedWords = (line: NcmLyricLine) =>
-  line.words && line.words.length > 0 ? line.words : null;
 
 const stripBracketedContent = (value: string): string => {
   const stripped = value
@@ -243,6 +216,11 @@ export function FullPlayer(props: FullPlayerProps) {
     if (align === "center") return "center";
     return align === "flex-end" ? "right" : "left";
   };
+  const lyricTransformOrigin = () => {
+    const align = lyricLineAlign();
+    if (align === "center") return "center";
+    return align === "flex-end" ? "right center" : "left center";
+  };
   const playerStyleRatio = () => Math.min(70, Math.max(30, uiSettings.playerStyleRatio));
   const backgroundFlowSpeed = () => Math.min(10, Math.max(0.1, uiSettings.playerBackgroundFlowSpeed));
   const lowFrequencyEnergy = createMemo(() => {
@@ -265,7 +243,9 @@ export function FullPlayer(props: FullPlayerProps) {
     };
   });
   const stageStyle = createMemo(() => {
-    if (pureLyricMode() || showComment() || uiSettings.playerType === "fullscreen") return undefined;
+    if (pureLyricMode() || showComment() || uiSettings.playerType === "fullscreen") {
+      return undefined;
+    }
     const coverRatio = playerStyleRatio();
     return {
       "grid-template-columns": `minmax(320px, ${coverRatio}fr) minmax(420px, ${100 - coverRatio}fr)`
@@ -638,65 +618,43 @@ export function FullPlayer(props: FullPlayerProps) {
         </div>
 
         <Show when={showComment()}>
-          <div class={commentPanelClassName()}>
-            <div class={`full-player-comment-song${uiSettings.hiddenCovers.player ? " is-cover-hidden" : ""}`}>
-              <Show when={!uiSettings.hiddenCovers.player}>
-                <CoverArt coverUrl={props.coverUrl} alt={props.title || t("cover.alt")} />
-              </Show>
-              <div class="full-player-comment-song-info">
-                <span class="full-player-comment-song-title">{props.title || t("player.fallback.empty")}</span>
-                <span class="full-player-comment-song-artist">
-                  {props.subtitle || t("player.subtitle.empty")}
-                </span>
-              </div>
-              <button
-                type="button"
-                class="full-player-comment-close"
-                onClick={() => setShowComment(false)}
-                aria-label={t("fullPlayer.comment.backToMusic")}
-                title={t("fullPlayer.comment.backToMusic")}
-              >
-                <IconPlay />
-              </button>
-            </div>
-
-            <div class="full-player-comment-scroll">
-              <Show when={commentsState().status === "loading"}>
-                <div class="full-player-comment-placeholder">{t("fullPlayer.comment.loading")}</div>
-              </Show>
-              <Show when={commentsState().status === "error"}>
-                <div class="full-player-comment-placeholder">{commentsError()}</div>
-              </Show>
-              <Show when={commentsState().status === "success" && commentCount() === 0}>
-                <div class="full-player-comment-placeholder">{t("fullPlayer.comment.empty")}</div>
-              </Show>
-              <Show when={visibleHotComments().length > 0}>
-                <section class="full-player-comment-section">
-                  <h3>{t("fullPlayer.comment.hot")}</h3>
-                  <For each={visibleHotComments()}>
-                    {(comment) => <CommentItem comment={comment} />}
-                  </For>
-                </section>
-              </Show>
-              <Show when={visibleComments().length > 0}>
-                <section class="full-player-comment-section">
-                  <h3>
-                    {t("fullPlayer.comment.all")}
-                    <Show when={commentCount() > 0}>
-                      <span>{commentCount()}</span>
-                    </Show>
-                  </h3>
-                  <For each={visibleComments()}>
-                    {(comment) => <CommentItem comment={comment} />}
-                  </For>
-                </section>
-              </Show>
-            </div>
-          </div>
+          <FullPlayerComments
+            className={commentPanelClassName()}
+            songClassName={`full-player-comment-song${uiSettings.hiddenCovers.player ? " is-cover-hidden" : ""}`}
+            coverUrl={props.coverUrl}
+            title={props.title || t("player.fallback.empty")}
+            subtitle={props.subtitle || t("player.subtitle.empty")}
+            coverAlt={props.title || t("cover.alt")}
+            backLabel={t("fullPlayer.comment.backToMusic")}
+            loadingLabel={t("fullPlayer.comment.loading")}
+            emptyLabel={t("fullPlayer.comment.empty")}
+            errorLabel={commentsError()}
+            hotLabel={t("fullPlayer.comment.hot")}
+            allLabel={t("fullPlayer.comment.all")}
+            commentsStatus={commentsState().status}
+            commentCount={commentCount()}
+            hotComments={visibleHotComments()}
+            comments={visibleComments()}
+            showCover={() => !uiSettings.hiddenCovers.player}
+            onClose={() => setShowComment(false)}
+          />
         </Show>
 
-        <div
-          class="full-player-lyric-panel"
+        <FullPlayerLyrics
+          lyrics={lyrics()}
+          lyricNow={lyricNow()}
+          activeLyricIndex={activeLyricIndex}
+          currentTime={currentTime}
+          lyricsBlur={() => uiSettings.lyricsBlur}
+          showWordLyrics={() => uiSettings.showWordLyrics}
+          showTranslation={() => uiSettings.showLyricTranslation}
+          showRomanization={() => uiSettings.showLyricRomanization}
+          swapTranslationRomanization={() => uiSettings.swapLyricTranslationRomanization}
+          onSeek={handleLyricSeek}
+          lyricListRef={(element) => {
+            lyricListRef = element;
+          }}
+          ariaLabel={t("fullPlayer.lyric.aria")}
           style={{
             "--lyric-font-size": `${uiSettings.lyricFontSize}px`,
             "--lyric-font-weight": String(uiSettings.lyricFontWeight),
@@ -704,43 +662,11 @@ export function FullPlayer(props: FullPlayerProps) {
             "--lyric-romanization-font-size": `${uiSettings.lyricRomanizationFontSize}px`,
             "--lyric-line-align": lyricLineAlign(),
             "--lyric-text-align": lyricTextAlign(),
+            "--lyric-transform-origin": lyricTransformOrigin(),
             "--lyric-horizontal-offset": `${uiSettings.lyricHorizontalOffset}px`,
             "--lyric-blend-mode": uiSettings.lyricsBlendMode
           }}
-        >
-          <div class="full-player-lyric-now">{lyricNow()}</div>
-          <div
-            ref={lyricListRef}
-            class="full-player-lyric-list"
-            aria-label={t("fullPlayer.lyric.aria")}
-          >
-            <Show
-              when={lyrics().length > 0}
-              fallback={
-                <div class="full-player-lyric-line is-active is-placeholder">
-                  <span class="full-player-lyric-text">{lyricNow()}</span>
-                </div>
-              }
-            >
-              <For each={lyrics()}>
-                {(line, index) => (
-                  <LyricLine
-                    line={line}
-                    index={index}
-                    activeIndex={activeLyricIndex}
-                    currentTime={currentTime}
-                    lyricsBlur={() => uiSettings.lyricsBlur}
-                    showWordLyrics={() => uiSettings.showWordLyrics}
-                    showTranslation={() => uiSettings.showLyricTranslation}
-                    showRomanization={() => uiSettings.showLyricRomanization}
-                    swapTranslationRomanization={() => uiSettings.swapLyricTranslationRomanization}
-                    onSeek={handleLyricSeek}
-                  />
-                )}
-              </For>
-            </Show>
-          </div>
-        </div>
+        />
       </div>
 
       <div
@@ -963,132 +889,5 @@ export function FullPlayer(props: FullPlayerProps) {
         </div>
       </Show>
     </div>
-  );
-}
-
-interface LyricLineProps {
-  line: NcmLyricLine;
-  index: Accessor<number>;
-  activeIndex: Accessor<number>;
-  currentTime: Accessor<number>;
-  lyricsBlur: Accessor<boolean>;
-  showWordLyrics: Accessor<boolean>;
-  showTranslation: Accessor<boolean>;
-  showRomanization: Accessor<boolean>;
-  swapTranslationRomanization: Accessor<boolean>;
-  onSeek: (line: NcmLyricLine) => void;
-}
-
-function LyricLine(props: LyricLineProps) {
-  const isActive = createMemo(() => props.index() === props.activeIndex());
-  const activeWords = createMemo(() =>
-    isActive() && props.showWordLyrics() ? timedWords(props.line) : null
-  );
-  const lineStyle = createMemo(() => {
-    const active = isActive();
-    const activeIndex = props.activeIndex();
-    const distance = activeIndex < 0 ? 0 : Math.abs(activeIndex - props.index());
-    const opacity = active ? 1 : Math.max(0.12, 0.34 - distance * 0.045);
-    const blur = active || !props.lyricsBlur() ? 0 : Math.min(distance * 1.6, 8);
-    const progress = active ? lyricLineProgress(props.line, props.currentTime()) : 0;
-
-    return {
-      "--line-progress": `${progress * 100}%`,
-      opacity: String(opacity),
-      filter: `blur(${String(blur)}px)`
-    };
-  });
-  const className = createMemo(() =>
-    `full-player-lyric-line${isActive() ? " is-active" : ""}`
-  );
-
-  return (
-    <div
-      data-lyric-index={String(props.index())}
-      class={className()}
-      style={lineStyle()}
-      onClick={() => props.onSeek(props.line)}
-    >
-      <Show
-        when={activeWords()}
-        fallback={<span class="full-player-lyric-text">{props.line.text}</span>}
-      >
-        {(words) => (
-          <span class="full-player-lyric-words">
-            <For each={words()}>
-              {(word) => <LyricWord word={word} currentTime={props.currentTime} />}
-            </For>
-          </span>
-        )}
-      </Show>
-      <Show
-        when={props.swapTranslationRomanization()}
-        fallback={
-          <>
-            <Show when={props.showTranslation() && props.line.translatedText}>
-              {(translatedText) => (
-                <span class="full-player-lyric-translation">{translatedText()}</span>
-              )}
-            </Show>
-            <Show when={props.showRomanization() && props.line.romanText}>
-              {(romanText) => (
-                <span class="full-player-lyric-romanization">{romanText()}</span>
-              )}
-            </Show>
-          </>
-        }
-      >
-        <Show when={props.showRomanization() && props.line.romanText}>
-          {(romanText) => (
-            <span class="full-player-lyric-romanization">{romanText()}</span>
-          )}
-        </Show>
-        <Show when={props.showTranslation() && props.line.translatedText}>
-          {(translatedText) => (
-            <span class="full-player-lyric-translation">{translatedText()}</span>
-          )}
-        </Show>
-      </Show>
-    </div>
-  );
-}
-
-function LyricWord(props: { word: NcmLyricWord; currentTime: Accessor<number> }) {
-  const style = createMemo(() => ({
-    "--word-progress": `${lyricWordProgress(props.word, props.currentTime()) * 100}%`
-  }));
-
-  return (
-    <span class="full-player-lyric-word" style={style()}>
-      {props.word.text}
-    </span>
-  );
-}
-
-function CommentItem(props: { comment: NcmSongComment }) {
-  const timeLabel = () =>
-    props.comment.time === null ? "" : new Date(props.comment.time).toLocaleDateString();
-
-  return (
-    <article class="full-player-comment-item">
-      <Show
-        when={props.comment.user.avatarUrl}
-        fallback={<div class="full-player-comment-avatar" aria-hidden="true" />}
-      >
-        {(avatarUrl) => (
-          <img class="full-player-comment-avatar" src={avatarUrl()} alt={props.comment.user.nickname} />
-        )}
-      </Show>
-      <div class="full-player-comment-body">
-        <div class="full-player-comment-meta">
-          <span>{props.comment.user.nickname}</span>
-          <span>{timeLabel()}</span>
-        </div>
-        <p>{props.comment.content}</p>
-        <Show when={props.comment.likedCount > 0}>
-          <span class="full-player-comment-like">{props.comment.likedCount}</span>
-        </Show>
-      </div>
-    </article>
   );
 }

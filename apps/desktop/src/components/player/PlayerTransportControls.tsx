@@ -1,0 +1,115 @@
+import { Show } from "solid-js";
+import type { Component } from "solid-js";
+import {
+  IconPause,
+  IconPlay,
+  IconShuffle,
+  IconSkipNext,
+  IconSkipPrev,
+  IconSpinner
+} from "../icons";
+
+interface PlayerTransportControlsProps {
+  isPlaying: boolean;
+  isPlayLoading: boolean;
+  canSkipPrev: boolean;
+  canSkipNext: boolean;
+  shuffleActive: boolean;
+  repeatActive: boolean;
+  repeatIcon: Component;
+  playPauseLabel: string;
+  shuffleLabel: string;
+  repeatLabel: string;
+  prevLabel: string;
+  prevTitle: string;
+  nextLabel: string;
+  nextTitle: string;
+  transportLabel: string;
+  onPlayPause: () => void;
+  onSkipPrev: () => void;
+  onSkipNext: () => void;
+  onToggleShuffle: () => void;
+  onCycleRepeat: () => void;
+}
+
+export function PlayerTransportControls(props: PlayerTransportControlsProps) {
+  const RepeatIcon = () => props.repeatIcon;
+
+  return (
+    <div class="player-bar-transport inline-flex items-center gap-2" role="group" aria-label={props.transportLabel}>
+      <button
+        type="button"
+        class={`transport-button mode-button${props.shuffleActive ? " is-active" : ""}`}
+        onClick={props.onToggleShuffle}
+        aria-label={props.shuffleLabel}
+        aria-pressed={props.shuffleActive}
+        title={props.shuffleLabel}
+      >
+        <IconShuffle />
+      </button>
+      <button
+        type="button"
+        class="transport-button"
+        onClick={props.onSkipPrev}
+        disabled={!props.canSkipPrev}
+        aria-label={props.prevLabel}
+        title={props.prevTitle}
+      >
+        <IconSkipPrev />
+      </button>
+      <button
+        type="button"
+        class={`transport-button transport-primary${props.isPlayLoading ? " is-loading" : ""}`}
+        onClick={props.onPlayPause}
+        aria-label={props.playPauseLabel}
+        title={props.playPauseLabel}
+        disabled={props.isPlayLoading}
+      >
+        <Show
+          when={props.isPlayLoading}
+          fallback={
+            <Show
+              when={props.isPlaying}
+              fallback={
+                <span class="transport-icon-swap" aria-hidden="true">
+                  <IconPlay />
+                </span>
+              }
+            >
+              <span class="transport-icon-swap" aria-hidden="true">
+                <IconPause />
+              </span>
+            </Show>
+          }
+        >
+          <span class="transport-icon-swap transport-spinner" aria-hidden="true">
+            <IconSpinner />
+          </span>
+        </Show>
+      </button>
+      <button
+        type="button"
+        class="transport-button"
+        onClick={props.onSkipNext}
+        disabled={!props.canSkipNext}
+        aria-label={props.nextLabel}
+        title={props.nextTitle}
+      >
+        <IconSkipNext />
+      </button>
+      <button
+        type="button"
+        class={`transport-button mode-button${props.repeatActive ? " is-active" : ""}`}
+        onClick={props.onCycleRepeat}
+        aria-label={props.repeatLabel}
+        aria-pressed={props.repeatActive}
+        title={props.repeatLabel}
+      >
+        {(() => {
+          const Icon = RepeatIcon();
+          return <Icon />;
+        })()}
+      </button>
+    </div>
+  );
+}
