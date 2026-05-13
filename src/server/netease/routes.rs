@@ -1,5 +1,40 @@
 use super::*;
 
+#[cfg(test)]
+pub(super) const DOMAIN_ROUTE_CONTRACTS: &[(&str, &str)] = &[
+    ("POST", "/domain/ncm/track/resolve"),
+    ("POST", "/domain/ncm/track/play"),
+    ("POST", "/domain/ncm/track/enqueue"),
+    ("POST", "/domain/ncm/track/supplement"),
+    ("POST", "/domain/ncm/home_feed"),
+    ("POST", "/domain/ncm/discover/playlists"),
+    ("POST", "/domain/ncm/discover/albums"),
+    ("POST", "/domain/ncm/discover/artists"),
+    ("POST", "/domain/ncm/discover/toplists"),
+    ("POST", "/domain/ncm/discover/songs"),
+    ("POST", "/domain/ncm/discover/playlist_categories"),
+    ("GET", "/domain/ncm/accounts"),
+    ("POST", "/domain/ncm/accounts"),
+    ("POST", "/domain/ncm/accounts/active"),
+    ("POST", "/domain/ncm/accounts/refresh"),
+    ("POST", "/domain/ncm/accounts/logout"),
+    ("POST", "/domain/ncm/accounts/daily_signin"),
+    ("POST", "/domain/ncm/user/playlists"),
+    ("POST", "/domain/ncm/search/tracks"),
+    ("POST", "/domain/ncm/search/playlists"),
+    ("POST", "/domain/ncm/playlist/tracks"),
+    ("POST", "/domain/ncm/recommend/songs/tracks"),
+    ("POST", "/domain/ncm/song/details/tracks"),
+    ("POST", "/domain/ncm/personal_fm/tracks"),
+    ("POST", "/domain/ncm/personal_fm/trash"),
+    ("POST", "/domain/ncm/album/tracks"),
+    ("POST", "/domain/ncm/artist/tracks"),
+    ("POST", "/domain/ncm/user/likelist"),
+    ("POST", "/domain/ncm/user/cloud"),
+    ("POST", "/domain/ncm/user/cloud/delete"),
+    ("DELETE", "/domain/ncm/accounts/{user_id}"),
+];
+
 pub(super) fn configure_routes(cfg: &mut web::ServiceConfig) {
     cfg.route(
         "/domain/ncm/track/resolve",
@@ -115,4 +150,9 @@ pub(super) fn configure_routes(cfg: &mut web::ServiceConfig) {
     )
     .route("/api/netease/{tail:.*}", web::get().to(handle_request))
     .route("/api/netease/{tail:.*}", web::post().to(handle_request));
+}
+
+#[cfg(test)]
+pub(super) fn domain_route_contracts() -> &'static [(&'static str, &'static str)] {
+    DOMAIN_ROUTE_CONTRACTS
 }

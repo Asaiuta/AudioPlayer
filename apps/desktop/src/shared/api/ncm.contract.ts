@@ -1,0 +1,80 @@
+import type {
+  ApiClient,
+  GetNcmHomeFeedInput,
+  ListNcmCloudTracksInput,
+  ListNcmDiscoverAlbumsInput,
+  ListNcmDiscoverArtistsInput,
+  ListNcmDiscoverPlaylistsInput,
+  ListNcmDiscoverSongsInput,
+  ListNcmPlaylistTracksInput,
+  ListNcmUserPlaylistsInput,
+  NcmAccountState,
+  NcmAccountUpsertInput,
+  NcmCloudTracksPage,
+  NcmDiscoverAlbumArea,
+  NcmDiscoverCard,
+  NcmDiscoverCardsPage,
+  NcmDiscoverPlaylistCategories,
+  NcmDiscoverPlaylistKind,
+  NcmDiscoverSongType,
+  NcmDiscoverToplist,
+  NcmHomeFeed,
+  NcmPlaylistSummary,
+  NcmTrackPlaybackResult,
+  NcmTrackQueueResult,
+  NcmTrackSummary,
+  NcmUserPlaylistMode,
+  ResolveNcmTrackInput,
+  ResolvedNcmTrack,
+  ResolvedNcmTrackSupplement,
+  SearchNcmTracksInput
+} from "./client";
+
+type Equal<Actual, Expected> =
+  (<T>() => T extends Actual ? 1 : 2) extends
+  (<T>() => T extends Expected ? 1 : 2)
+    ? true
+    : false;
+
+type Expect<T extends true> = T;
+
+export type NcmApiMethodContract = [
+  Expect<Equal<ApiClient["resolveNcmTrack"], (input: ResolveNcmTrackInput) => Promise<ResolvedNcmTrack>>>,
+  Expect<Equal<ApiClient["playNcmTrack"], (input: ResolveNcmTrackInput) => Promise<NcmTrackPlaybackResult>>>,
+  Expect<Equal<ApiClient["enqueueNcmTrack"], (input: ResolveNcmTrackInput) => Promise<NcmTrackQueueResult>>>,
+  Expect<Equal<ApiClient["resolveNcmTrackSupplement"], (songId: number) => Promise<ResolvedNcmTrackSupplement>>>,
+  Expect<Equal<ApiClient["getNcmAccounts"], () => Promise<NcmAccountState>>>,
+  Expect<Equal<ApiClient["upsertNcmAccount"], (input: NcmAccountUpsertInput) => Promise<NcmAccountState>>>,
+  Expect<Equal<ApiClient["setActiveNcmAccount"], (userId: number) => Promise<NcmAccountState>>>,
+  Expect<Equal<ApiClient["refreshActiveNcmAccount"], () => Promise<NcmAccountState>>>,
+  Expect<Equal<ApiClient["logoutActiveNcmAccount"], () => Promise<NcmAccountState>>>,
+  Expect<Equal<ApiClient["dailySigninActiveNcmAccount"], () => Promise<NcmAccountState>>>,
+  Expect<Equal<ApiClient["deleteNcmAccount"], (userId: number) => Promise<NcmAccountState>>>,
+  Expect<Equal<ApiClient["listNcmUserPlaylists"], (input: ListNcmUserPlaylistsInput) => Promise<NcmPlaylistSummary[]>>>,
+  Expect<Equal<ApiClient["searchNcmTracks"], (input: SearchNcmTracksInput) => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["searchNcmPlaylists"], (input: SearchNcmTracksInput) => Promise<NcmPlaylistSummary[]>>>,
+  Expect<Equal<ApiClient["listNcmPlaylistTracks"], (input: ListNcmPlaylistTracksInput) => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["listNcmDailySongTracks"], () => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["listNcmSongDetailTracks"], (ids: number[]) => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["listNcmPersonalFmTracks"], () => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["trashNcmPersonalFmTrack"], (songId: number) => Promise<void>>>,
+  Expect<Equal<ApiClient["listNcmAlbumTracks"], (id: number) => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["listNcmArtistTracks"], (id: number) => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["getNcmLikelistIds"], (uid: number) => Promise<number[]>>>,
+  Expect<Equal<ApiClient["listNcmCloudTracks"], (input: ListNcmCloudTracksInput) => Promise<NcmCloudTracksPage>>>,
+  Expect<Equal<ApiClient["deleteNcmCloudTrack"], (songId: number) => Promise<void>>>,
+  Expect<Equal<ApiClient["getNcmHomeFeed"], (input?: GetNcmHomeFeedInput) => Promise<NcmHomeFeed>>>,
+  Expect<Equal<ApiClient["listNcmDiscoverPlaylists"], (input: ListNcmDiscoverPlaylistsInput) => Promise<NcmDiscoverCardsPage>>>,
+  Expect<Equal<ApiClient["listNcmDiscoverAlbums"], (input: ListNcmDiscoverAlbumsInput) => Promise<NcmDiscoverCardsPage>>>,
+  Expect<Equal<ApiClient["listNcmDiscoverArtists"], (input: ListNcmDiscoverArtistsInput) => Promise<NcmDiscoverCard[]>>>,
+  Expect<Equal<ApiClient["listNcmDiscoverToplists"], () => Promise<NcmDiscoverToplist[]>>>,
+  Expect<Equal<ApiClient["listNcmDiscoverSongs"], (input: ListNcmDiscoverSongsInput) => Promise<NcmTrackSummary[]>>>,
+  Expect<Equal<ApiClient["getNcmDiscoverPlaylistCategories"], () => Promise<NcmDiscoverPlaylistCategories>>>
+];
+
+export type NcmApiValueContract = [
+  Expect<Equal<NcmUserPlaylistMode, "created-playlists" | "collected-playlists">>,
+  Expect<Equal<NcmDiscoverPlaylistKind, "normal" | "hq">>,
+  Expect<Equal<NcmDiscoverAlbumArea, "ALL" | "ZH" | "EA" | "KR" | "JP">>,
+  Expect<Equal<NcmDiscoverSongType, 0 | 7 | 96 | 16 | 8>>
+];

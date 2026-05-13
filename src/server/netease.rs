@@ -73,7 +73,10 @@ fn attach_cookie(query: &mut Query, cookie: Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix_web::http::{header, header::HeaderMap, header::HeaderValue, StatusCode};
+    use actix_web::{
+        http::{header, header::HeaderMap, header::HeaderValue, Method, StatusCode},
+        test as actix_test, App,
+    };
     use ncm_api_rs::{ApiResponse, NcmError, Query};
     use serde_json::{json, Value};
 
@@ -87,6 +90,36 @@ mod tests {
     fn route_to_method_replaces_slashes() {
         assert_eq!(normalize_route("/login/qr/key/"), "login/qr/key");
         assert_eq!(route_to_method("login/qr/key"), "login_qr_key");
+    }
+
+    #[actix_web::test]
+    async fn domain_ncm_routes_remain_stable_after_handler_split() {
+        let app = actix_test::init_service(App::new().configure(super::configure_routes)).await;
+
+        for &(method, path) in routes::domain_route_contracts() {
+            let concrete_path = path.replace("{user_id}", "42");
+            let expected_method = Method::from_bytes(method.as_bytes()).expect("valid route method");
+
+            let request = actix_test::TestRequest::default()
+                .method(expected_method)
+                .uri(&concrete_path)
+                .to_request();
+            let response = actix_test::call_service(&app, request).await;
+            assert_ne!(
+                response.status(),
+                StatusCode::NOT_FOUND,
+                "expected route {} {} to stay registered after handler split",
+                method,
+                path
+            );
+            assert_ne!(
+                response.status(),
+                StatusCode::METHOD_NOT_ALLOWED,
+                "expected route {} {} to keep accepting its configured method after handler split",
+                method,
+                path
+            );
+        }
     }
 
     #[test]
