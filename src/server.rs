@@ -621,6 +621,10 @@ pub(crate) fn not_found_response(message: impl Into<String>) -> HttpResponse {
     error_response(StatusCode::NOT_FOUND, message)
 }
 
+pub(crate) fn too_many_requests_response(message: impl Into<String>) -> HttpResponse {
+    error_response(StatusCode::TOO_MANY_REQUESTS, message)
+}
+
 pub(crate) fn internal_server_error_response(message: impl Into<String>) -> HttpResponse {
     error_response(StatusCode::INTERNAL_SERVER_ERROR, message)
 }

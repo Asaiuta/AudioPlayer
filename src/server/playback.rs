@@ -5,7 +5,6 @@ use crate::app_database::{
 };
 use crate::player::{PlayerState, RepeatMode, SharedState, ShuffleMode};
 use crate::playlist;
-use actix_web::http::StatusCode;
 use actix_web::{web, HttpRequest, HttpResponse};
 use ncm_api_rs::Query;
 use serde::Deserialize;
@@ -274,12 +273,11 @@ enum LibraryQueueFailure {
 
 impl LibraryQueueFailure {
     fn into_response(self) -> HttpResponse {
-        let (status, message) = match self {
-            Self::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
-            Self::NotFound(message) => (StatusCode::NOT_FOUND, message),
-            Self::Internal(message) => (StatusCode::INTERNAL_SERVER_ERROR, message),
-        };
-        HttpResponse::build(status).json(ApiResponse::error(&message))
+        match self {
+            Self::BadRequest(message) => bad_request_response(message),
+            Self::NotFound(message) => not_found_response(message),
+            Self::Internal(message) => internal_server_error_response(message),
+        }
     }
 }
 
@@ -1108,9 +1106,9 @@ fn task_is_canceled(data: &web::Data<Arc<AppState>>, task_id: u64) -> bool {
 
 fn analysis_error_response(e: &str) -> HttpResponse {
     if e.to_ascii_lowercase().contains("timed out") {
-        HttpResponse::GatewayTimeout().json(ApiResponse::error(e))
+        gateway_timeout_response(e)
     } else {
-        HttpResponse::InternalServerError().json(ApiResponse::error(e))
+        internal_server_error_response(e)
     }
 }
 
@@ -1749,7 +1747,7 @@ fn analyze_track_loudness(
 async fn load(data: web::Data<Arc<AppState>>, body: web::Json<LoadRequest>) -> HttpResponse {
     let path = match validate_path(&body.path) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
 
     let autoplay = body.autoplay.unwrap_or(false);
@@ -1769,8 +1767,7 @@ async fn load(data: web::Data<Arc<AppState>>, body: web::Json<LoadRequest>) -> H
                 state_response,
             ))
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(ApiResponse::error(&format!("Failed to load: {}", e))),
+        Err(e) => internal_server_error_response(format!("Failed to load: {}", e)),
     }
 }
 
@@ -1814,8 +1811,7 @@ async fn play(data: web::Data<Arc<AppState>>) -> HttpResponse {
                 state_response,
             ))
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(ApiResponse::error(&format!("Playback failed: {}", e))),
+        Err(e) => internal_server_error_response(format!("Playback failed: {}", e)),
     }
 }
 
@@ -1859,8 +1855,7 @@ async fn pause(data: web::Data<Arc<AppState>>) -> HttpResponse {
                 state_response,
             ))
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(ApiResponse::error(&format!("Pause failed: {}", e))),
+        Err(e) => internal_server_error_response(format!("Pause failed: {}", e)),
     }
 }
 
@@ -1945,8 +1940,7 @@ async fn seek(data: web::Data<Arc<AppState>>, body: web::Json<SeekRequest>) -> H
                 state_response,
             ))
         }
-        Err(e) => HttpResponse::InternalServerError()
-            .json(ApiResponse::error(&format!("Seek failed: {}", e))),
+        Err(e) => internal_server_error_response(format!("Seek failed: {}", e)),
     }
 }
 
@@ -1957,9 +1951,7 @@ async fn set_repeat_mode(
     let mode = match RepeatMode::parse(&body.mode) {
         Some(mode) => mode,
         None => {
-            return HttpResponse::BadRequest().json(ApiResponse::error(
-                "Invalid repeat mode. Use: off, one, all",
-            ));
+            return bad_request_response("Invalid repeat mode. Use: off, one, all");
         }
     };
 
@@ -1978,8 +1970,7 @@ async fn set_shuffle_mode(
     let mode = match ShuffleMode::parse(&body.mode) {
         Some(mode) => mode,
         None => {
-            return HttpResponse::BadRequest()
-                .json(ApiResponse::error("Invalid shuffle mode. Use: off, on"));
+            return bad_request_response("Invalid shuffle mode. Use: off, on");
         }
     };
 
@@ -1988,7 +1979,7 @@ async fn set_shuffle_mode(
         ShuffleMode::On => data.app_db.shuffle_entries("active"),
     };
     if let Err(e) = update_result {
-        return HttpResponse::InternalServerError().json(ApiResponse::error(&e));
+        return internal_server_error_response(e);
     }
 
     let player = data.player.lock();
@@ -2090,7 +2081,7 @@ async fn configure_output(
     let mut player = data.player.lock();
 
     if let Err(e) = player.select_device(body.device_id) {
-        return HttpResponse::InternalServerError().json(ApiResponse::error(&e));
+        return internal_server_error_response(e);
     }
 
     if let Some(exclusive) = body.exclusive {
@@ -2123,21 +2114,19 @@ async fn configure_upsampling(
 
     if let Some(sr) = body.target_samplerate {
         if sr == 0 {
-            return HttpResponse::BadRequest().json(ApiResponse::error(
-                "Sample rate cannot be 0. Use null to disable upsampling.",
-            ));
+            return bad_request_response("Sample rate cannot be 0. Use null to disable upsampling.");
         }
         if sr < MIN_SAMPLE_RATE {
-            return HttpResponse::BadRequest().json(ApiResponse::error(&format!(
+            return bad_request_response(format!(
                 "Sample rate {} Hz is too low. Minimum: {} Hz.",
                 sr, MIN_SAMPLE_RATE
-            )));
+            ));
         }
         if sr > MAX_SAMPLE_RATE {
-            return HttpResponse::BadRequest().json(ApiResponse::error(&format!(
+            return bad_request_response(format!(
                 "Sample rate {} Hz is too high. Maximum: {} Hz.",
                 sr, MAX_SAMPLE_RATE
-            )));
+            ));
         }
     }
 
@@ -2172,9 +2161,7 @@ async fn configure_resampling(
             "hq" | "high" => crate::config::ResampleQuality::High,
             "uhq" | "ultrahigh" => crate::config::ResampleQuality::UltraHigh,
             _ => {
-                return HttpResponse::BadRequest().json(ApiResponse::error(
-                    "Invalid quality. Use: low, std, hq, uhq",
-                ));
+                return bad_request_response("Invalid quality. Use: low, std, hq, uhq");
             }
         };
         player.set_resample_quality(quality);
@@ -2278,7 +2265,7 @@ async fn scan_track_loudness(
 ) -> HttpResponse {
     let path = match validate_path(&body.path) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
 
     if let Some(track_loudness) = try_get_cached_loudness(&data, &path) {
@@ -2321,14 +2308,12 @@ async fn scan_loudness_background(
 ) -> HttpResponse {
     let path = match validate_path(&body.path) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
     let store = body.store.unwrap_or(true);
 
     if data.analysis_semaphore.available_permits() == 0 {
-        return HttpResponse::TooManyRequests().json(ApiResponse::error(
-            "Too many scan tasks in progress, please retry later",
-        ));
+        return too_many_requests_response("Too many scan tasks in progress, please retry later");
     }
 
     cleanup_scan_tasks(&data);
@@ -2458,8 +2443,8 @@ async fn get_scan_loudness_task(
                 "task_id": task_id,
                 "task": task
             })),
-            Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Scan task not found")),
-            Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+            Ok(None) => not_found_response("Scan task not found"),
+            Err(e) => internal_server_error_response(e),
         }
     }
 }
@@ -2493,7 +2478,7 @@ async fn cancel_scan_loudness_task(
             })),
         }
     } else {
-        HttpResponse::NotFound().json(ApiResponse::error("Scan task not found"))
+        not_found_response("Scan task not found")
     }
 }
 
@@ -2503,7 +2488,7 @@ async fn queue_next(
 ) -> HttpResponse {
     let path = match validate_path(&body.path) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
 
     let credentials = match (&body.username, &body.password) {
@@ -2551,7 +2536,7 @@ async fn queue_next(
             emit_queue_updated_from_shared(&shared_state);
             HttpResponse::Ok().json(ApiResponse::success("Queued for gapless playback"))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -2588,11 +2573,11 @@ async fn play_from_persistent_queue(
                     .find(|entry| entry.status == "queued" || entry.status == "preloading")
             }
         }
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
 
     let Some(entry) = entry else {
-        return HttpResponse::NotFound().json(ApiResponse::error("Queue entry not found"));
+        return not_found_response("Queue entry not found");
     };
 
     match load_queue_entry_for_playback(&data, entry, true) {
@@ -2600,16 +2585,16 @@ async fn play_from_persistent_queue(
             "Queue playback started",
             state,
         )),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&format!(
+        Err(e) => internal_server_error_response(format!(
             "Failed to play queue entry: {}",
             e
-        ))),
+        )),
     }
 }
 
 async fn play_next_queue_entry(data: web::Data<Arc<AppState>>) -> HttpResponse {
     let Some(current_path) = current_queue_cursor_path(&data) else {
-        return HttpResponse::NotFound().json(ApiResponse::error("Next queue entry not found"));
+        return not_found_response("Next queue entry not found");
     };
     let entry = match data
         .app_db
@@ -2617,9 +2602,9 @@ async fn play_next_queue_entry(data: web::Data<Arc<AppState>>) -> HttpResponse {
     {
         Ok(Some(entry)) => entry,
         Ok(None) => {
-            return HttpResponse::NotFound().json(ApiResponse::error("Next queue entry not found"))
+            return not_found_response("Next queue entry not found")
         }
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
 
     match load_queue_entry_for_playback(&data, entry, true) {
@@ -2627,16 +2612,16 @@ async fn play_next_queue_entry(data: web::Data<Arc<AppState>>) -> HttpResponse {
             "Next queue entry started",
             state,
         )),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&format!(
+        Err(e) => internal_server_error_response(format!(
             "Failed to play next queue entry: {}",
             e
-        ))),
+        )),
     }
 }
 
 async fn play_previous_queue_entry(data: web::Data<Arc<AppState>>) -> HttpResponse {
     let Some(current_path) = current_queue_cursor_path(&data) else {
-        return HttpResponse::NotFound().json(ApiResponse::error("Previous queue entry not found"));
+        return not_found_response("Previous queue entry not found");
     };
     let entry = match data
         .app_db
@@ -2644,10 +2629,9 @@ async fn play_previous_queue_entry(data: web::Data<Arc<AppState>>) -> HttpRespon
     {
         Ok(Some(entry)) => entry,
         Ok(None) => {
-            return HttpResponse::NotFound()
-                .json(ApiResponse::error("Previous queue entry not found"))
+            return not_found_response("Previous queue entry not found")
         }
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
 
     match load_queue_entry_for_playback(&data, entry, true) {
@@ -2655,10 +2639,10 @@ async fn play_previous_queue_entry(data: web::Data<Arc<AppState>>) -> HttpRespon
             "Previous queue entry started",
             state,
         )),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&format!(
+        Err(e) => internal_server_error_response(format!(
             "Failed to play previous queue entry: {}",
             e
-        ))),
+        )),
     }
 }
 
@@ -2675,14 +2659,14 @@ async fn get_queue_adjacent_entries(data: web::Data<Arc<AppState>>) -> HttpRespo
         .peek_previous_queue_entry("active", Some(&current_path))
     {
         Ok(entry) => entry,
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
     let next = match data
         .app_db
         .peek_next_queue_entry("active", Some(&current_path))
     {
         Ok(entry) => entry,
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
 
     HttpResponse::Ok().json(serde_json::json!({
@@ -2703,7 +2687,7 @@ async fn load_playlist(
 ) -> HttpResponse {
     let result = match playlist::load_playlist(&body.path, validate_path) {
         Ok(result) => result,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
 
     let paths: Vec<String> = result
@@ -2730,14 +2714,14 @@ async fn load_playlist(
                 "rejected": result.rejected
             }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
 async fn load_ir(data: web::Data<Arc<AppState>>, body: web::Json<LoadIrRequest>) -> HttpResponse {
     let path = match validate_path(&body.path) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
 
     let mut player = data.player.lock();
@@ -2747,7 +2731,7 @@ async fn load_ir(data: web::Data<Arc<AppState>>, body: web::Json<LoadIrRequest>)
             if e.to_ascii_lowercase().contains("not yet implemented") {
                 HttpResponse::NotImplemented().json(ApiResponse::error(&e))
             } else {
-                HttpResponse::InternalServerError().json(ApiResponse::error(&e))
+                internal_server_error_response(e)
             }
         }
     }
@@ -2795,7 +2779,7 @@ async fn get_recent_analysis_tasks(
             "status": "success",
             "tasks": tasks
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -2809,7 +2793,7 @@ async fn get_playback_history(
             "status": "success",
             "history": history
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -2823,7 +2807,7 @@ async fn get_playback_sessions(
             "status": "success",
             "sessions": sessions
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -2842,14 +2826,14 @@ async fn get_media_items(
             "status": "success",
             "media_items": items
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
 async fn get_library_track_summaries(data: web::Data<Arc<AppState>>) -> HttpResponse {
     let stats = match data.app_db.library_summary_stats() {
         Ok(stats) => stats,
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
     match data.app_db.list_library_track_summaries() {
         Ok(tracks) => {
@@ -2863,7 +2847,7 @@ async fn get_library_track_summaries(data: web::Data<Arc<AppState>>) -> HttpResp
                 "tracks": tracks
             }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -2877,8 +2861,8 @@ async fn get_library_track_detail(
             "track_key": detail.track_key,
             "item": detail.item
         })),
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Library track not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("Library track not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -2888,8 +2872,8 @@ async fn get_library_track_cover_art(
 ) -> HttpResponse {
     match data.app_db.media_id_for_track_key(path.track_key) {
         Ok(Some(media_id)) => get_media_cover_art_by_id(&data, &media_id),
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Library track not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("Library track not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3014,7 +2998,7 @@ async fn replace_queue_from_library_query(
     let query = build_library_query(&body);
     let rows = match data.app_db.source_paths_for_library_query(&query) {
         Ok(rows) => rows,
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
     match play_library_queue_rows(
         &data,
@@ -3033,11 +3017,11 @@ async fn replace_queue_from_track_keys(
     body: web::Json<LibraryQueueTrackKeysRequest>,
 ) -> HttpResponse {
     if body.track_keys.is_empty() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("track_keys cannot be empty"));
+        return bad_request_response("track_keys cannot be empty");
     }
     let rows = match data.app_db.source_paths_for_track_keys(&body.track_keys) {
         Ok(rows) => rows,
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
     match play_library_queue_rows(
         &data,
@@ -3056,7 +3040,7 @@ async fn delete_media_items(
     body: web::Json<MediaItemsDeleteRequest>,
 ) -> HttpResponse {
     if body.media_ids.is_empty() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("media_ids cannot be empty"));
+        return bad_request_response("media_ids cannot be empty");
     }
 
     match data.app_db.delete_media_items(&body.media_ids) {
@@ -3064,7 +3048,7 @@ async fn delete_media_items(
             "status": "success",
             "deleted_count": deleted_count
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3074,7 +3058,7 @@ async fn list_local_playlists(data: web::Data<Arc<AppState>>) -> HttpResponse {
             "status": "success",
             "playlists": playlists
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3090,7 +3074,7 @@ async fn create_local_playlist(
             "status": "success",
             "playlist": playlist
         })),
-        Err(e) => HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => bad_request_response(e),
     }
 }
 
@@ -3108,8 +3092,8 @@ async fn update_local_playlist(
             "status": "success",
             "playlist": playlist
         })),
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Local playlist not found")),
-        Err(e) => HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("Local playlist not found"),
+        Err(e) => bad_request_response(e),
     }
 }
 
@@ -3121,8 +3105,8 @@ async fn delete_local_playlist(
         Ok(true) => HttpResponse::Ok().json(serde_json::json!({
             "status": "success"
         })),
-        Ok(false) => HttpResponse::NotFound().json(ApiResponse::error("Local playlist not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(false) => not_found_response("Local playlist not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3136,8 +3120,8 @@ async fn get_local_playlist(
             "playlist": detail.playlist,
             "items": detail.items
         })),
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Local playlist not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("Local playlist not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3147,7 +3131,7 @@ async fn add_local_playlist_items(
     body: web::Json<LocalPlaylistItemsRequest>,
 ) -> HttpResponse {
     if body.media_ids.is_empty() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("media_ids cannot be empty"));
+        return bad_request_response("media_ids cannot be empty");
     }
 
     match data
@@ -3158,8 +3142,8 @@ async fn add_local_playlist_items(
             "status": "success",
             "added_count": added_count
         })),
-        Err(e) if e.contains("not found") => HttpResponse::NotFound().json(ApiResponse::error(&e)),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) if e.contains("not found") => not_found_response(e),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3169,7 +3153,7 @@ async fn remove_local_playlist_items(
     body: web::Json<LocalPlaylistItemsRequest>,
 ) -> HttpResponse {
     if body.media_ids.is_empty() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("media_ids cannot be empty"));
+        return bad_request_response("media_ids cannot be empty");
     }
 
     match data
@@ -3180,8 +3164,8 @@ async fn remove_local_playlist_items(
             "status": "success",
             "removed_count": removed_count
         })),
-        Err(e) if e.contains("not found") => HttpResponse::NotFound().json(ApiResponse::error(&e)),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) if e.contains("not found") => not_found_response(e),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3191,7 +3175,7 @@ async fn upsert_external_media_metadata(
 ) -> HttpResponse {
     let source_path = match validate_path(&body.source_path) {
         Ok(value) => value,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
 
     match data.app_db.record_external_media_metadata(
@@ -3206,7 +3190,7 @@ async fn upsert_external_media_metadata(
             "status": "success",
             "media_id": media_id
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3259,13 +3243,11 @@ fn get_media_cover_art_by_id(data: &web::Data<Arc<AppState>>, media_id: &str) ->
                     .insert_header(("Content-Length", bytes.len().to_string()))
                     .insert_header(("X-Cover-Art-Id", format!("{}:local-cover", media_id)))
                     .body(bytes),
-                Ok(None) => {
-                    HttpResponse::NotFound().json(ApiResponse::error("Cover art not found"))
-                }
-                Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+                Ok(None) => not_found_response("Cover art not found"),
+                Err(e) => internal_server_error_response(e),
             },
         },
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3370,7 +3352,7 @@ async fn get_current_lyrics(data: web::Data<Arc<AppState>>) -> HttpResponse {
             "lyrics": [],
             "source": null
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3453,7 +3435,7 @@ async fn get_library_roots(data: web::Data<Arc<AppState>>) -> HttpResponse {
             "status": "success",
             "roots": roots
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3467,8 +3449,8 @@ async fn delete_library_root(
             "root_path": root_path,
             "removed_media_count": removed_media_count
         })),
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("Library root not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("Library root not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3484,10 +3466,8 @@ async fn get_library_scan_task(
                 "task": task
             }))
         }
-        Ok(Some(_)) | Ok(None) => {
-            HttpResponse::NotFound().json(ApiResponse::error("Library scan task not found"))
-        }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(Some(_)) | Ok(None) => not_found_response("Library scan task not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3506,7 +3486,7 @@ async fn scan_library_root(
     } else {
         match validate_path(requested_path) {
             Ok(value) => value,
-            Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+            Err(e) => return bad_request_response(e),
         }
     };
 
@@ -3533,7 +3513,7 @@ async fn scan_library_root(
         "scanning",
     ) {
         Ok(value) => value,
-        Err(e) => return HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => return internal_server_error_response(e),
     };
 
     if let Err(e) = data.app_db.update_library_root_scan_status(
@@ -3543,7 +3523,7 @@ async fn scan_library_root(
         Some(now_epoch_secs()),
         None,
     ) {
-        return HttpResponse::InternalServerError().json(ApiResponse::error(&e));
+        return internal_server_error_response(e);
     }
     persist_library_scan_task(
         &data,
@@ -3653,7 +3633,7 @@ async fn get_queue_snapshot_domain(data: web::Data<Arc<AppState>>) -> HttpRespon
             "status": "success",
             "queue_snapshot": snapshot
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3663,7 +3643,7 @@ async fn get_persistent_queue(data: web::Data<Arc<AppState>>) -> HttpResponse {
             "status": "success",
             "queue": entries
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3684,7 +3664,7 @@ async fn replace_persistent_queue(
     for path in &body.paths {
         match validate_path(path) {
             Ok(value) => validated.push(value),
-            Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+            Err(e) => return bad_request_response(e),
         }
     }
 
@@ -3693,7 +3673,7 @@ async fn replace_persistent_queue(
             emit_queue_updated(&data);
             get_persistent_queue(data).await
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3703,7 +3683,7 @@ async fn enqueue_persistent_queue(
 ) -> HttpResponse {
     let path = match validate_path(&body.path) {
         Ok(value) => value,
-        Err(e) => return HttpResponse::BadRequest().json(ApiResponse::error(&e)),
+        Err(e) => return bad_request_response(e),
     };
 
     match append_validated_path_to_persistent_queue(&data, &path) {
@@ -3711,7 +3691,7 @@ async fn enqueue_persistent_queue(
             "status": "success",
             "queue": entries
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3724,7 +3704,7 @@ async fn remove_persistent_queue_entry(
             emit_queue_updated(&data);
             get_persistent_queue(data).await
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3737,7 +3717,7 @@ async fn clear_persistent_queue(data: web::Data<Arc<AppState>>) -> HttpResponse 
                 "queue": []
             }))
         }
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3747,7 +3727,7 @@ async fn get_device_config_domain(data: web::Data<Arc<AppState>>) -> HttpRespons
             "status": "success",
             "device_config": config
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -3757,6 +3737,6 @@ async fn get_dsp_configs_domain(data: web::Data<Arc<AppState>>) -> HttpResponse 
             "status": "success",
             "dsp_configs": configs
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
