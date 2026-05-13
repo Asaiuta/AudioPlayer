@@ -4,7 +4,11 @@
 
 use actix_cors::Cors;
 use actix_web::http::header;
-use actix_web::{dev::ServerHandle, http::Method, middleware, web, App, HttpResponse, HttpServer};
+use actix_web::{
+    dev::ServerHandle,
+    http::{Method, StatusCode},
+    middleware, web, App, HttpResponse, HttpServer,
+};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -565,7 +569,7 @@ pub struct DevicesResponse {
 }
 
 impl ApiResponse {
-    fn success(msg: &str) -> Self {
+    fn success(msg: impl Into<String>) -> Self {
         Self {
             status: "success".into(),
             message: Some(msg.into()),
@@ -574,7 +578,7 @@ impl ApiResponse {
         }
     }
 
-    fn success_with_state(msg: &str, state: StateResponse) -> Self {
+    fn success_with_state(msg: impl Into<String>, state: StateResponse) -> Self {
         Self {
             status: "success".into(),
             message: Some(msg.into()),
@@ -583,7 +587,7 @@ impl ApiResponse {
         }
     }
 
-    fn error(msg: &str) -> Self {
+    fn error(msg: impl Into<String>) -> Self {
         Self {
             status: "error".into(),
             message: Some(msg.into()),
@@ -591,6 +595,34 @@ impl ApiResponse {
             devices: None,
         }
     }
+}
+
+pub(crate) fn success_response(message: impl Into<String>) -> HttpResponse {
+    HttpResponse::Ok().json(ApiResponse::success(message))
+}
+
+pub(crate) fn error_response(status: StatusCode, message: impl Into<String>) -> HttpResponse {
+    HttpResponse::build(status).json(ApiResponse::error(message))
+}
+
+pub(crate) fn bad_request_response(message: impl Into<String>) -> HttpResponse {
+    error_response(StatusCode::BAD_REQUEST, message)
+}
+
+pub(crate) fn unauthorized_response(message: impl Into<String>) -> HttpResponse {
+    error_response(StatusCode::UNAUTHORIZED, message)
+}
+
+pub(crate) fn not_found_response(message: impl Into<String>) -> HttpResponse {
+    error_response(StatusCode::NOT_FOUND, message)
+}
+
+pub(crate) fn internal_server_error_response(message: impl Into<String>) -> HttpResponse {
+    error_response(StatusCode::INTERNAL_SERVER_ERROR, message)
+}
+
+pub(crate) fn gateway_timeout_response(message: impl Into<String>) -> HttpResponse {
+    error_response(StatusCode::GATEWAY_TIMEOUT, message)
 }
 
 // ============ Helper Functions ============

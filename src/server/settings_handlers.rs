@@ -30,10 +30,7 @@ async fn save_settings(
     let settings = {
         let mut manager = data.settings_manager.lock();
         if let Err(e) = manager.update(body.settings.clone()) {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "status": "error",
-                "message": e
-            }));
+            return internal_server_error_response(e);
         }
         manager.get_settings()
     };
@@ -43,8 +40,5 @@ async fn save_settings(
         apply_settings_to_player(&mut player, &settings);
     }
 
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "success",
-        "message": "Settings saved"
-    }))
+    success_response("Settings saved")
 }

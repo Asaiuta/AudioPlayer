@@ -15,10 +15,11 @@ use std::future::{ready, Ready};
 use std::pin::Pin;
 use std::sync::Arc;
 
+use super::unauthorized_response;
 use actix_web::body::{BoxBody, EitherBody};
 use actix_web::dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform};
 use actix_web::http::{header, Method};
-use actix_web::{Error, HttpResponse};
+use actix_web::Error;
 
 type BoxFuture<T> = Pin<Box<dyn std::future::Future<Output = T>>>;
 
@@ -87,12 +88,7 @@ where
             })
         } else {
             let (req, _payload) = req.into_parts();
-            let res = HttpResponse::Unauthorized()
-                .json(serde_json::json!({
-                    "status": "error",
-                    "message": "unauthorized"
-                }))
-                .map_into_boxed_body();
+            let res = unauthorized_response("unauthorized").map_into_boxed_body();
             Box::pin(async move { Ok(ServiceResponse::new(req, res).map_into_right_body()) })
         }
     }

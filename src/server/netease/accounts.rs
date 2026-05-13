@@ -5,10 +5,7 @@ use serde_json::Value;
 pub(super) async fn list_ncm_accounts(data: web::Data<Arc<AppState>>) -> HttpResponse {
     match data.app_db.list_ncm_accounts() {
         Ok((accounts, active_user_id)) => account_state_response(accounts, active_user_id),
-        Err(err) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "status": "error",
-            "message": err
-        })),
+        Err(err) => internal_server_error_response(err),
     }
 }
 
@@ -18,10 +15,7 @@ pub(super) async fn upsert_ncm_account(
 ) -> HttpResponse {
     let request = body.into_inner();
     if request.user_id <= 0 {
-        return HttpResponse::BadRequest().json(serde_json::json!({
-            "status": "error",
-            "message": "NCM user id must be positive"
-        }));
+        return bad_request_response("NCM user id must be positive");
     }
     let input = NcmAccountUpsert {
         user_id: request.user_id,
@@ -35,10 +29,7 @@ pub(super) async fn upsert_ncm_account(
 
     match data.app_db.upsert_ncm_account(&input) {
         Ok(_) => list_ncm_accounts(data).await,
-        Err(err) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "status": "error",
-            "message": err
-        })),
+        Err(err) => internal_server_error_response(err),
     }
 }
 
@@ -51,10 +42,7 @@ pub(super) async fn set_active_ncm_account(
             refresh_account_with_ncm(&data, &account, false).await;
             list_ncm_accounts(data).await
         }
-        Err(err) => HttpResponse::NotFound().json(serde_json::json!({
-            "status": "error",
-            "message": err
-        })),
+        Err(err) => not_found_response(err),
     }
 }
 
@@ -69,10 +57,7 @@ pub(super) async fn refresh_active_ncm_account(data: web::Data<Arc<AppState>>) -
             }));
         }
         Err(err) => {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "status": "error",
-                "message": err
-            }));
+            return internal_server_error_response(err);
         }
     };
 
@@ -89,10 +74,7 @@ pub(super) async fn logout_active_ncm_account(data: web::Data<Arc<AppState>>) ->
             }
         }
         if let Err(err) = data.app_db.delete_ncm_account(account.user_id) {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "status": "error",
-                "message": err
-            }));
+            return internal_server_error_response(err);
         }
     }
     list_ncm_accounts(data).await
@@ -111,10 +93,7 @@ pub(super) async fn daily_signin_active_ncm_account(
             }));
         }
         Err(err) => {
-            return HttpResponse::InternalServerError().json(serde_json::json!({
-                "status": "error",
-                "message": err
-            }));
+            return internal_server_error_response(err);
         }
     };
 
@@ -126,10 +105,7 @@ pub(super) async fn daily_signin_active_ncm_account(
     match data.ncm_client.daily_signin(&query).await {
         Ok(_) => {
             if let Err(err) = data.app_db.mark_ncm_account_signed_in(account.user_id) {
-                return HttpResponse::InternalServerError().json(serde_json::json!({
-                    "status": "error",
-                    "message": err
-                }));
+                return internal_server_error_response(err);
             }
         }
         Err(err) => {
@@ -151,10 +127,7 @@ pub(super) async fn delete_ncm_account(
 ) -> HttpResponse {
     match data.app_db.delete_ncm_account(path.user_id) {
         Ok(()) => list_ncm_accounts(data).await,
-        Err(err) => HttpResponse::InternalServerError().json(serde_json::json!({
-            "status": "error",
-            "message": err
-        })),
+        Err(err) => internal_server_error_response(err),
     }
 }
 

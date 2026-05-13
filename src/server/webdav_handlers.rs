@@ -41,11 +41,11 @@ async fn webdav_configure(
     };
     if let Err(e) = data.app_db.save_primary_webdav_source(&persisted) {
         log::warn!("Failed to persist WebDAV config: {}", e);
-        return HttpResponse::InternalServerError().json(ApiResponse::error(&e));
+        return internal_server_error_response(e);
     }
     *data.webdav_config.lock() = persisted.clone();
     log::info!("WebDAV configured: {}", persisted.base_url);
-    HttpResponse::Ok().json(ApiResponse::success("WebDAV configured"))
+    success_response("WebDAV configured")
 }
 
 async fn webdav_browse(
@@ -54,7 +54,7 @@ async fn webdav_browse(
 ) -> HttpResponse {
     let cfg = data.webdav_config.lock().clone();
     if !cfg.is_configured() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("WebDAV not configured"));
+        return bad_request_response("WebDAV not configured");
     }
     let path = query.path.as_deref().unwrap_or("/").to_string();
 
@@ -75,9 +75,9 @@ async fn webdav_browse(
         })),
         Err(e) => {
             if e.to_ascii_lowercase().contains("timed out") {
-                HttpResponse::GatewayTimeout().json(ApiResponse::error(&e))
+                gateway_timeout_response(e)
             } else {
-                HttpResponse::InternalServerError().json(ApiResponse::error(&e))
+                internal_server_error_response(e)
             }
         }
     }
@@ -97,7 +97,7 @@ async fn list_webdav_sources(data: web::Data<Arc<AppState>>) -> HttpResponse {
             "status": "success",
             "sources": sources,
         })),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -107,7 +107,7 @@ async fn upsert_webdav_source(
 ) -> HttpResponse {
     let source_key = body.source_key.trim();
     if source_key.is_empty() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("source_key is required"));
+        return bad_request_response("source_key is required");
     }
 
     let display_name = body
@@ -122,7 +122,7 @@ async fn upsert_webdav_source(
         password: body.password.clone(),
     };
     if !config.is_configured() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("base_url is required"));
+        return bad_request_response("base_url is required");
     }
 
     let make_default = body.is_default.unwrap_or(false);
@@ -130,7 +130,7 @@ async fn upsert_webdav_source(
         data.app_db
             .upsert_webdav_source(source_key, display_name, &config, make_default)
     {
-        return HttpResponse::InternalServerError().json(ApiResponse::error(&e));
+        return internal_server_error_response(e);
     }
 
     if make_default {
@@ -142,10 +142,10 @@ async fn upsert_webdav_source(
             "status": "success",
             "source": source,
         })),
-        Ok(None) => HttpResponse::InternalServerError().json(ApiResponse::error(
+        Ok(None) => internal_server_error_response(
             "WebDAV source was saved but could not be reloaded",
-        )),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        ),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -158,8 +158,8 @@ async fn get_webdav_source(
             "status": "success",
             "source": source,
         })),
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("WebDAV source not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("WebDAV source not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -169,7 +169,7 @@ async fn set_default_webdav_source(
 ) -> HttpResponse {
     let source_key = body.source_key.trim();
     if source_key.is_empty() {
-        return HttpResponse::BadRequest().json(ApiResponse::error("source_key is required"));
+        return bad_request_response("source_key is required");
     }
 
     match data.app_db.set_default_webdav_source(source_key) {
@@ -180,14 +180,14 @@ async fn set_default_webdav_source(
                     "status": "success",
                     "source": source,
                 })),
-                Ok(None) => HttpResponse::InternalServerError().json(ApiResponse::error(
+                Ok(None) => internal_server_error_response(
                     "Default WebDAV source was updated but could not be reloaded",
-                )),
-                Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+                ),
+                Err(e) => internal_server_error_response(e),
             }
         }
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("WebDAV source not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("WebDAV source not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
 
@@ -198,9 +198,9 @@ async fn delete_webdav_source(
     match data.app_db.delete_webdav_source(&path.source_key) {
         Ok(Some(fallback_config)) => {
             *data.webdav_config.lock() = fallback_config;
-            HttpResponse::Ok().json(ApiResponse::success("WebDAV source deleted"))
+            success_response("WebDAV source deleted")
         }
-        Ok(None) => HttpResponse::NotFound().json(ApiResponse::error("WebDAV source not found")),
-        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::error(&e)),
+        Ok(None) => not_found_response("WebDAV source not found"),
+        Err(e) => internal_server_error_response(e),
     }
 }
