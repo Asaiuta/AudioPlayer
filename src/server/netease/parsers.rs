@@ -46,7 +46,7 @@ pub(super) fn read_song_detail(payload: &Value, fallback_song_id: i64) -> Option
     })
 }
 
-fn read_non_empty_string(value: &Value) -> Option<String> {
+pub(super) fn read_non_empty_string(value: &Value) -> Option<String> {
     value
         .as_str()
         .map(str::trim)
@@ -65,45 +65,6 @@ fn read_artists(value: Option<&Value>) -> Option<String> {
     } else {
         Some(names.join(", "))
     }
-}
-
-pub(super) fn read_profile_snapshot(payload: &Value) -> Option<NcmProfileSnapshot> {
-    let root = payload.as_object()?;
-    let data = root.get("data").and_then(Value::as_object).unwrap_or(root);
-    let profile = data.get("profile").and_then(Value::as_object);
-    let account = data.get("account").and_then(Value::as_object);
-    let user_id = profile
-        .and_then(|value| value.get("userId"))
-        .and_then(Value::as_i64)
-        .or_else(|| {
-            account
-                .and_then(|value| value.get("id"))
-                .and_then(Value::as_i64)
-        })?;
-
-    Some(NcmProfileSnapshot {
-        user_id,
-        nickname: profile
-            .and_then(|value| value.get("nickname"))
-            .and_then(read_non_empty_string)
-            .or_else(|| {
-                account
-                    .and_then(|value| value.get("userName"))
-                    .and_then(read_non_empty_string)
-            }),
-        avatar_url: profile
-            .and_then(|value| value.get("avatarUrl"))
-            .and_then(read_non_empty_string),
-        vip_type: profile
-            .and_then(|value| value.get("vipType"))
-            .and_then(Value::as_i64)
-            .or_else(|| {
-                account
-                    .and_then(|value| value.get("vipType"))
-                    .and_then(Value::as_i64)
-            }),
-        level: data.get("level").and_then(Value::as_i64),
-    })
 }
 
 pub(super) fn read_user_playlists(payload: &Value) -> Vec<NcmPlaylistSummary> {
