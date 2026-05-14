@@ -192,7 +192,7 @@ fn ncm_track_resolve_error_response(err: NcmTrackResolveError) -> HttpResponse {
     match err {
         NcmTrackResolveError::BadRequest(message) => bad_request_response(message),
         NcmTrackResolveError::BadGateway(message) => bad_gateway_response(message),
-        NcmTrackResolveError::Upstream(err) => build_error_response(err),
+        NcmTrackResolveError::Upstream(err) => ncm_upstream_error_response(err),
     }
 }
 

@@ -111,7 +111,7 @@ pub(super) async fn daily_signin_active_ncm_account(
                 account.user_id,
                 err
             );
-            return build_error_response(err);
+            return ncm_upstream_error_response(err);
         }
     }
 

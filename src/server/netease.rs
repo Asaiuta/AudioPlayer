@@ -75,7 +75,6 @@ fn attach_cookie(query: &mut Query, cookie: Option<&str>) {
 /// Domain endpoints promise the AudioPlayer `{status, message}` shape on error
 /// (see `.trellis/spec/backend/error-handling.md`). The raw `/api/netease/*` proxy
 /// keeps the upstream `{code, msg}` shape and must NOT route through this helper.
-#[allow(dead_code)]
 fn ncm_upstream_error_response(err: NcmError) -> HttpResponse {
     match err {
         NcmError::AuthRequired(msg) => unauthorized_response(msg),
