@@ -35,7 +35,7 @@ pub(super) async fn list_ncm_user_playlists(
                 "playlists": playlists
             }))
         }
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
 
@@ -62,6 +62,6 @@ pub(super) async fn list_ncm_playlist_tracks(
             "status": "success",
             "tracks": read_playlist_tracks(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }

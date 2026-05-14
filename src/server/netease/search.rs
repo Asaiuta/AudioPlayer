@@ -24,7 +24,7 @@ pub(super) async fn search_ncm_tracks(
             "status": "success",
             "tracks": read_search_tracks(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
 
@@ -54,6 +54,6 @@ pub(super) async fn search_ncm_playlists(
             "status": "success",
             "playlists": read_search_playlists(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }

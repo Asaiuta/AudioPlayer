@@ -9,7 +9,7 @@ pub(super) async fn list_ncm_daily_song_tracks(data: web::Data<Arc<AppState>>) -
             "status": "success",
             "tracks": read_daily_song_tracks(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
 
@@ -38,7 +38,7 @@ pub(super) async fn list_ncm_song_detail_tracks(
             "status": "success",
             "tracks": read_song_detail_tracks(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
 
@@ -51,7 +51,7 @@ pub(super) async fn list_ncm_personal_fm_tracks(data: web::Data<Arc<AppState>>) 
             "status": "success",
             "tracks": read_personal_fm_tracks(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
 
@@ -71,7 +71,7 @@ pub(super) async fn trash_ncm_personal_fm_track(
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({
             "status": "success"
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
 
@@ -92,7 +92,7 @@ pub(super) async fn list_ncm_album_tracks(
             "status": "success",
             "tracks": read_song_detail_tracks(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
 
@@ -113,6 +113,6 @@ pub(super) async fn list_ncm_artist_tracks(
             "status": "success",
             "tracks": read_artist_tracks(&response.body)
         })),
-        Err(err) => build_error_response(err),
+        Err(err) => ncm_upstream_error_response(err),
     }
 }
