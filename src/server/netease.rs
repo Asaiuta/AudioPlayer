@@ -70,6 +70,23 @@ fn attach_cookie(query: &mut Query, cookie: Option<&str>) {
     }
 }
 
+/// Canonical envelope mapping for upstream NCM errors emitted by `/domain/ncm/*` handlers.
+///
+/// Domain endpoints promise the AudioPlayer `{status, message}` shape on error
+/// (see `.trellis/spec/backend/error-handling.md`). The raw `/api/netease/*` proxy
+/// keeps the upstream `{code, msg}` shape and must NOT route through this helper.
+#[allow(dead_code)]
+fn ncm_upstream_error_response(err: NcmError) -> HttpResponse {
+    match err {
+        NcmError::AuthRequired(msg) => unauthorized_response(msg),
+        NcmError::InvalidParam(msg) => bad_request_response(msg),
+        NcmError::RateLimited(msg) => too_many_requests_response(msg),
+        NcmError::Timeout(msg) => gateway_timeout_response(msg),
+        NcmError::Api { msg, .. } => bad_gateway_response(msg),
+        other => bad_gateway_response(other.to_string()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
