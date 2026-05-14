@@ -2,24 +2,41 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LyricWordDto {
+pub struct LyricWord {
     pub start_time: f64,
     pub end_time: f64,
     pub text: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct LyricLineDto {
+pub struct LyricLine {
     pub time: f64,
     pub end_time: Option<f64>,
     pub text: String,
     pub translated: Option<String>,
     pub roman: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub words: Option<Vec<LyricWordDto>>,
+    pub words: Option<Vec<LyricWord>>,
 }
 
-pub fn read_lyric_lines_from_payload(payload: &JsonValue) -> Vec<LyricLineDto> {
+#[derive(Debug, Serialize)]
+pub struct CurrentLyricsResponse {
+    pub status: &'static str,
+    pub lyrics: Vec<LyricLine>,
+    pub source: Option<String>,
+}
+
+impl CurrentLyricsResponse {
+    pub fn success(lyrics: Vec<LyricLine>, source: Option<String>) -> Self {
+        Self {
+            status: "success",
+            lyrics,
+            source,
+        }
+    }
+}
+
+pub fn read_lyric_lines_from_payload(payload: &JsonValue) -> Vec<LyricLine> {
     let body = payload.get("data").unwrap_or(payload);
     let yrc = read_payload_lyric(body, "yrc");
     let klyric = read_payload_lyric(body, "klyric");
@@ -80,7 +97,7 @@ pub fn read_lyric_lines_from_payload(payload: &JsonValue) -> Vec<LyricLineDto> {
     Vec::new()
 }
 
-pub fn read_lyric_lines_from_source(lyric: &str, source: &str) -> Vec<LyricLineDto> {
+pub fn read_lyric_lines_from_source(lyric: &str, source: &str) -> Vec<LyricLine> {
     match source {
         "ttml" => parse_ttml_lyric_text(lyric),
         "yrc" => parse_yrc_lyric_text(lyric),
@@ -90,7 +107,7 @@ pub fn read_lyric_lines_from_source(lyric: &str, source: &str) -> Vec<LyricLineD
     }
 }
 
-pub fn read_embedded_lyric_lines(lyric: &str) -> Vec<LyricLineDto> {
+pub fn read_embedded_lyric_lines(lyric: &str) -> Vec<LyricLine> {
     let timed = parse_timed_lyric_text(lyric);
     if !timed.is_empty() {
         return timed;
@@ -103,7 +120,7 @@ pub fn read_embedded_lyric_lines(lyric: &str) -> Vec<LyricLineDto> {
         if text.is_empty() || text.starts_with('[') {
             continue;
         }
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time: offset,
             end_time: None,
             text: text.to_string(),
@@ -212,7 +229,7 @@ fn strip_subtitle_markup(value: &str) -> String {
     decode_xml_entities(&output)
 }
 
-fn parse_timed_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_timed_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for raw_line in lyric.lines() {
         let mut times = Vec::new();
@@ -238,7 +255,7 @@ fn parse_timed_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
             continue;
         }
         for time in times {
-            lines.push(LyricLineDto {
+            lines.push(LyricLine {
                 time,
                 end_time: None,
                 text: text.to_string(),
@@ -251,7 +268,7 @@ fn parse_timed_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
     sort_lines(lines)
 }
 
-fn parse_srt_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_srt_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let normalized = lyric.replace("\r\n", "\n").replace('\r', "\n");
     let mut lines = Vec::new();
 
@@ -283,7 +300,7 @@ fn parse_srt_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
             continue;
         }
 
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time: start_time,
             end_time,
             text: text.to_string(),
@@ -296,7 +313,7 @@ fn parse_srt_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
     sort_lines(lines)
 }
 
-fn parse_ass_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_ass_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
 
     for raw_line in lyric.lines() {
@@ -321,7 +338,7 @@ fn parse_ass_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
             continue;
         }
 
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time: start_time,
             end_time,
             text: text.to_string(),
@@ -334,7 +351,7 @@ fn parse_ass_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
     sort_lines(lines)
 }
 
-fn parse_yrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_yrc_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for raw_line in lyric.lines() {
         let Some((line_start_ms, line_duration_ms, body)) = parse_ms_pair_line(raw_line) else {
@@ -345,7 +362,7 @@ fn parse_yrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
         if text.is_empty() {
             continue;
         }
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time: line_start_ms / 1000.0,
             end_time: Some((line_start_ms + line_duration_ms) / 1000.0),
             text,
@@ -357,7 +374,7 @@ fn parse_yrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
     sort_lines(lines)
 }
 
-fn parse_qrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_qrc_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for raw_line in lyric.lines() {
         let Some((line_start_ms, line_duration_ms, body)) = parse_ms_pair_line(raw_line) else {
@@ -368,7 +385,7 @@ fn parse_qrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
         if text.is_empty() {
             continue;
         }
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time: line_start_ms / 1000.0,
             end_time: Some((line_start_ms + line_duration_ms) / 1000.0),
             text,
@@ -380,7 +397,7 @@ fn parse_qrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
     sort_lines(lines)
 }
 
-fn parse_lys_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_lys_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for raw_line in lyric.lines() {
         let Some(close) = raw_line.find(']') else {
@@ -398,7 +415,7 @@ fn parse_lys_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
         if text.is_empty() {
             continue;
         }
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time: first_word.start_time,
             end_time: last_end,
             text,
@@ -410,7 +427,7 @@ fn parse_lys_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
     sort_lines(lines)
 }
 
-fn parse_eslrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_eslrc_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for raw_line in lyric.lines() {
         let marks = collect_lrc_marks(raw_line);
@@ -425,7 +442,7 @@ fn parse_eslrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
             if text.is_empty() {
                 continue;
             }
-            words.push(LyricWordDto {
+            words.push(LyricWord {
                 start_time: current.time,
                 end_time: next.time,
                 text: text.to_string(),
@@ -439,7 +456,7 @@ fn parse_eslrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
         if text.is_empty() {
             continue;
         }
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time: first.start_time,
             end_time: Some(last.end_time),
             text,
@@ -451,7 +468,7 @@ fn parse_eslrc_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
     sort_lines(lines)
 }
 
-fn parse_ttml_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
+fn parse_ttml_lyric_text(lyric: &str) -> Vec<LyricLine> {
     let mut lines = Vec::new();
     for (attributes, body) in tag_blocks(lyric, "p") {
         let start_time = attr(&attributes, "begin").and_then(|value| parse_clock_timestamp(&value));
@@ -485,7 +502,7 @@ fn parse_ttml_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
                         .and_then(|value| parse_clock_timestamp(&value))?;
                     let end_time = attr(&span_attributes, "end")
                         .and_then(|value| parse_clock_timestamp(&value))?;
-                    (!text.is_empty()).then_some(LyricWordDto {
+                    (!text.is_empty()).then_some(LyricWord {
                         start_time,
                         end_time,
                         text,
@@ -502,7 +519,7 @@ fn parse_ttml_lyric_text(lyric: &str) -> Vec<LyricLineDto> {
         if text.is_empty() {
             continue;
         }
-        lines.push(LyricLineDto {
+        lines.push(LyricLine {
             time,
             end_time,
             text,
@@ -525,7 +542,7 @@ fn parse_ms_pair_line(raw_line: &str) -> Option<(f64, f64, &str)> {
     (start.is_finite() && duration.is_finite()).then_some((start, duration, &raw_line[close + 1..]))
 }
 
-fn parse_yrc_words(body: &str) -> Vec<LyricWordDto> {
+fn parse_yrc_words(body: &str) -> Vec<LyricWord> {
     let mut words = Vec::new();
     let mut cursor = 0;
     while let Some(open_rel) = body[cursor..].find('(') {
@@ -541,7 +558,7 @@ fn parse_yrc_words(body: &str) -> Vec<LyricWordDto> {
         if let Some((start_ms, duration_ms)) = parse_word_timing(&body[open + 1..close]) {
             let text = body[close + 1..next_open].trim();
             if !text.is_empty() {
-                words.push(LyricWordDto {
+                words.push(LyricWord {
                     start_time: start_ms / 1000.0,
                     end_time: (start_ms + duration_ms) / 1000.0,
                     text: text.to_string(),
@@ -553,7 +570,7 @@ fn parse_yrc_words(body: &str) -> Vec<LyricWordDto> {
     words
 }
 
-fn parse_qrc_words(body: &str) -> Vec<LyricWordDto> {
+fn parse_qrc_words(body: &str) -> Vec<LyricWord> {
     let mut words = Vec::new();
     let mut cursor = 0;
     while let Some(open_rel) = body[cursor..].find('(') {
@@ -565,7 +582,7 @@ fn parse_qrc_words(body: &str) -> Vec<LyricWordDto> {
         let text = body[cursor..open].trim();
         if let Some((start_ms, duration_ms)) = parse_word_timing(&body[open + 1..close]) {
             if !text.is_empty() {
-                words.push(LyricWordDto {
+                words.push(LyricWord {
                     start_time: start_ms / 1000.0,
                     end_time: (start_ms + duration_ms) / 1000.0,
                     text: text.to_string(),
@@ -612,7 +629,7 @@ fn collect_lrc_marks(raw_line: &str) -> Vec<LrcMark> {
     marks
 }
 
-fn normalize_timed_words(mut words: Vec<LyricWordDto>) -> Vec<LyricWordDto> {
+fn normalize_timed_words(mut words: Vec<LyricWord>) -> Vec<LyricWord> {
     words.retain(|word| {
         word.start_time.is_finite()
             && word.end_time.is_finite()
@@ -627,7 +644,7 @@ fn normalize_timed_words(mut words: Vec<LyricWordDto>) -> Vec<LyricWordDto> {
     words
 }
 
-fn join_words(words: &[LyricWordDto]) -> String {
+fn join_words(words: &[LyricWord]) -> String {
     collapse_whitespace(
         &words
             .iter()
@@ -765,7 +782,7 @@ fn is_auxiliary_role(role: &str) -> bool {
     is_translation_role(role) || is_roman_role(role)
 }
 
-fn sort_lines(mut lines: Vec<LyricLineDto>) -> Vec<LyricLineDto> {
+fn sort_lines(mut lines: Vec<LyricLine>) -> Vec<LyricLine> {
     lines.sort_by(|left, right| {
         left.time
             .partial_cmp(&right.time)
@@ -775,9 +792,9 @@ fn sort_lines(mut lines: Vec<LyricLineDto>) -> Vec<LyricLineDto> {
 }
 
 fn merge_translated_lyric_lines(
-    base_lines: Vec<LyricLineDto>,
-    translated_lines: &[LyricLineDto],
-) -> Vec<LyricLineDto> {
+    base_lines: Vec<LyricLine>,
+    translated_lines: &[LyricLine],
+) -> Vec<LyricLine> {
     if base_lines.is_empty() || translated_lines.is_empty() {
         return base_lines;
     }
@@ -799,10 +816,10 @@ enum ExtraLyricKind {
 }
 
 fn merge_extra_lyric_lines(
-    base_lines: Vec<LyricLineDto>,
-    extra_lines: &[LyricLineDto],
+    base_lines: Vec<LyricLine>,
+    extra_lines: &[LyricLine],
     kind: ExtraLyricKind,
-) -> Vec<LyricLineDto> {
+) -> Vec<LyricLine> {
     if base_lines.is_empty() || extra_lines.is_empty() {
         return base_lines;
     }
@@ -822,10 +839,10 @@ fn merge_extra_lyric_lines(
 }
 
 fn nearest_line<'a>(
-    line: &LyricLineDto,
-    candidates: &'a [LyricLineDto],
+    line: &LyricLine,
+    candidates: &'a [LyricLine],
     max_distance: f64,
-) -> Option<&'a LyricLineDto> {
+) -> Option<&'a LyricLine> {
     candidates
         .iter()
         .min_by(|left, right| {

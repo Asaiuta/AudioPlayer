@@ -3326,32 +3326,17 @@ async fn get_current_lyrics(data: web::Data<Arc<AppState>>) -> HttpResponse {
     };
 
     let Some(path) = current_path else {
-        return HttpResponse::Ok().json(serde_json::json!({
-            "status": "success",
-            "lyrics": [],
-            "source": null
-        }));
+        return HttpResponse::Ok().json(lyrics::CurrentLyricsResponse::success(Vec::new(), None));
     };
 
     if path.starts_with("http://") || path.starts_with("https://") {
-        return HttpResponse::Ok().json(serde_json::json!({
-            "status": "success",
-            "lyrics": [],
-            "source": null
-        }));
+        return HttpResponse::Ok().json(lyrics::CurrentLyricsResponse::success(Vec::new(), None));
     }
 
     match read_current_local_lyrics(&path, runtime_lyrics.as_deref()) {
-        Ok(Some((lyric_lines, source))) => HttpResponse::Ok().json(serde_json::json!({
-            "status": "success",
-            "lyrics": lyric_lines,
-            "source": source
-        })),
-        Ok(None) => HttpResponse::Ok().json(serde_json::json!({
-            "status": "success",
-            "lyrics": [],
-            "source": null
-        })),
+        Ok(Some((lyric_lines, source))) => HttpResponse::Ok()
+            .json(lyrics::CurrentLyricsResponse::success(lyric_lines, Some(source))),
+        Ok(None) => HttpResponse::Ok().json(lyrics::CurrentLyricsResponse::success(Vec::new(), None)),
         Err(e) => internal_server_error_response(e),
     }
 }
@@ -3359,7 +3344,7 @@ async fn get_current_lyrics(data: web::Data<Arc<AppState>>) -> HttpResponse {
 fn read_current_local_lyrics(
     path: &str,
     runtime_lyrics: Option<&str>,
-) -> Result<Option<(Vec<lyrics::LyricLineDto>, String)>, String> {
+) -> Result<Option<(Vec<lyrics::LyricLine>, String)>, String> {
     if let Some((lyric_text, source)) = read_sidecar_lyrics(path)? {
         let lyric_lines = lyrics::read_lyric_lines_from_source(&lyric_text, &source);
         if !lyric_lines.is_empty() {
@@ -3385,7 +3370,7 @@ fn read_current_local_lyrics(
     }
 }
 
-fn read_embedded_lyrics_if_present(lyric_text: &str) -> Option<Vec<lyrics::LyricLineDto>> {
+fn read_embedded_lyrics_if_present(lyric_text: &str) -> Option<Vec<lyrics::LyricLine>> {
     let lyric_lines = lyrics::read_embedded_lyric_lines(lyric_text);
     (!lyric_lines.is_empty()).then_some(lyric_lines)
 }

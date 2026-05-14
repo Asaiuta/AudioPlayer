@@ -1,4 +1,4 @@
-use super::super::lyrics::LyricLineDto;
+use super::super::lyrics::LyricLine;
 use ncm_api_rs::NcmError;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -158,7 +158,7 @@ pub(super) struct ResolvedNcmTrackSupplement {
     pub(super) artist: Option<String>,
     pub(super) album: Option<String>,
     pub(super) cover_url: Option<String>,
-    pub(super) lyrics: Vec<LyricLineDto>,
+    pub(super) lyrics: Vec<LyricLine>,
     pub(super) detail_error: Option<String>,
     pub(super) lyrics_error: Option<String>,
 }
