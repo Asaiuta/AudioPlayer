@@ -36,6 +36,7 @@ import type {
   ConfigureOutputBitsInput,
   CrossfeedResponse,
   DynamicLoudnessResponse,
+  EffectsApiClient,
   NoiseShaperResponse,
   SaturationResponse,
   SetCrossfeedInput,
@@ -98,6 +99,7 @@ export type NcmApiValueContract = [
 ];
 
 export type EffectsApiMethodContract = [
+  Expect<Equal<Pick<ApiClient, keyof EffectsApiClient>, EffectsApiClient>>,
   Expect<Equal<ApiClient["setEq"], (input: SetEqInput) => Promise<PlayerState>>>,
   Expect<Equal<ApiClient["setEqType"], (input: SetEqTypeInput) => Promise<StatusMessageResponse>>>,
   Expect<Equal<ApiClient["configureOptimizations"], (input: ConfigureOptimizationsInput) => Promise<PlayerState>>>,

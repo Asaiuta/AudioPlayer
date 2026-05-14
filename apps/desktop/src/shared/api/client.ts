@@ -31,32 +31,9 @@ import {
   type CurrentLyricsResponse
 } from "./lyrics";
 import {
-  configureOptimizations as requestConfigureOptimizations,
-  configureOutputBits as requestConfigureOutputBits,
-  getCrossfeed as requestCrossfeed,
-  getDynamicLoudness as requestDynamicLoudness,
-  getNoiseShaperCurve as requestNoiseShaperCurve,
-  getSaturation as requestSaturation,
-  setCrossfeed as requestSetCrossfeed,
-  setDynamicLoudness as requestSetDynamicLoudness,
-  setEq as requestSetEq,
-  setEqType as requestSetEqType,
-  setNoiseShaperCurve as requestSetNoiseShaperCurve,
-  setSaturation as requestSetSaturation,
-  type ConfigureOptimizationsInput,
-  type ConfigureOutputBitsInput,
-  type CrossfeedResponse,
-  type DynamicLoudnessResponse,
-  type EffectsApiTransport,
-  type NoiseShaperResponse,
-  type SaturationResponse,
-  type SetCrossfeedInput,
-  type SetDynamicLoudnessInput,
-  type SetEqInput,
-  type SetEqTypeInput,
-  type SetNoiseShaperCurveInput,
-  type SetSaturationInput,
-  type StatusMessageResponse
+  createEffectsApiClient,
+  type EffectsApiClient,
+  type EffectsApiTransport
 } from "./effects";
 import type {
   GetNcmHomeFeedInput,
@@ -150,7 +127,7 @@ export type {
   StatusMessageResponse
 } from "./effects";
 
-export interface ApiClient {
+export interface ApiClient extends EffectsApiClient {
   getState: () => Promise<PlayerState>;
   play: () => Promise<PlayerState>;
   pause: () => Promise<PlayerState>;
@@ -167,19 +144,6 @@ export interface ApiClient {
   cancelPreload: () => Promise<void>;
   getSettings: () => Promise<PersistentSettings>;
   saveSettings: (settings: PersistentSettingsUpdate) => Promise<void>;
-  // Effects
-  setEq: (input: SetEqInput) => Promise<PlayerState>;
-  setEqType: (input: SetEqTypeInput) => Promise<StatusMessageResponse>;
-  configureOptimizations: (input: ConfigureOptimizationsInput) => Promise<PlayerState>;
-  getCrossfeed: () => Promise<CrossfeedResponse>;
-  setCrossfeed: (input: SetCrossfeedInput) => Promise<CrossfeedResponse>;
-  getSaturation: () => Promise<SaturationResponse>;
-  setSaturation: (input: SetSaturationInput) => Promise<SaturationResponse>;
-  getDynamicLoudness: () => Promise<DynamicLoudnessResponse>;
-  setDynamicLoudness: (input: SetDynamicLoudnessInput) => Promise<DynamicLoudnessResponse>;
-  getNoiseShaperCurve: () => Promise<NoiseShaperResponse>;
-  setNoiseShaperCurve: (input: SetNoiseShaperCurveInput) => Promise<NoiseShaperResponse>;
-  configureOutputBits: (input: ConfigureOutputBitsInput) => Promise<StatusMessageResponse>;
   // Library
   getLibraryRoots: () => Promise<LibraryRoot[]>;
   scanLibraryRoot: (path: string, displayName?: string, sourceKey?: string) => Promise<ScanResult>;
@@ -1487,6 +1451,7 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     requestJson: (path, init) => requestJson(baseUrl, path, init),
     requestEnvelope: (path, init) => requestEnvelope(baseUrl, path, init)
   };
+  const effectsClient = createEffectsApiClient(effectsTransport);
 
   return {
   getState: async () => {
@@ -1655,22 +1620,7 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       throw new Error(response.message ?? "Failed to save settings");
     }
   },
-  setEq: (input: SetEqInput) => requestSetEq(effectsTransport, input),
-  setEqType: (input: SetEqTypeInput) => requestSetEqType(effectsTransport, input),
-  configureOptimizations: (input: ConfigureOptimizationsInput) =>
-    requestConfigureOptimizations(effectsTransport, input),
-  getCrossfeed: () => requestCrossfeed(effectsTransport),
-  setCrossfeed: (input: SetCrossfeedInput) => requestSetCrossfeed(effectsTransport, input),
-  getSaturation: () => requestSaturation(effectsTransport),
-  setSaturation: (input: SetSaturationInput) => requestSetSaturation(effectsTransport, input),
-  getDynamicLoudness: () => requestDynamicLoudness(effectsTransport),
-  setDynamicLoudness: (input: SetDynamicLoudnessInput) =>
-    requestSetDynamicLoudness(effectsTransport, input),
-  getNoiseShaperCurve: () => requestNoiseShaperCurve(effectsTransport),
-  setNoiseShaperCurve: (input: SetNoiseShaperCurveInput) =>
-    requestSetNoiseShaperCurve(effectsTransport, input),
-  configureOutputBits: (input: ConfigureOutputBitsInput) =>
-    requestConfigureOutputBits(effectsTransport, input),
+  ...effectsClient,
   getLibraryRoots: async () => {
     const json = await requestJson(baseUrl, "/domain/library/roots");
     if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.roots)) {

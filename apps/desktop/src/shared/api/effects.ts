@@ -26,6 +26,21 @@ export interface EffectsApiTransport {
   requestEnvelope: EffectsRequestEnvelope;
 }
 
+export interface EffectsApiClient {
+  setEq: (input: SetEqInput) => Promise<PlayerState>;
+  setEqType: (input: SetEqTypeInput) => Promise<StatusMessageResponse>;
+  configureOptimizations: (input: ConfigureOptimizationsInput) => Promise<PlayerState>;
+  getCrossfeed: () => Promise<CrossfeedResponse>;
+  setCrossfeed: (input: SetCrossfeedInput) => Promise<CrossfeedResponse>;
+  getSaturation: () => Promise<SaturationResponse>;
+  setSaturation: (input: SetSaturationInput) => Promise<SaturationResponse>;
+  getDynamicLoudness: () => Promise<DynamicLoudnessResponse>;
+  setDynamicLoudness: (input: SetDynamicLoudnessInput) => Promise<DynamicLoudnessResponse>;
+  getNoiseShaperCurve: () => Promise<NoiseShaperResponse>;
+  setNoiseShaperCurve: (input: SetNoiseShaperCurveInput) => Promise<NoiseShaperResponse>;
+  configureOutputBits: (input: ConfigureOutputBitsInput) => Promise<StatusMessageResponse>;
+}
+
 export interface SetEqInput {
   bands?: Record<string, number>;
   enabled?: boolean;
@@ -395,3 +410,18 @@ export const configureOutputBits = async (
   const json = await transport.requestJson(EFFECTS_API_ROUTES.configureOutputBits.path, postJson(input));
   return parseStatusResponse(json, "Failed to configure output bits");
 };
+
+export const createEffectsApiClient = (transport: EffectsApiTransport): EffectsApiClient => ({
+  setEq: (input) => setEq(transport, input),
+  setEqType: (input) => setEqType(transport, input),
+  configureOptimizations: (input) => configureOptimizations(transport, input),
+  getCrossfeed: () => getCrossfeed(transport),
+  setCrossfeed: (input) => setCrossfeed(transport, input),
+  getSaturation: () => getSaturation(transport),
+  setSaturation: (input) => setSaturation(transport, input),
+  getDynamicLoudness: () => getDynamicLoudness(transport),
+  setDynamicLoudness: (input) => setDynamicLoudness(transport, input),
+  getNoiseShaperCurve: () => getNoiseShaperCurve(transport),
+  setNoiseShaperCurve: (input) => setNoiseShaperCurve(transport, input),
+  configureOutputBits: (input) => configureOutputBits(transport, input)
+});
