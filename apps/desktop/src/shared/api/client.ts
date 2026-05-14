@@ -16,7 +16,6 @@ import type {
   PersistentSettings,
   PersistentSettingsUpdate,
   QueueEntry,
-  QueueStatus,
   PlayerState,
   ScanResult,
   WebDavBrowseEntry,
@@ -33,6 +32,11 @@ import {
   type PlaybackApiClient,
   type PlaybackApiTransport
 } from "./playback";
+import {
+  createQueueApiClient,
+  type QueueApiClient,
+  type QueueApiTransport
+} from "./queue";
 import { requestEnvelope as requestTransportEnvelope, requestJson } from "./transport";
 import {
   createEffectsApiClient,
@@ -74,6 +78,7 @@ import type {
 } from "./ncmDomainTypes";
 export type { CurrentLyricsResponse, LyricLine, LyricWord } from "./lyrics";
 export type { LoadOptions, PlaybackApiClient } from "./playback";
+export type { PlayQueueOptions, QueueAdjacent, QueueApiClient } from "./queue";
 export type {
   GetNcmHomeFeedInput,
   ListNcmCloudTracksInput,
@@ -132,10 +137,7 @@ export type {
   StatusMessageResponse
 } from "./effects";
 
-export interface ApiClient extends PlaybackApiClient, EffectsApiClient {
-  getQueueStatus: () => Promise<QueueStatus>;
-  queueNext: (path: string) => Promise<void>;
-  cancelPreload: () => Promise<void>;
+export interface ApiClient extends PlaybackApiClient, QueueApiClient, EffectsApiClient {
   getSettings: () => Promise<PersistentSettings>;
   saveSettings: (settings: PersistentSettingsUpdate) => Promise<void>;
   // Library
@@ -188,16 +190,6 @@ export interface ApiClient extends PlaybackApiClient, EffectsApiClient {
   listNcmDiscoverToplists: () => Promise<NcmDiscoverToplist[]>;
   listNcmDiscoverSongs: (input: ListNcmDiscoverSongsInput) => Promise<NcmTrackSummary[]>;
   getNcmDiscoverPlaylistCategories: () => Promise<NcmDiscoverPlaylistCategories>;
-  // Persistent Queue
-  getPersistentQueue: () => Promise<QueueEntry[]>;
-  enqueueTrack: (path: string) => Promise<QueueEntry[]>;
-  removeQueueEntry: (entryId: number) => Promise<QueueEntry[]>;
-  clearPersistentQueue: () => Promise<void>;
-  playFromQueue: (options?: PlayQueueOptions) => Promise<PlayerState>;
-  playNextQueueEntry: () => Promise<PlayerState>;
-  playPreviousQueueEntry: () => Promise<PlayerState>;
-  getQueueAdjacent: () => Promise<QueueAdjacent>;
-  replaceQueue: (paths: string[]) => Promise<QueueEntry[]>;
   // WebDAV
   listWebDavSources: () => Promise<WebDavSource[]>;
   upsertWebDavSource: (sourceKey: string, displayName: string, baseUrl: string, username?: string, password?: string, isDefault?: boolean) => Promise<WebDavSource>;
@@ -210,16 +202,6 @@ export interface ApiClient extends PlaybackApiClient, EffectsApiClient {
   // Cover Art
   getCoverArtUrl: (mediaId: string) => string;
   getLibraryTrackCoverArtUrl: (trackKey: number) => string;
-}
-
-export interface PlayQueueOptions {
-  entryId?: number;
-  sourcePath?: string;
-}
-
-export interface QueueAdjacent {
-  previousEntryId: number | null;
-  nextEntryId: number | null;
 }
 
 export interface LibraryQueueQueryInput {
@@ -530,38 +512,6 @@ const parsePersistentSettings = (value: unknown): PersistentSettings | null => {
   };
 };
 
-const queueStatusBooleanFields = [
-  "needs_preload",
-  "pending_ready",
-  "is_preload_canceling"
-] as const;
-
-const queueStatusNullableStringFields = [
-  "current_track_path",
-  "pending_track_path"
-] as const;
-
-const parseQueueStatus = (value: unknown): QueueStatus | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  if (
-    !hasFields(value, queueStatusBooleanFields, isBoolean) ||
-    !hasFields(value, queueStatusNullableStringFields, isNullableString)
-  ) {
-    return null;
-  }
-
-  return {
-    current_track_path: value.current_track_path as string | null,
-    pending_track_path: value.pending_track_path as string | null,
-    needs_preload: value.needs_preload as boolean,
-    pending_ready: value.pending_ready as boolean,
-    is_preload_canceling: value.is_preload_canceling as boolean
-  };
-};
-
 const parseEnvelope = (value: unknown): ApiEnvelope => {
   if (!isRecord(value)) {
     throw new Error("Invalid API response shape");
@@ -788,24 +738,6 @@ const parseSettingsResponse = (value: unknown): PersistentSettings => {
   }
 
   return settings;
-};
-
-const parseQueueStatusResponse = (value: unknown): QueueStatus => {
-  if (!isRecord(value)) {
-    throw new Error("Invalid queue status response shape");
-  }
-
-  const status = parseStatus(value.status);
-  if (status === "error") {
-    throw new Error(typeof value.message === "string" ? value.message : "Failed to fetch queue status");
-  }
-
-  const queue = parseQueueStatus(value.queue);
-  if (!queue) {
-    throw new Error("Invalid queue status payload");
-  }
-
-  return queue;
 };
 
 const parseResolvedNcmTrack = (value: unknown, errorMessage: string): ResolvedNcmTrack => {
@@ -1359,25 +1291,6 @@ const parseNcmLikelistIdsResponse = (value: unknown): number[] => {
   return ids;
 };
 
-const readNullableIntegerField = (record: Record<string, unknown>, key: string): number | null => {
-  const value = record[key];
-  if (value === null || value === undefined) return null;
-  if (!isInteger(value)) {
-    throw new Error(`Invalid queue adjacent ${key}`);
-  }
-  return value;
-};
-
-const parseQueueAdjacentResponse = (value: unknown): QueueAdjacent => {
-  if (!isRecord(value) || value.status !== "success") {
-    throw new Error("Invalid queue adjacent response");
-  }
-  return {
-    previousEntryId: readNullableIntegerField(value, "previous_entry_id"),
-    nextEntryId: readNullableIntegerField(value, "next_entry_id")
-  };
-};
-
 const requestEnvelope = (baseUrl: string, path: string, init?: RequestInit) =>
   requestTransportEnvelope(baseUrl, path, parseEnvelope, init);
 
@@ -1404,32 +1317,17 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
   const playbackTransport: PlaybackApiTransport = {
     requestEnvelope: (path, init) => requestEnvelope(baseUrl, path, init)
   };
+  const queueTransport: QueueApiTransport = {
+    requestJson: (path, init) => requestJson(baseUrl, path, init),
+    requestEnvelope: (path, init) => requestEnvelope(baseUrl, path, init)
+  };
   const effectsClient = createEffectsApiClient(effectsTransport);
   const playbackClient = createPlaybackApiClient(playbackTransport);
+  const queueClient = createQueueApiClient(queueTransport);
 
   return {
   ...playbackClient,
-  getQueueStatus: async () => {
-    const json = await requestJson(baseUrl, "/queue_status");
-    return parseQueueStatusResponse(json);
-  },
-  queueNext: async (path: string) => {
-    const envelope = await requestEnvelope(baseUrl, "/queue_next", {
-      method: "POST",
-      body: JSON.stringify({ path })
-    });
-    if (envelope.status === "error") {
-      throw new Error(envelope.message ?? "Failed to queue next track");
-    }
-  },
-  cancelPreload: async () => {
-    const envelope = await requestEnvelope(baseUrl, "/cancel_preload", {
-      method: "POST"
-    });
-    if (envelope.status === "error") {
-      throw new Error(envelope.message ?? "Failed to cancel preload");
-    }
-  },
+  ...queueClient,
   getSettings: async () => {
     const json = await requestJson(baseUrl, "/settings");
     return parseSettingsResponse(json);
@@ -1861,88 +1759,6 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       method: "POST"
     });
     return parseNcmDiscoverPlaylistCategoriesResponse(json);
-  },
-  getPersistentQueue: async () => {
-    const json = await requestJson(baseUrl, "/domain/queue");
-    if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.queue)) {
-      throw new Error("Invalid queue response");
-    }
-    return json.queue as QueueEntry[];
-  },
-  enqueueTrack: async (path: string) => {
-    const json = await requestJson(baseUrl, "/domain/queue/enqueue", {
-      method: "POST",
-      body: JSON.stringify({ path })
-    });
-    if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.queue)) {
-      throw new Error("Failed to enqueue track");
-    }
-    return json.queue as QueueEntry[];
-  },
-  removeQueueEntry: async (entryId: number) => {
-    const json = await requestJson(baseUrl, `/domain/queue/${entryId}`, {
-      method: "DELETE"
-    });
-    if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.queue)) {
-      throw new Error("Failed to remove queue entry");
-    }
-    return json.queue as QueueEntry[];
-  },
-  clearPersistentQueue: async () => {
-    const json = await requestJson(baseUrl, "/domain/queue/clear", {
-      method: "POST"
-    });
-    if (!isRecord(json) || json.status !== "success") {
-      throw new Error("Failed to clear queue");
-    }
-  },
-  playFromQueue: async (options?: PlayQueueOptions) => {
-    const body: Record<string, unknown> = {};
-    if (options?.entryId !== undefined) body.entry_id = options.entryId;
-    if (options?.sourcePath) body.source_path = options.sourcePath;
-    const envelope = await requestEnvelope(baseUrl, "/domain/queue/play", {
-      method: "POST",
-      body: JSON.stringify(body)
-    });
-    if (envelope.status === "error") {
-      throw new Error(envelope.message ?? "Failed to play from queue");
-    }
-    if (!envelope.state) {
-      throw new Error("State missing from response");
-    }
-    return envelope.state;
-  },
-  playNextQueueEntry: async () => {
-    const envelope = await requestEnvelope(baseUrl, "/domain/queue/play_next", {
-      method: "POST"
-    });
-    if (envelope.status === "error" || !envelope.state) {
-      throw new Error(envelope.message ?? "Failed to play next queue entry");
-    }
-    return envelope.state;
-  },
-  playPreviousQueueEntry: async () => {
-    const envelope = await requestEnvelope(baseUrl, "/domain/queue/play_previous", {
-      method: "POST"
-    });
-    if (envelope.status === "error" || !envelope.state) {
-      throw new Error(envelope.message ?? "Failed to play previous queue entry");
-    }
-    return envelope.state;
-  },
-  getQueueAdjacent: async () => {
-    const json = await requestJson(baseUrl, "/domain/queue/adjacent");
-    return parseQueueAdjacentResponse(json);
-  },
-  replaceQueue: async (paths: string[]) => {
-    const json = await requestJson(baseUrl, "/domain/queue", {
-      method: "POST",
-      body: JSON.stringify({ paths })
-    });
-    if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.queue)) {
-      throw new Error("Failed to replace queue");
-    }
-    return json.queue as QueueEntry[];
   },
   listWebDavSources: async () => {
     const json = await requestJson(baseUrl, "/domain/webdav/sources");
