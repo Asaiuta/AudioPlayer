@@ -111,7 +111,7 @@ export interface ApiClient {
   browseWebDav: (path?: string) => Promise<{ path: string; entries: WebDavBrowseEntry[] }>;
   // Playback History
   getPlaybackHistory: (limit?: number) => Promise<PlaybackHistoryEntry[]>;
-  getCurrentLyrics: () => Promise<{ lyrics: ParsedLyricLine[]; source: string | null }>;
+  getCurrentLyrics: () => Promise<CurrentLyricsResponse>;
   // Cover Art
   getCoverArtUrl: (mediaId: string) => string;
   getLibraryTrackCoverArtUrl: (trackKey: number) => string;
@@ -200,19 +200,24 @@ export interface NcmTrackQueueResult {
   queue: QueueEntry[];
 }
 
-export interface ParsedLyricWord {
+export interface LyricWord {
   startTime: number;
   endTime: number;
   text: string;
 }
 
-export interface ParsedLyricLine {
+export interface LyricLine {
   time: number;
   endTime: number | null;
   text: string;
   translatedText?: string | null;
   romanText?: string | null;
-  words?: readonly ParsedLyricWord[];
+  words?: readonly LyricWord[];
+}
+
+export interface CurrentLyricsResponse {
+  lyrics: LyricLine[];
+  source: string | null;
 }
 
 export interface ResolvedNcmTrackSupplement {
@@ -221,7 +226,7 @@ export interface ResolvedNcmTrackSupplement {
   artist: string | null;
   album: string | null;
   coverUrl: string | null;
-  lyrics: ParsedLyricLine[];
+  lyrics: LyricLine[];
   detailError: string | null;
   lyricsError: string | null;
 }
@@ -462,7 +467,7 @@ const hasFields = <T extends string>(
   predicate: (candidate: unknown) => boolean
 ) => fields.every((field) => predicate(value[field]));
 
-const parseParsedLyricWord = (value: unknown): ParsedLyricWord | null => {
+const parseLyricWord = (value: unknown): LyricWord | null => {
   if (!isRecord(value)) {
     return null;
   }
@@ -478,7 +483,7 @@ const parseParsedLyricWord = (value: unknown): ParsedLyricWord | null => {
   };
 };
 
-const parseParsedLyricLine = (value: unknown): ParsedLyricLine | null => {
+const parseLyricLine = (value: unknown): LyricLine | null => {
   if (!isRecord(value)) {
     return null;
   }
@@ -496,7 +501,7 @@ const parseParsedLyricLine = (value: unknown): ParsedLyricLine | null => {
   const words = value.words === undefined
     ? undefined
     : Array.isArray(value.words)
-      ? value.words.map(parseParsedLyricWord)
+      ? value.words.map(parseLyricWord)
       : null;
   if (words === null || words?.some((word) => word === null)) {
     return null;
@@ -508,21 +513,21 @@ const parseParsedLyricLine = (value: unknown): ParsedLyricLine | null => {
     text: value.text,
     translatedText: value.translated,
     romanText: value.roman,
-    words: words as ParsedLyricWord[] | undefined
+    words: words as LyricWord[] | undefined
   };
 };
 
-const parseParsedLyricLines = (value: unknown, errorMessage: string): ParsedLyricLine[] => {
+const parseLyricLines = (value: unknown, errorMessage: string): LyricLine[] => {
   if (!Array.isArray(value)) {
     throw new Error(errorMessage);
   }
 
-  const lines = value.map(parseParsedLyricLine);
+  const lines = value.map(parseLyricLine);
   if (lines.some((line) => line === null)) {
     throw new Error(errorMessage);
   }
 
-  return lines as ParsedLyricLine[];
+  return lines as LyricLine[];
 };
 
 const parseStatus = (value: unknown): ApiStatus => {
@@ -1030,7 +1035,7 @@ const parseQueueStatusResponse = (value: unknown): QueueStatus => {
   return queue;
 };
 
-const parseCurrentLyricsResponse = (value: unknown): { lyrics: ParsedLyricLine[]; source: string | null } => {
+const parseCurrentLyricsResponse = (value: unknown): CurrentLyricsResponse => {
   if (!isRecord(value)) {
     throw new Error("Invalid current lyrics response shape");
   }
@@ -1041,7 +1046,7 @@ const parseCurrentLyricsResponse = (value: unknown): { lyrics: ParsedLyricLine[]
   }
 
   return {
-    lyrics: parseParsedLyricLines(value.lyrics, "Invalid current lyrics payload"),
+    lyrics: parseLyricLines(value.lyrics, "Invalid current lyrics payload"),
     source: isNullableString(value.source) ? value.source : null
   };
 };
@@ -1151,7 +1156,7 @@ const parseResolvedNcmTrackSupplementResponse = (value: unknown): ResolvedNcmTra
     throw new Error("Invalid NCM supplement payload");
   }
 
-  const lyrics = parseParsedLyricLines(supplement.lyrics, "Invalid NCM supplement lyrics payload");
+  const lyrics = parseLyricLines(supplement.lyrics, "Invalid NCM supplement lyrics payload");
 
   return {
     songId: supplement.song_id,

@@ -1,7 +1,7 @@
-import type { ParsedLyricLine, ParsedLyricWord } from "../../shared/api/client";
+import type { LyricLine, LyricWord } from "../../shared/api/client";
 
-export type NcmLyricLine = ParsedLyricLine;
-export type NcmLyricWord = ParsedLyricWord;
+export type NcmLyricLine = LyricLine;
+export type NcmLyricWord = LyricWord;
 
 export interface NcmTrackReference {
   songId: number;
