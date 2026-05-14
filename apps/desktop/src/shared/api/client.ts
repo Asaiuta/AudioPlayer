@@ -25,6 +25,13 @@ import type {
   WebDavSource
 } from "./types";
 import { invalidateApiToken, peekApiToken, resolveApiToken, resolveBaseUrl } from "./env";
+import {
+  getCurrentLyrics as requestCurrentLyrics,
+  parseCurrentLyricsResponse,
+  type CurrentLyricsResponse,
+  type LyricLine
+} from "./lyrics";
+export type { CurrentLyricsResponse, LyricLine, LyricWord } from "./lyrics";
 
 export interface ApiClient {
   getState: () => Promise<PlayerState>;
@@ -198,26 +205,6 @@ export interface NcmTrackPlaybackResult {
 export interface NcmTrackQueueResult {
   track: ResolvedNcmTrack;
   queue: QueueEntry[];
-}
-
-export interface LyricWord {
-  startTime: number;
-  endTime: number;
-  text: string;
-}
-
-export interface LyricLine {
-  time: number;
-  endTime: number | null;
-  text: string;
-  translatedText?: string | null;
-  romanText?: string | null;
-  words?: readonly LyricWord[];
-}
-
-export interface CurrentLyricsResponse {
-  lyrics: LyricLine[];
-  source: string | null;
 }
 
 export interface ResolvedNcmTrackSupplement {
@@ -466,69 +453,6 @@ const hasFields = <T extends string>(
   fields: readonly T[],
   predicate: (candidate: unknown) => boolean
 ) => fields.every((field) => predicate(value[field]));
-
-const parseLyricWord = (value: unknown): LyricWord | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  if (!isNumber(value.start_time) || !isNumber(value.end_time) || !isString(value.text)) {
-    return null;
-  }
-
-  return {
-    startTime: value.start_time,
-    endTime: value.end_time,
-    text: value.text
-  };
-};
-
-const parseLyricLine = (value: unknown): LyricLine | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  if (
-    !isNumber(value.time) ||
-    !isNullableNumber(value.end_time) ||
-    !isString(value.text) ||
-    !isNullableString(value.translated) ||
-    !isNullableString(value.roman)
-  ) {
-    return null;
-  }
-
-  const words = value.words === undefined
-    ? undefined
-    : Array.isArray(value.words)
-      ? value.words.map(parseLyricWord)
-      : null;
-  if (words === null || words?.some((word) => word === null)) {
-    return null;
-  }
-
-  return {
-    time: value.time,
-    endTime: value.end_time,
-    text: value.text,
-    translatedText: value.translated,
-    romanText: value.roman,
-    words: words as LyricWord[] | undefined
-  };
-};
-
-const parseLyricLines = (value: unknown, errorMessage: string): LyricLine[] => {
-  if (!Array.isArray(value)) {
-    throw new Error(errorMessage);
-  }
-
-  const lines = value.map(parseLyricLine);
-  if (lines.some((line) => line === null)) {
-    throw new Error(errorMessage);
-  }
-
-  return lines as LyricLine[];
-};
 
 const parseStatus = (value: unknown): ApiStatus => {
   if (value === "success" || value === "error") {
@@ -1035,22 +959,6 @@ const parseQueueStatusResponse = (value: unknown): QueueStatus => {
   return queue;
 };
 
-const parseCurrentLyricsResponse = (value: unknown): CurrentLyricsResponse => {
-  if (!isRecord(value)) {
-    throw new Error("Invalid current lyrics response shape");
-  }
-
-  const status = parseStatus(value.status);
-  if (status === "error") {
-    throw new Error(typeof value.message === "string" ? value.message : "Failed to fetch current lyrics");
-  }
-
-  return {
-    lyrics: parseLyricLines(value.lyrics, "Invalid current lyrics payload"),
-    source: isNullableString(value.source) ? value.source : null
-  };
-};
-
 const parseResolvedNcmTrack = (value: unknown, errorMessage: string): ResolvedNcmTrack => {
   if (!isRecord(value)) {
     throw new Error(errorMessage);
@@ -1156,7 +1064,11 @@ const parseResolvedNcmTrackSupplementResponse = (value: unknown): ResolvedNcmTra
     throw new Error("Invalid NCM supplement payload");
   }
 
-  const lyrics = parseLyricLines(supplement.lyrics, "Invalid NCM supplement lyrics payload");
+  const lyrics = parseCurrentLyricsResponse({
+    status: "success",
+    lyrics: supplement.lyrics,
+    source: null
+  }).lyrics;
 
   return {
     songId: supplement.song_id,
@@ -2400,8 +2312,7 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     return json.history as PlaybackHistoryEntry[];
   },
   getCurrentLyrics: async () => {
-    const json = await requestJson(baseUrl, "/domain/current_lyrics");
-    return parseCurrentLyricsResponse(json);
+    return requestCurrentLyrics((path, init) => requestJson(baseUrl, path, init));
   },
   getCoverArtUrl: (mediaId: string) => {
     const token = peekApiToken();
