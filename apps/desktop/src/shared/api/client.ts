@@ -31,7 +31,55 @@ import {
   type CurrentLyricsResponse,
   type LyricLine
 } from "./lyrics";
+import {
+  configureOptimizations as requestConfigureOptimizations,
+  configureOutputBits as requestConfigureOutputBits,
+  getCrossfeed as requestCrossfeed,
+  getDynamicLoudness as requestDynamicLoudness,
+  getNoiseShaperCurve as requestNoiseShaperCurve,
+  getSaturation as requestSaturation,
+  setCrossfeed as requestSetCrossfeed,
+  setDynamicLoudness as requestSetDynamicLoudness,
+  setEq as requestSetEq,
+  setEqType as requestSetEqType,
+  setNoiseShaperCurve as requestSetNoiseShaperCurve,
+  setSaturation as requestSetSaturation,
+  type ConfigureOptimizationsInput,
+  type ConfigureOutputBitsInput,
+  type CrossfeedResponse,
+  type DynamicLoudnessResponse,
+  type EffectsApiTransport,
+  type NoiseShaperResponse,
+  type SaturationResponse,
+  type SetCrossfeedInput,
+  type SetDynamicLoudnessInput,
+  type SetEqInput,
+  type SetEqTypeInput,
+  type SetNoiseShaperCurveInput,
+  type SetSaturationInput,
+  type StatusMessageResponse
+} from "./effects";
 export type { CurrentLyricsResponse, LyricLine, LyricWord } from "./lyrics";
+export type {
+  ConfigureOptimizationsInput,
+  ConfigureOutputBitsInput,
+  CrossfeedResponse,
+  CrossfeedSettings,
+  DynamicLoudnessResponse,
+  DynamicLoudnessSettings,
+  NoiseShaperCurve,
+  NoiseShaperResponse,
+  NoiseShaperSettings,
+  SaturationResponse,
+  SaturationSettings,
+  SetCrossfeedInput,
+  SetDynamicLoudnessInput,
+  SetEqInput,
+  SetEqTypeInput,
+  SetNoiseShaperCurveInput,
+  SetSaturationInput,
+  StatusMessageResponse
+} from "./effects";
 
 export interface ApiClient {
   getState: () => Promise<PlayerState>;
@@ -50,6 +98,19 @@ export interface ApiClient {
   cancelPreload: () => Promise<void>;
   getSettings: () => Promise<PersistentSettings>;
   saveSettings: (settings: PersistentSettingsUpdate) => Promise<void>;
+  // Effects
+  setEq: (input: SetEqInput) => Promise<PlayerState>;
+  setEqType: (input: SetEqTypeInput) => Promise<StatusMessageResponse>;
+  configureOptimizations: (input: ConfigureOptimizationsInput) => Promise<PlayerState>;
+  getCrossfeed: () => Promise<CrossfeedResponse>;
+  setCrossfeed: (input: SetCrossfeedInput) => Promise<CrossfeedResponse>;
+  getSaturation: () => Promise<SaturationResponse>;
+  setSaturation: (input: SetSaturationInput) => Promise<SaturationResponse>;
+  getDynamicLoudness: () => Promise<DynamicLoudnessResponse>;
+  setDynamicLoudness: (input: SetDynamicLoudnessInput) => Promise<DynamicLoudnessResponse>;
+  getNoiseShaperCurve: () => Promise<NoiseShaperResponse>;
+  setNoiseShaperCurve: (input: SetNoiseShaperCurveInput) => Promise<NoiseShaperResponse>;
+  configureOutputBits: (input: ConfigureOutputBitsInput) => Promise<StatusMessageResponse>;
   // Library
   getLibraryRoots: () => Promise<LibraryRoot[]>;
   scanLibraryRoot: (path: string, displayName?: string, sourceKey?: string) => Promise<ScanResult>;
@@ -1588,6 +1649,11 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
   // see a value as soon as possible after construction.
   void resolveApiToken();
 
+  const effectsTransport: EffectsApiTransport = {
+    requestJson: (path, init) => requestJson(baseUrl, path, init),
+    requestEnvelope: (path, init) => requestEnvelope(baseUrl, path, init)
+  };
+
   return {
   getState: async () => {
     const envelope = await requestEnvelope(baseUrl, "/state");
@@ -1755,6 +1821,22 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
       throw new Error(response.message ?? "Failed to save settings");
     }
   },
+  setEq: (input: SetEqInput) => requestSetEq(effectsTransport, input),
+  setEqType: (input: SetEqTypeInput) => requestSetEqType(effectsTransport, input),
+  configureOptimizations: (input: ConfigureOptimizationsInput) =>
+    requestConfigureOptimizations(effectsTransport, input),
+  getCrossfeed: () => requestCrossfeed(effectsTransport),
+  setCrossfeed: (input: SetCrossfeedInput) => requestSetCrossfeed(effectsTransport, input),
+  getSaturation: () => requestSaturation(effectsTransport),
+  setSaturation: (input: SetSaturationInput) => requestSetSaturation(effectsTransport, input),
+  getDynamicLoudness: () => requestDynamicLoudness(effectsTransport),
+  setDynamicLoudness: (input: SetDynamicLoudnessInput) =>
+    requestSetDynamicLoudness(effectsTransport, input),
+  getNoiseShaperCurve: () => requestNoiseShaperCurve(effectsTransport),
+  setNoiseShaperCurve: (input: SetNoiseShaperCurveInput) =>
+    requestSetNoiseShaperCurve(effectsTransport, input),
+  configureOutputBits: (input: ConfigureOutputBitsInput) =>
+    requestConfigureOutputBits(effectsTransport, input),
   getLibraryRoots: async () => {
     const json = await requestJson(baseUrl, "/domain/library/roots");
     if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.roots)) {

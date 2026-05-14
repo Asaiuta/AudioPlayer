@@ -31,6 +31,22 @@ import type {
 } from "./client";
 import type { ApiStatus } from "./types";
 import type { NcmResponseEnvelope } from "./ncm/base";
+import type {
+  ConfigureOptimizationsInput,
+  ConfigureOutputBitsInput,
+  CrossfeedResponse,
+  DynamicLoudnessResponse,
+  NoiseShaperResponse,
+  SaturationResponse,
+  SetCrossfeedInput,
+  SetDynamicLoudnessInput,
+  SetEqInput,
+  SetEqTypeInput,
+  SetNoiseShaperCurveInput,
+  SetSaturationInput,
+  StatusMessageResponse
+} from "./effects";
+import type { PlayerState } from "./types";
 
 type Equal<Actual, Expected> =
   (<T>() => T extends Actual ? 1 : 2) extends
@@ -79,6 +95,21 @@ export type NcmApiValueContract = [
   Expect<Equal<NcmDiscoverPlaylistKind, "normal" | "hq">>,
   Expect<Equal<NcmDiscoverAlbumArea, "ALL" | "ZH" | "EA" | "KR" | "JP">>,
   Expect<Equal<NcmDiscoverSongType, 0 | 7 | 96 | 16 | 8>>
+];
+
+export type EffectsApiMethodContract = [
+  Expect<Equal<ApiClient["setEq"], (input: SetEqInput) => Promise<PlayerState>>>,
+  Expect<Equal<ApiClient["setEqType"], (input: SetEqTypeInput) => Promise<StatusMessageResponse>>>,
+  Expect<Equal<ApiClient["configureOptimizations"], (input: ConfigureOptimizationsInput) => Promise<PlayerState>>>,
+  Expect<Equal<ApiClient["getCrossfeed"], () => Promise<CrossfeedResponse>>>,
+  Expect<Equal<ApiClient["setCrossfeed"], (input: SetCrossfeedInput) => Promise<CrossfeedResponse>>>,
+  Expect<Equal<ApiClient["getSaturation"], () => Promise<SaturationResponse>>>,
+  Expect<Equal<ApiClient["setSaturation"], (input: SetSaturationInput) => Promise<SaturationResponse>>>,
+  Expect<Equal<ApiClient["getDynamicLoudness"], () => Promise<DynamicLoudnessResponse>>>,
+  Expect<Equal<ApiClient["setDynamicLoudness"], (input: SetDynamicLoudnessInput) => Promise<DynamicLoudnessResponse>>>,
+  Expect<Equal<ApiClient["getNoiseShaperCurve"], () => Promise<NoiseShaperResponse>>>,
+  Expect<Equal<ApiClient["setNoiseShaperCurve"], (input: SetNoiseShaperCurveInput) => Promise<NoiseShaperResponse>>>,
+  Expect<Equal<ApiClient["configureOutputBits"], (input: ConfigureOutputBitsInput) => Promise<StatusMessageResponse>>>
 ];
 
 type DomainNcmSuccessEnvelope<Payload> = {
