@@ -140,7 +140,6 @@ const buildFolders = (tracks: readonly IndexedTrack[]): LibraryWorkerFolderGroup
 const rowForTrack = (track: LibraryTrackSummary): LibraryWorkerRow => ({
   id: String(track.track_key),
   trackKey: track.track_key,
-  source_path: null,
   media_id: track.media_id,
   title: track.title ?? track.file_name,
   artist: track.artist,

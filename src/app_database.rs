@@ -1341,19 +1341,8 @@ impl AppDatabase {
             };
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let now = now_epoch_secs_i64();
-        conn.execute(
-            r#"
-            INSERT INTO media_items (media_id, source_path, source_kind, added_at, updated_at)
-            VALUES (?1, ?2, ?3, ?4, ?4)
-            ON CONFLICT(media_id) DO UPDATE SET
-                source_path = excluded.source_path,
-                source_kind = excluded.source_kind,
-                updated_at = excluded.updated_at
-            "#,
-            params![media_id, source_path, source_kind, now],
-        )
-        .map_err(|e| format!("Failed to record media item: {}", e))?;
-        Ok(media_id_for_path(source_path))
+        record_media_stub_in_conn(&conn, &media_id, source_path, source_kind, now)?;
+        Ok(media_id)
     }
 
     pub fn record_media_metadata(
@@ -3457,6 +3446,356 @@ pub(crate) fn media_id_for_path(path: &str) -> String {
         .to_lowercase()
 }
 
+fn record_media_stub_in_conn(
+    conn: &Connection,
+    media_id: &str,
+    source_path: &str,
+    source_kind: &str,
+    now: i64,
+) -> Result<(), String> {
+    conn.execute_batch("BEGIN IMMEDIATE TRANSACTION;")
+        .map_err(|e| format!("Failed to start media item transaction: {}", e))?;
+
+    let result = (|| {
+        let existing_by_id = conn
+            .query_row(
+                "SELECT media_id FROM media_items WHERE media_id = ?1",
+                params![media_id],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to read media item by id '{}': {}", media_id, e))?;
+        let existing_by_path = conn
+            .query_row(
+                "SELECT media_id FROM media_items WHERE source_path = ?1",
+                params![source_path],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|e| format!("Failed to read media item by path '{}': {}", source_path, e))?;
+
+        match (existing_by_id.as_deref(), existing_by_path.as_deref()) {
+            (Some(_), Some(path_media_id)) if path_media_id != media_id => {
+                merge_media_identity(conn, path_media_id, media_id, now)?;
+            }
+            (None, Some(path_media_id)) if path_media_id != media_id => {
+                rename_media_identity(
+                    conn,
+                    path_media_id,
+                    media_id,
+                    source_path,
+                    source_kind,
+                    now,
+                )?;
+            }
+            _ => {}
+        }
+
+        conn.execute(
+            r#"
+        INSERT INTO media_items (media_id, source_path, source_kind, added_at, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?4)
+        ON CONFLICT(media_id) DO UPDATE SET
+            source_path = excluded.source_path,
+            source_kind = excluded.source_kind,
+            updated_at = excluded.updated_at
+        "#,
+            params![media_id, source_path, source_kind, now],
+        )
+        .map_err(|e| format!("Failed to record media item: {}", e))?;
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => conn
+            .execute_batch("COMMIT;")
+            .map_err(|e| format!("Failed to commit media item transaction: {}", e)),
+        Err(err) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            Err(err)
+        }
+    }
+}
+
+fn rename_media_identity(
+    conn: &Connection,
+    old_media_id: &str,
+    new_media_id: &str,
+    source_path: &str,
+    source_kind: &str,
+    now: i64,
+) -> Result<(), String> {
+    let legacy_source_path = format!("{}#legacy-media-id:{}", source_path, old_media_id);
+    conn.execute(
+        "UPDATE media_items SET source_path = ?1, updated_at = ?2 WHERE media_id = ?3",
+        params![legacy_source_path, now, old_media_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to release legacy media source path '{}' for '{}': {}",
+            source_path, old_media_id, e
+        )
+    })?;
+    conn.execute(
+        r#"
+        INSERT INTO media_items (
+            media_id, source_path, source_kind, title, artist, album, track_number, disc_number,
+            genre, year, duration_secs, sample_rate, channels, external_artwork_url, added_at,
+            updated_at, mtime, size_bytes
+        )
+        SELECT ?1, ?2, ?3, title, artist, album, track_number, disc_number,
+               genre, year, duration_secs, sample_rate, channels, external_artwork_url, added_at,
+               ?4, mtime, size_bytes
+        FROM media_items
+        WHERE media_id = ?5
+        "#,
+        params![new_media_id, source_path, source_kind, now, old_media_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to create normalized media item '{}' from '{}': {}",
+            new_media_id, old_media_id, e
+        )
+    })?;
+    update_media_identity_references(conn, old_media_id, new_media_id)?;
+    conn.execute(
+        "DELETE FROM media_items WHERE media_id = ?1",
+        params![old_media_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to remove legacy media item '{}' after normalizing to '{}': {}",
+            old_media_id, new_media_id, e
+        )
+    })?;
+    Ok(())
+}
+
+fn merge_media_identity(
+    conn: &Connection,
+    old_media_id: &str,
+    canonical_media_id: &str,
+    now: i64,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        UPDATE media_items
+        SET title = COALESCE(NULLIF(title, ''), (SELECT NULLIF(title, '') FROM media_items WHERE media_id = ?2)),
+            artist = COALESCE(NULLIF(artist, ''), (SELECT NULLIF(artist, '') FROM media_items WHERE media_id = ?2)),
+            album = COALESCE(NULLIF(album, ''), (SELECT NULLIF(album, '') FROM media_items WHERE media_id = ?2)),
+            track_number = COALESCE(track_number, (SELECT track_number FROM media_items WHERE media_id = ?2)),
+            disc_number = COALESCE(disc_number, (SELECT disc_number FROM media_items WHERE media_id = ?2)),
+            genre = COALESCE(NULLIF(genre, ''), (SELECT NULLIF(genre, '') FROM media_items WHERE media_id = ?2)),
+            year = COALESCE(year, (SELECT year FROM media_items WHERE media_id = ?2)),
+            duration_secs = COALESCE(duration_secs, (SELECT duration_secs FROM media_items WHERE media_id = ?2)),
+            sample_rate = COALESCE(sample_rate, (SELECT sample_rate FROM media_items WHERE media_id = ?2)),
+            channels = COALESCE(channels, (SELECT channels FROM media_items WHERE media_id = ?2)),
+            external_artwork_url = COALESCE(NULLIF(external_artwork_url, ''), (SELECT NULLIF(external_artwork_url, '') FROM media_items WHERE media_id = ?2)),
+            mtime = COALESCE(mtime, (SELECT mtime FROM media_items WHERE media_id = ?2)),
+            size_bytes = COALESCE(size_bytes, (SELECT size_bytes FROM media_items WHERE media_id = ?2)),
+            updated_at = ?3
+        WHERE media_id = ?1
+        "#,
+        params![canonical_media_id, old_media_id, now],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to merge media item '{}' into '{}': {}",
+        old_media_id, canonical_media_id, e
+    )
+    })?;
+    update_media_identity_references(conn, old_media_id, canonical_media_id)?;
+    reconcile_ncm_track_source_merge(conn, old_media_id, canonical_media_id, now)?;
+    reconcile_local_playlist_items_merge(conn, old_media_id, canonical_media_id)?;
+    conn.execute(
+        "DELETE FROM media_items WHERE media_id = ?1",
+        params![old_media_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to delete merged media item '{}': {}",
+            old_media_id, e
+        )
+    })?;
+    Ok(())
+}
+
+fn update_media_identity_references(
+    conn: &Connection,
+    old_media_id: &str,
+    new_media_id: &str,
+) -> Result<(), String> {
+    if old_media_id == new_media_id {
+        return Ok(());
+    }
+
+    let updates = [
+        ("cover_art_cache", "media_id"),
+        ("playback_sessions", "media_id"),
+        ("playback_history", "media_id"),
+        ("playback_queue_entries", "media_id"),
+        ("local_playlists", "cover_media_id"),
+    ];
+
+    for (table, column) in updates {
+        let sql = format!("UPDATE {table} SET {column} = ?1 WHERE {column} = ?2");
+        conn.execute(&sql, params![new_media_id, old_media_id])
+            .map_err(|e| {
+                format!(
+                    "Failed to update {}.{} from '{}' to '{}': {}",
+                    table, column, old_media_id, new_media_id, e
+                )
+            })?;
+    }
+
+    Ok(())
+}
+
+fn reconcile_ncm_track_source_merge(
+    conn: &Connection,
+    old_media_id: &str,
+    canonical_media_id: &str,
+    now: i64,
+) -> Result<(), String> {
+    let old_row = conn
+        .query_row(
+            r#"
+            SELECT media_id, source_path, song_id, source_page_url, resolved_at, scrobbled_at, scrobble_secs
+            FROM ncm_track_sources
+            WHERE media_id = ?1
+            "#,
+            params![old_media_id],
+            ncm_track_source_from_row,
+        )
+        .optional()
+        .map_err(|e| format!("Failed to read legacy NCM track source '{}': {}", old_media_id, e))?;
+    let Some(old_row) = old_row else {
+        return Ok(());
+    };
+
+    let canonical_row = conn
+        .query_row(
+            r#"
+            SELECT media_id, source_path, song_id, source_page_url, resolved_at, scrobbled_at, scrobble_secs
+            FROM ncm_track_sources
+            WHERE media_id = ?1
+            "#,
+            params![canonical_media_id],
+            ncm_track_source_from_row,
+        )
+        .optional()
+        .map_err(|e| {
+            format!(
+                "Failed to read canonical NCM track source '{}': {}",
+                canonical_media_id, e
+            )
+        })?;
+
+    let merged_source_path = old_row.source_path.clone();
+    let merged_song_id = old_row.song_id;
+    let merged_source_page_url = old_row.source_page_url.clone();
+    let merged_resolved_at = old_row.resolved_at_epoch_secs;
+    let merged_scrobbled_at = old_row.scrobbled_at_epoch_secs;
+    let merged_scrobble_secs = old_row.scrobble_secs;
+
+    if canonical_row.is_some() {
+        conn.execute(
+            r#"
+            UPDATE ncm_track_sources
+            SET source_path = ?2,
+                song_id = COALESCE(song_id, ?3),
+                source_page_url = COALESCE(source_page_url, ?4),
+                resolved_at = COALESCE(resolved_at, ?5),
+                scrobbled_at = COALESCE(scrobbled_at, ?6),
+                scrobble_secs = COALESCE(scrobble_secs, ?7)
+            WHERE media_id = ?1
+            "#,
+            params![
+                canonical_media_id,
+                merged_source_path,
+                merged_song_id,
+                merged_source_page_url,
+                merged_resolved_at,
+                merged_scrobbled_at,
+                merged_scrobble_secs,
+            ],
+        )
+        .map_err(|e| {
+            format!(
+                "Failed to merge NCM track source '{}' into '{}': {}",
+                old_media_id, canonical_media_id, e
+            )
+        })?;
+        conn.execute(
+            "DELETE FROM ncm_track_sources WHERE media_id = ?1",
+            params![old_media_id],
+        )
+        .map_err(|e| {
+            format!(
+                "Failed to delete merged NCM track source '{}': {}",
+                old_media_id, e
+            )
+        })?;
+        return Ok(());
+    }
+
+    conn.execute(
+        r#"
+        UPDATE ncm_track_sources
+        SET media_id = ?1,
+            source_path = ?2,
+            resolved_at = ?3
+        WHERE media_id = ?4
+        "#,
+        params![canonical_media_id, merged_source_path, now, old_media_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to retarget NCM track source '{}' to '{}': {}",
+            old_media_id, canonical_media_id, e
+        )
+    })?;
+
+    Ok(())
+}
+
+fn reconcile_local_playlist_items_merge(
+    conn: &Connection,
+    old_media_id: &str,
+    canonical_media_id: &str,
+) -> Result<(), String> {
+    conn.execute(
+        r#"
+        DELETE FROM local_playlist_items
+        WHERE media_id = ?1
+          AND EXISTS (
+              SELECT 1
+              FROM local_playlist_items dup
+              WHERE dup.playlist_id = local_playlist_items.playlist_id
+                AND dup.media_id = ?2
+          )
+        "#,
+        params![old_media_id, canonical_media_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to remove duplicate local playlist items for '{}' and '{}': {}",
+            old_media_id, canonical_media_id, e
+        )
+    })?;
+    conn.execute(
+        "UPDATE local_playlist_items SET media_id = ?1 WHERE media_id = ?2",
+        params![canonical_media_id, old_media_id],
+    )
+    .map_err(|e| {
+        format!(
+            "Failed to retarget local playlist items from '{}' to '{}': {}",
+            old_media_id, canonical_media_id, e
+        )
+    })?;
+    Ok(())
+}
+
 fn normalize_media_path_for_id(path: &str) -> &str {
     path.strip_prefix(r"\\?\UNC\")
         .map(|rest| rest.strip_prefix('\\').unwrap_or(rest))
@@ -3783,6 +4122,167 @@ mod tests {
             item.external_artwork_url.as_deref(),
             Some("https://img.example.test/song.jpg")
         );
+    }
+
+    #[test]
+    fn record_media_stub_normalizes_legacy_media_id_for_existing_source_path() {
+        let db = AppDatabase::in_memory().unwrap();
+        let path = "https://Music.Example.test/Stream.mp3";
+        let canonical_media_id = media_id_for_path(path);
+        let legacy_media_id = "https://music.example.test/stream.mp3?legacy";
+        let now = now_epoch_secs_i64();
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO media_items
+                    (media_id, source_path, source_kind, title, artist, added_at, updated_at)
+                VALUES (?1, ?2, 'remote', 'Legacy Title', 'Legacy Artist', ?3, ?3)
+                "#,
+                params![legacy_media_id, path, now],
+            )
+            .unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO playback_queue_entries
+                    (queue_id, position_index, source_path, media_id, status, added_at, updated_at)
+                VALUES ('active', 0, ?1, ?2, 'queued', ?3, ?3)
+                "#,
+                params![path, legacy_media_id, now],
+            )
+            .unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO playback_sessions
+                    (media_id, source_path, status, started_at, updated_at, exclusive_mode)
+                VALUES (?1, ?2, 'loaded', ?3, ?3, 0)
+                "#,
+                params![legacy_media_id, path, now],
+            )
+            .unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO playback_history
+                    (media_id, source_path, event_type, event_at)
+                VALUES (?1, ?2, 'load_requested', ?3)
+                "#,
+                params![legacy_media_id, path, now],
+            )
+            .unwrap();
+        }
+
+        let recorded_media_id = db.record_media_stub(path).unwrap();
+
+        assert_eq!(recorded_media_id, canonical_media_id);
+        let item = db.media_metadata_for_path(path).unwrap().unwrap();
+        assert_eq!(item.media_id, canonical_media_id);
+        assert_eq!(item.source_path, path);
+        assert_eq!(item.title.as_deref(), Some("Legacy Title"));
+        assert_eq!(item.artist.as_deref(), Some("Legacy Artist"));
+
+        let queue = db.list_queue_entries("active").unwrap();
+        assert_eq!(queue[0].media_id, Some(canonical_media_id.clone()));
+        assert_eq!(queue[0].title.as_deref(), Some("Legacy Title"));
+
+        let conn = db.conn.lock().unwrap();
+        let legacy_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM media_items WHERE media_id = ?1",
+                params![legacy_media_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let session_media_id: Option<String> = conn
+            .query_row(
+                "SELECT media_id FROM playback_sessions WHERE source_path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let history_media_id: Option<String> = conn
+            .query_row(
+                "SELECT media_id FROM playback_history WHERE source_path = ?1",
+                params![path],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(legacy_count, 0);
+        assert_eq!(
+            session_media_id.as_deref(),
+            Some(canonical_media_id.as_str())
+        );
+        assert_eq!(
+            history_media_id.as_deref(),
+            Some(canonical_media_id.as_str())
+        );
+    }
+
+    #[test]
+    fn record_media_stub_merges_duplicate_legacy_and_canonical_rows() {
+        let db = AppDatabase::in_memory().unwrap();
+        let canonical_path = "https://music.example.test/stream.mp3";
+        let legacy_path = "https://MUSIC.example.test/stream.mp3";
+        let canonical_media_id = media_id_for_path(canonical_path);
+        let legacy_media_id = "legacy-media-id";
+        let now = now_epoch_secs_i64();
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO media_items
+                    (media_id, source_path, source_kind, added_at, updated_at)
+                VALUES (?1, ?2, 'remote', ?3, ?3)
+                "#,
+                params![canonical_media_id, canonical_path, now],
+            )
+            .unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO media_items
+                    (media_id, source_path, source_kind, title, external_artwork_url, added_at, updated_at)
+                VALUES (?1, ?2, 'remote', 'Legacy Metadata', 'https://img.example.test/cover.jpg', ?3, ?3)
+                "#,
+                params![legacy_media_id, legacy_path, now],
+            )
+            .unwrap();
+            conn.execute(
+                r#"
+                INSERT INTO ncm_track_sources
+                    (media_id, source_path, song_id, resolved_at)
+                VALUES (?1, ?2, 42, ?3)
+                "#,
+                params![legacy_media_id, legacy_path, now],
+            )
+            .unwrap();
+        }
+
+        let recorded_media_id = db.record_media_stub(legacy_path).unwrap();
+
+        assert_eq!(recorded_media_id, canonical_media_id);
+        let item = db.media_metadata_for_path(legacy_path).unwrap().unwrap();
+        assert_eq!(item.media_id, canonical_media_id);
+        assert_eq!(item.source_path, legacy_path);
+        assert_eq!(item.title.as_deref(), Some("Legacy Metadata"));
+        assert_eq!(
+            item.external_artwork_url.as_deref(),
+            Some("https://img.example.test/cover.jpg")
+        );
+
+        let track_source = db.ncm_track_source_for_path(legacy_path).unwrap().unwrap();
+        assert_eq!(track_source.media_id, canonical_media_id);
+        assert_eq!(track_source.song_id, 42);
+
+        let conn = db.conn.lock().unwrap();
+        let row_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM media_items WHERE media_id IN (?1, ?2)",
+                params![canonical_media_id, legacy_media_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(row_count, 1);
     }
 
     #[test]

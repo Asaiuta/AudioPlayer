@@ -72,7 +72,6 @@ export interface LibraryWorkerFolderGroup {
 export interface LibraryWorkerRow {
   id: string;
   trackKey: number;
-  source_path: null;
   media_id: string | null;
   title: string | null;
   artist: string | null;

@@ -18,6 +18,11 @@ import {
   LibraryWorkerClient,
   createLibraryWorkerViewInput
 } from "./libraryWorkerClient";
+import {
+  adaptMediaItemToListItem,
+  adaptWorkerRowToListItem,
+  LibraryTrackDetailResolver
+} from "./libraryDataBoundary";
 
 const api = createApiClient();
 const ALL_FOLDERS_VALUE = "__all";
@@ -40,30 +45,16 @@ interface UseLibraryDataControllerOptions {
   globalQuery: Accessor<string>;
 }
 
-const adaptItem = (item: MediaItem): LibraryListItem => ({
-  ...item,
-  id: item.media_id,
-  artworkUrl: item.has_cover_art ? api.getCoverArtUrl(item.media_id) : item.external_artwork_url
-});
+const urlProvider = {
+  getCoverArtUrl: (mediaId: string) => api.getCoverArtUrl(mediaId),
+  getLibraryTrackCoverArtUrl: (trackKey: number) => api.getLibraryTrackCoverArtUrl(trackKey)
+};
 
-const adaptWorkerRow = (row: LibraryWorkerRow): LibraryListItem => ({
-  id: row.id,
-  trackKey: row.trackKey,
-  media_id: row.media_id,
-  source_path: row.source_path,
-  title: row.title,
-  artist: row.artist,
-  album: row.album,
-  track_number: row.track_number,
-  duration_secs: row.duration_secs,
-  size_bytes: row.size_bytes,
-  added_at_epoch_secs: row.added_at_epoch_secs,
-  updated_at_epoch_secs: row.updated_at_epoch_secs,
-  fileName: row.fileName,
-  artworkUrl: row.hasCoverArt
-    ? api.getLibraryTrackCoverArtUrl(row.trackKey)
-    : row.externalArtworkUrl
-});
+const adaptItem = (item: MediaItem): LibraryListItem =>
+  adaptMediaItemToListItem(item, urlProvider);
+
+const adaptWorkerRow = (row: LibraryWorkerRow): LibraryListItem =>
+  adaptWorkerRowToListItem(row, urlProvider);
 
 const matchesSearch = (item: LibraryListItem, query: string) => {
   if (!query) return true;
@@ -320,7 +311,10 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const readErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : t("common.error.requestFailed");
 
-  const detailCache = new Map<number, MediaItem>();
+  const detailResolver = new LibraryTrackDetailResolver(async (trackKey) => {
+    const detail = await api.getLibraryTrackDetail(trackKey);
+    return detail.item;
+  });
 
   const setKeyedFeedback = (tone: Feedback["tone"], key: TranslationKey) => {
     setFeedbackKey(key);
@@ -395,23 +389,8 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     return folderOptions().find((folder) => folder.key === selected)?.path ?? null;
   });
 
-  const detailForTrackKey = async (trackKey: number): Promise<MediaItem> => {
-    const cached = detailCache.get(trackKey);
-    if (cached) return cached;
-    const detail = await api.getLibraryTrackDetail(trackKey);
-    detailCache.set(trackKey, detail.item);
-    return detail.item;
-  };
-
-  const ensureItemDetail = async (item: LibraryListItem): Promise<MediaItem | null> => {
-    if (item.source_path && item.media_id) {
-      return item as MediaItem;
-    }
-    if (item.trackKey === undefined) {
-      return null;
-    }
-    return detailForTrackKey(item.trackKey);
-  };
+  const ensureItemDetail = (item: LibraryListItem): Promise<MediaItem | null> =>
+    detailResolver.resolve(item);
 
   const refreshRoots = async () => {
     try {
@@ -426,7 +405,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     setIsFetching(true);
     try {
       const response = await api.getLibraryTrackSummaries();
-      detailCache.clear();
+      detailResolver.clear();
       setAllItems([]);
       setLegacyItemsLoaded(false);
       setLibraryRevision(response.revision);

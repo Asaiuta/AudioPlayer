@@ -13,7 +13,11 @@ import {
   IconStorage
 } from "../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
-import { MediaList, type MediaContextAction } from "../../components/media/MediaList";
+import {
+  MediaList,
+  isMediaListItemCurrent,
+  type MediaContextAction
+} from "../../components/media/MediaList";
 import type { LocalPlaylist } from "../../shared/api/types";
 import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { ManageRootsModal } from "./ManageRootsModal";
@@ -33,6 +37,8 @@ interface LibraryPageProps {
   currentTrackPath: string | null;
   currentMediaId: string | null;
   isPlaying: boolean;
+  onPlay: () => Promise<void> | undefined;
+  onPause: () => Promise<void> | undefined;
 }
 
 export type { LibraryListItem } from "./libraryDataTypes";
@@ -94,6 +100,15 @@ export function LibraryPage(props: LibraryPageProps) {
     contextItems: readonly LibraryListItem[] = controller.filteredItems()
   ) => {
     try {
+      if (
+        isMediaListItemCurrent(item, {
+          sourcePath: props.currentTrackPath,
+          mediaId: props.currentMediaId
+        })
+      ) {
+        await (props.isPlaying ? props.onPause() : props.onPlay());
+        return;
+      }
       await controller.playItem(item, contextItems);
       await props.onStateRefresh(item.source_path ?? null);
     } catch {
