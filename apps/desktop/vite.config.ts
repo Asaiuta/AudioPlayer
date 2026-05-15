@@ -16,6 +16,21 @@ export default defineConfig({
   },
   build: {
     target: "esnext",
-    sourcemap: true
+    sourcemap: true,
+    chunkSizeWarningLimit: 650,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          solid: ["solid-js"],
+          tauri: [
+            "@tauri-apps/api/core",
+            "@tauri-apps/api/dpi",
+            "@tauri-apps/api/event",
+            "@tauri-apps/api/image",
+            "@tauri-apps/api/window"
+          ]
+        }
+      }
+    }
   }
 });

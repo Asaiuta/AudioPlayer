@@ -43,14 +43,14 @@ export const resolveWsUrl = () => {
 // never recompute — manifesting as covers that silently 401 on cold start.
 
 import { createSignal, untrack } from "solid-js";
+import { invoke } from "@tauri-apps/api/core";
 
 const [apiTokenSignal, setApiTokenSignal] = createSignal("");
 let apiTokenPromise: Promise<string> | null = null;
 
 const fetchTokenFromTauri = async (): Promise<string> => {
   try {
-    const tauriApi = await import("@tauri-apps/api/core");
-    const value = await tauriApi.invoke<string>("get_api_token");
+    const value = await invoke<string>("get_api_token");
     return typeof value === "string" ? value : "";
   } catch (error) {
     // Outside Tauri (e.g. plain `npm run dev`), fall back to a build-time env var.
