@@ -69,6 +69,7 @@ export type {
   NcmAccountState,
   NcmAccountSummary,
   NcmAccountUpsertInput,
+  NcmArtistSummary,
   NcmCloudTracksPage,
   NcmDiscoverAlbumArea,
   NcmDiscoverCard,

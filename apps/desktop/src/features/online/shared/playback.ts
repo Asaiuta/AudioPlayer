@@ -1,17 +1,19 @@
 import type { ApiClient, ResolveNcmTrackInput } from "../../../shared/api/client";
-import type { TranslationKey, TranslationParams } from "../../../shared/i18n";
 import { STORAGE_KEYS } from "../../../shared/state/useUISettings";
 import type { NcmTrackReference } from "../ncmPlayback";
-import type { Feedback, OnlineTrackItem } from "./types";
-
-type Translator = (key: TranslationKey, params?: TranslationParams) => string;
+import {
+  createErrorMessageReader,
+  type FeedbackSetter,
+  type Translator
+} from "./feedback";
+import type { OnlineTrackItem } from "./types";
 
 export interface PlaybackContext {
   api: ApiClient;
   t: Translator;
   onRegisterPlayback: (track: NcmTrackReference) => void;
   onStateRefresh: (expectedPath?: string | null) => Promise<void>;
-  setFeedback: (tone: Feedback["tone"], message: string) => void;
+  setFeedback: FeedbackSetter;
 }
 
 export interface PlaybackController {
@@ -22,8 +24,7 @@ export interface PlaybackController {
 export function createPlaybackController(ctx: PlaybackContext): PlaybackController {
   const { api, t, onRegisterPlayback, onStateRefresh, setFeedback } = ctx;
 
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const readErrorMessage = createErrorMessageReader(t);
 
   const readSongLevel = () => {
     try {

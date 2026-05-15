@@ -200,6 +200,8 @@ pub struct EngineSettings {
     pub phase_response: PhaseResponse,
     pub use_cache: bool,
     pub preemptive_resample: bool,
+    #[serde(default = "default_use_next_prefetch")]
+    pub use_next_prefetch: bool,
     pub eq_type: String,
     pub volume: f32,
     pub device_id: Option<usize>,
@@ -253,6 +255,7 @@ impl Default for EngineSettings {
             phase_response: PhaseResponse::default(),
             use_cache: false,
             preemptive_resample: true,
+            use_next_prefetch: true,
             eq_type: "IIR".to_string(),
             volume: 0.7,
             device_id: None,
@@ -341,6 +344,10 @@ impl EngineSettings {
             .unwrap_or(false);
 
         let preemptive_resample = env::var("AUDIO_PREEMPTIVE_RESAMPLE")
+            .map(|s| s.to_lowercase() == "true")
+            .unwrap_or(true);
+
+        let use_next_prefetch = env::var("AUDIO_USE_NEXT_PREFETCH")
             .map(|s| s.to_lowercase() == "true")
             .unwrap_or(true);
 
@@ -492,6 +499,7 @@ impl EngineSettings {
             phase_response,
             use_cache,
             preemptive_resample,
+            use_next_prefetch,
             eq_type,
             volume: 0.7,
             device_id: None,
@@ -601,6 +609,9 @@ impl EngineSettings {
         if let Some(preemptive_resample) = update.preemptive_resample {
             self.preemptive_resample = preemptive_resample;
         }
+        if let Some(use_next_prefetch) = update.use_next_prefetch {
+            self.use_next_prefetch = use_next_prefetch;
+        }
     }
 }
 
@@ -630,6 +641,11 @@ pub struct EngineSettingsUpdate {
     pub resample_quality: Option<String>,
     pub use_cache: Option<bool>,
     pub preemptive_resample: Option<bool>,
+    pub use_next_prefetch: Option<bool>,
+}
+
+fn default_use_next_prefetch() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -866,6 +882,7 @@ mod tests {
         assert_eq!(settings.volume, 0.7);
         assert_eq!(settings.output_bits, 24);
         assert!(!settings.dynamic_loudness.enabled);
+        assert!(settings.use_next_prefetch);
         assert_eq!(settings.fir_taps, Some(1023));
         assert_eq!(settings.resample_quality, ResampleQuality::High);
     }
@@ -978,6 +995,7 @@ mod tests {
 
         assert!((settings.volume - 0.25).abs() < f32::EPSILON);
         assert_eq!(settings.resample_quality, ResampleQuality::UltraHigh);
+        assert!(settings.use_next_prefetch);
         assert!(settings.crossfeed.enabled);
         assert!(settings.dynamic_loudness.enabled);
     }

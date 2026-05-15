@@ -7,7 +7,6 @@ import { AppearanceSection } from "./sections/AppearanceSection";
 import { PlaybackSection } from "./sections/PlaybackSection";
 import { LyricsSection } from "./sections/LyricsSection";
 import { AudioEngineSection } from "./sections/AudioEngineSection";
-import { NetworkSection } from "./sections/NetworkSection";
 
 interface SettingsPageProps {
   isOpen: boolean;
@@ -188,9 +187,6 @@ export function SettingsPage(props: SettingsPageProps) {
                     highlightId={highlightId()}
                     onStateRefresh={props.onStateRefresh}
                   />
-                </Match>
-                <Match when={activeCategory() === "network"}>
-                  <NetworkSection highlightId={highlightId()} />
                 </Match>
               </Switch>
             </div>

@@ -157,6 +157,7 @@ pub(super) struct ResolvedNcmTrackSupplement {
     pub(super) song_id: i64,
     pub(super) title: Option<String>,
     pub(super) artist: Option<String>,
+    pub(super) artists: Vec<NcmArtistSummary>,
     pub(super) album: Option<String>,
     pub(super) cover_url: Option<String>,
     pub(super) lyrics: Vec<LyricLine>,
@@ -168,8 +169,15 @@ pub(super) struct ResolvedNcmTrackSupplement {
 pub(super) struct NcmTrackDetail {
     pub(super) title: Option<String>,
     pub(super) artist: Option<String>,
+    pub(super) artists: Vec<NcmArtistSummary>,
     pub(super) album: Option<String>,
     pub(super) cover_url: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
+pub(super) struct NcmArtistSummary {
+    pub(super) id: i64,
+    pub(super) name: String,
 }
 
 #[derive(Debug)]

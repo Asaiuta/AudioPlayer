@@ -65,7 +65,8 @@ const persistentSettingsBooleanFields = [
   "crossfeed_enabled",
   "dynamic_loudness_enabled",
   "use_cache",
-  "preemptive_resample"
+  "preemptive_resample",
+  "use_next_prefetch"
 ] as const;
 
 const persistentSettingsNumberFields = [
@@ -137,7 +138,8 @@ const parsePersistentSettings = (value: unknown): PersistentSettings | null => {
     target_samplerate: value.target_samplerate as number | null,
     resample_quality: value.resample_quality as string,
     use_cache: value.use_cache as boolean,
-    preemptive_resample: value.preemptive_resample as boolean
+    preemptive_resample: value.preemptive_resample as boolean,
+    use_next_prefetch: value.use_next_prefetch as boolean
   };
 };
 

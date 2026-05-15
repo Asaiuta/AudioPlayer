@@ -18,10 +18,16 @@ export interface NcmTrackSupplement {
   status: "loading" | "success" | "error";
   title: string | null;
   artist: string | null;
+  artists: NcmArtistSummary[];
   album: string | null;
   coverUrl: string | null;
   lyrics: NcmLyricLine[];
   error: string | null;
+}
+
+export interface NcmArtistSummary {
+  id: number;
+  name: string;
 }
 
 export const mergeNcmTrackReference = (

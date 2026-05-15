@@ -66,8 +66,8 @@ const parseLyricLine = (value: unknown): LyricLine | null => {
     !isNumber(value.time) ||
     !isNullableNumber(value.end_time) ||
     !isString(value.text) ||
-    !isNullableString(value.translated) ||
-    !isNullableString(value.roman)
+    (value.translated !== undefined && !isNullableString(value.translated)) ||
+    (value.roman !== undefined && !isNullableString(value.roman))
   ) {
     return null;
   }
@@ -85,8 +85,8 @@ const parseLyricLine = (value: unknown): LyricLine | null => {
     time: value.time,
     endTime: value.end_time,
     text: value.text,
-    translatedText: value.translated,
-    romanText: value.roman,
+    translatedText: value.translated ?? null,
+    romanText: value.roman ?? null,
     words: words as LyricWord[] | undefined
   };
 };

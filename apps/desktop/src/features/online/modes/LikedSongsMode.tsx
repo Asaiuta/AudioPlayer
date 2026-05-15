@@ -6,8 +6,13 @@ import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
 import { PlaylistDetail } from "../details/PlaylistDetail";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
+import {
+  createErrorMessageReader,
+  createLoginStatusText,
+  type FeedbackSetter
+} from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
-import type { Feedback, NcmProfile } from "../shared/types";
+import type { NcmProfile } from "../shared/types";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
 const api = createApiClient();
@@ -17,7 +22,7 @@ export interface LikedSongsModeProps {
   isCheckingLogin: Accessor<boolean>;
   isLoginBusy: Accessor<boolean>;
   onBeginLogin: () => void;
-  setFeedback: (tone: Feedback["tone"], message: string) => void;
+  setFeedback: FeedbackSetter;
   playback: PlaybackController;
   currentTrackPath: string | null;
   currentSongId: number | null;
@@ -37,15 +42,9 @@ export function LikedSongsMode(props: LikedSongsModeProps) {
     setFeedback: props.setFeedback
   });
 
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const readErrorMessage = createErrorMessageReader(t);
 
-  const loginStatusText = () => {
-    if (props.isCheckingLogin()) return t("ncm.login.status.checking");
-    const profile = props.loginProfile();
-    if (profile) return t("ncm.login.status.loggedIn", { name: profile.nickname ?? profile.userId });
-    return t("ncm.login.status.loggedOut");
-  };
+  const loginStatusText = createLoginStatusText(t, props.isCheckingLogin, props.loginProfile);
 
   const likedTrackLimit = (playlist: OnlinePlaylistSummary): number | undefined =>
     playlist.trackCount !== null && playlist.trackCount > 0 ? playlist.trackCount : undefined;

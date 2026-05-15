@@ -9,8 +9,9 @@ import { ArtistDetail } from "../details/ArtistDetail";
 import { DailySongsDetail } from "../details/DailySongsDetail";
 import { LikedSongsDetail } from "../details/LikedSongsDetail";
 import { PlaylistDetail } from "../details/PlaylistDetail";
+import { createErrorMessageReader, type FeedbackSetter } from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
-import type { Feedback, NcmProfile } from "../shared/types";
+import type { NcmProfile } from "../shared/types";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
 export interface RecommendModeProps {
@@ -21,7 +22,7 @@ export interface RecommendModeProps {
   onNavigate?: (page: "recommend" | "discover") => void;
   onNavigateToDiscover?: (tab: string) => void;
   onMarkPendingDiscoverSearch: () => void;
-  setFeedback: (tone: Feedback["tone"], message: string) => void;
+  setFeedback: FeedbackSetter;
   playback: PlaybackController;
   currentTrackPath: string | null;
   currentSongId: number | null;
@@ -59,8 +60,7 @@ export function RecommendMode(props: RecommendModeProps) {
 
   const pageTitle = () => t("ncm.title.recommend");
 
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const readErrorMessage = createErrorMessageReader(t);
 
   const playPersonalFmRadio = async () => {
     if (isPlayingPersonalFm()) return;

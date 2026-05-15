@@ -13,6 +13,11 @@ import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { useNcmAccount } from "../../shared/state/NcmAccountContext";
 import type { NcmTrackReference } from "./ncmPlayback";
+import {
+  createErrorMessageReader,
+  createFeedbackSetter,
+  createInitialFeedback
+} from "./shared/feedback";
 import { createPlaybackController } from "./shared/playback";
 import type { Feedback, OnlineTrackItem } from "./shared/types";
 
@@ -48,14 +53,10 @@ export function CloudPage(props: CloudPageProps) {
   const [maxSizeBytes, setMaxSizeBytes] = createSignal<number>(0);
   const [searchValue, setSearchValue] = createSignal<string>("");
   const [isLoading, setIsLoading] = createSignal<boolean>(false);
-  const [feedback, setFeedback] = createSignal<Feedback>({
-    tone: "neutral",
-    message: t("ncm.feedback.initial")
-  });
+  const [feedback, setFeedback] = createSignal<Feedback>(createInitialFeedback(t));
 
-  const setRawFeedback = (tone: Feedback["tone"], message: string) => setFeedback({ tone, message });
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const setRawFeedback = createFeedbackSetter(setFeedback);
+  const readErrorMessage = createErrorMessageReader(t);
 
   const playback = createPlaybackController({
     api,

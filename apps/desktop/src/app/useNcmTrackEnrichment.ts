@@ -81,6 +81,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
   const currentPlayerCoverUrl = createMemo(() => player()?.external_artwork_url ?? null);
   const currentPlayerTime = createMemo(() => player()?.current_time ?? 0);
   const currentPlayerDuration = createMemo(() => player()?.duration ?? null);
+  const currentPlayerIsLoading = createMemo(() => player()?.is_loading ?? false);
   const currentPlayerNcmSongId = createMemo(() => player()?.ncm_song_id ?? null);
   const currentPlayerNcmSourcePageUrl = createMemo(() => player()?.ncm_source_page_url ?? null);
 
@@ -183,6 +184,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       const requestCoverUrl = firstNonEmpty(trackRef?.coverUrl, currentPlayerCoverUrl());
       const key = [
         trackRef ? `ncm:${trackRef.songId}` : `media:${mediaKey}`,
+        currentPlayerIsLoading() ? "loading" : "ready",
         title ?? "",
         artist ?? "",
         album ?? "",
@@ -215,6 +217,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       status: "loading",
       title: request.title,
       artist: request.artist,
+      artists: [],
       album: request.album,
       coverUrl: request.coverUrl,
       lyrics: [],
@@ -268,6 +271,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
           status: error && !hasRemoteSupplement && lyrics.length === 0 ? "error" : "success",
           title: resolvedSupplement?.title ?? request.trackRef.title,
           artist: resolvedSupplement?.artist ?? request.trackRef.artist,
+          artists: resolvedSupplement?.artists ?? [],
           album: resolvedSupplement?.album ?? request.trackRef.album,
           coverUrl: resolvedSupplement?.coverUrl ?? request.trackRef.coverUrl,
           lyrics,
@@ -290,6 +294,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
         status: error && localLyrics.length === 0 ? "error" : "success",
         title: request.title,
         artist: request.artist,
+        artists: [],
         album: request.album,
         coverUrl: request.coverUrl,
         lyrics: localLyrics,

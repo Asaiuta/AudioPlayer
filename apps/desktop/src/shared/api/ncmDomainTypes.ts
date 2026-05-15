@@ -37,11 +37,17 @@ export interface ResolvedNcmTrackSupplement {
   songId: number;
   title: string | null;
   artist: string | null;
+  artists: NcmArtistSummary[];
   album: string | null;
   coverUrl: string | null;
   lyrics: LyricLine[];
   detailError: string | null;
   lyricsError: string | null;
+}
+
+export interface NcmArtistSummary {
+  id: number;
+  name: string;
 }
 
 export interface NcmAccountSummary {

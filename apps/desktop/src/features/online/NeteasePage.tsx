@@ -4,6 +4,13 @@ import { useTranslation } from "../../shared/i18n";
 import { useNcmAccount } from "../../shared/state/NcmAccountContext";
 import { useUISearch } from "../../shared/state/UISearchContext";
 import type { NcmTrackReference } from "./ncmPlayback";
+import type { FeedCardItem } from "./shared/types";
+import {
+  createErrorMessageReader,
+  createLoginStatusText,
+  createFeedbackSetter,
+  createInitialFeedback
+} from "./shared/feedback";
 import type { Feedback, NcmProfile, NeteasePageMode } from "./shared/types";
 import { createPlaybackController } from "./shared/playback";
 import { DiscoverMode } from "./modes/DiscoverMode";
@@ -29,6 +36,7 @@ interface NeteasePageProps {
   onNavigate?: (page: "recommend" | "discover") => void;
   onNavigateToDiscover?: (tab: string) => void;
   discoverTabRequest?: { tab: string; version: number };
+  artistDetailRequest?: { artist: FeedCardItem | null; version: number };
   onRequireNcmLogin: () => void;
 }
 
@@ -39,7 +47,7 @@ export function NeteasePage(props: NeteasePageProps) {
 
   const [isCheckingLogin, setIsCheckingLogin] = createSignal(false);
   const [isLoginBusy, setIsLoginBusy] = createSignal(false);
-  const [feedback, setFeedback] = createSignal<Feedback>({ tone: "neutral", message: t("ncm.feedback.initial") });
+  const [feedback, setFeedback] = createSignal<Feedback>(createInitialFeedback(t));
   const [pendingDiscoverSearch, setPendingDiscoverSearch] = createSignal(false);
 
   const loginProfile = createMemo<NcmProfile | null>(() => {
@@ -48,10 +56,8 @@ export function NeteasePage(props: NeteasePageProps) {
     return { userId: acct.userId, nickname: acct.nickname };
   });
 
-  const setRawFeedback = (tone: Feedback["tone"], message: string) => setFeedback({ tone, message });
-
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const setRawFeedback = createFeedbackSetter(setFeedback);
+  const readErrorMessage = createErrorMessageReader(t);
 
   const playback = createPlaybackController({
     api,
@@ -93,12 +99,7 @@ export function NeteasePage(props: NeteasePageProps) {
     }
   };
 
-  const loginStatusText = () => {
-    if (isCheckingLogin()) return t("ncm.login.status.checking");
-    const profile = loginProfile();
-    if (profile) return t("ncm.login.status.loggedIn", { name: profile.nickname ?? profile.userId });
-    return t("ncm.login.status.loggedOut");
-  };
+  const loginStatusText = createLoginStatusText(t, isCheckingLogin, loginProfile);
 
   const isDiscoverMode = () => props.mode === "discover";
 
@@ -132,6 +133,7 @@ export function NeteasePage(props: NeteasePageProps) {
             pendingDiscoverSearch={pendingDiscoverSearch}
             clearPendingDiscoverSearch={() => setPendingDiscoverSearch(false)}
             discoverTabRequest={props.discoverTabRequest}
+            artistDetailRequest={props.artistDetailRequest}
             onSelectedPlaylistChange={props.onSelectedPlaylistChange}
             setFeedback={setRawFeedback}
             playback={playback}

@@ -101,6 +101,9 @@ pub fn read_lyric_lines_from_source(lyric: &str, source: &str) -> Vec<LyricLine>
     match source {
         "ttml" => parse_ttml_lyric_text(lyric),
         "yrc" => parse_yrc_lyric_text(lyric),
+        "qrc" | "klyric" => parse_qrc_lyric_text(lyric),
+        "lys" => parse_lys_lyric_text(lyric),
+        "eslrc" => parse_eslrc_lyric_text(lyric),
         "srt" => parse_srt_lyric_text(lyric),
         "ass" | "ssa" => parse_ass_lyric_text(lyric),
         _ => parse_timed_lyric_text(lyric),
@@ -906,6 +909,15 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert_eq!(lines[0].text, "Hello");
         assert_eq!(lines[0].words.as_ref().unwrap()[1].start_time, 1.3);
+    }
+
+    #[test]
+    fn parses_qrc_sidecar_text() {
+        let lines = read_lyric_lines_from_source("[1000,900]Hel(1000,300)lo(1300,600)", "qrc");
+
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].text, "Hello");
+        assert_eq!(lines[0].words.as_ref().unwrap().len(), 2);
     }
 
     #[test]

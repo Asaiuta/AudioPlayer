@@ -340,6 +340,7 @@ mod tests {
         // Flat response (all bands at 0 dB) should produce near-unity impulse
         let fir = FirEq::new(44100.0, 1023);
         let ir = fir.get_ir(2);
+        assert!(!ir.is_empty());
 
         // Sum should be approximately 1.0 for unity gain
         let sum: f64 = fir.cached_ir.iter().sum();
@@ -372,6 +373,8 @@ mod tests {
         let gain_750 = fir.interpolate_gain(750.0);
         let gain_500 = fir.interpolate_gain(500.0); // 0 dB (standard band)
         let gain_1000 = fir.interpolate_gain(1000.0); // 0 dB (standard band)
+        assert!((gain_500 - 0.0).abs() < 0.01);
+        assert!((gain_1000 - 0.0).abs() < 0.01);
 
         // At 750 Hz (between 500 and 1000, both 0 dB), should be 0 dB
         assert!(

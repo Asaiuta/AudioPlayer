@@ -305,13 +305,16 @@ async fn websocket(
                     // Preload signaling (still uses dedicated AtomicBool for callback compatibility)
                     let needs_preload_now = shared_state.needs_preload.load(std::sync::atomic::Ordering::Acquire);
                     if needs_preload_now && !last_preload_sent {
-                        match super::playback::queue_next_from_persistent_queue(&data) {
-                            Ok(Some(path)) => {
-                                log::info!("Auto-preloading next queue entry: {}", path);
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                log::warn!("Failed to auto-preload next queue entry: {}", e);
+                        let use_next_prefetch = data.settings_manager.lock().get_settings().use_next_prefetch;
+                        if use_next_prefetch {
+                            match super::playback::queue_next_from_persistent_queue(&data) {
+                                Ok(Some(path)) => {
+                                    log::info!("Auto-preloading next queue entry: {}", path);
+                                }
+                                Ok(None) => {}
+                                Err(e) => {
+                                    log::warn!("Failed to auto-preload next queue entry: {}", e);
+                                }
                             }
                         }
 

@@ -1,6 +1,5 @@
 import { For, type JSX } from "solid-js";
 import {
-  IconCloud,
   IconControls,
   IconLogo,
   IconMusic,
@@ -13,8 +12,7 @@ export type SettingsCategoryKey =
   | "appearance"
   | "playback"
   | "lyrics"
-  | "audio-engine"
-  | "network";
+  | "audio-engine";
 
 interface CategoryDef {
   key: SettingsCategoryKey;
@@ -26,8 +24,7 @@ const CATEGORIES: ReadonlyArray<CategoryDef> = [
   { key: "appearance", labelKey: "settings.nav.appearance", icon: () => <IconLogo /> },
   { key: "playback", labelKey: "settings.nav.playback", icon: () => <IconMusic /> },
   { key: "lyrics", labelKey: "settings.nav.lyrics", icon: () => <IconTextPlay /> },
-  { key: "audio-engine", labelKey: "settings.nav.audioEngine", icon: () => <IconControls /> },
-  { key: "network", labelKey: "settings.nav.network", icon: () => <IconCloud /> }
+  { key: "audio-engine", labelKey: "settings.nav.audioEngine", icon: () => <IconControls /> }
 ];
 
 const settingsNavClass = "settings-nav min-h-0 flex-1 overflow-y-auto";

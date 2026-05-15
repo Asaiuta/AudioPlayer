@@ -22,11 +22,8 @@ pub(super) async fn list_ncm_user_playlists(
 
     match data.ncm_client.user_playlist(&query).await {
         Ok(response) => {
-            let mode = request
-                .mode
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| {
+            let mode =
+                request.mode.as_deref().map(str::trim).filter(|value| {
                     *value == "created-playlists" || *value == "collected-playlists"
                 });
             let playlists = filter_playlist_summaries(read_user_playlists(&response.body), mode);

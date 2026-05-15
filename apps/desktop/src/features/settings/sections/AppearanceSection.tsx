@@ -8,6 +8,7 @@ import type {
   FullPlayerCommentMode,
   PlaylistPageElements,
   PlayerBackgroundType,
+  PlayerExpandAnimation,
   PlayerType,
   SidebarHiddenItems,
   PlayerTimeFormat
@@ -261,14 +262,29 @@ export function AppearanceSection(props: AppearanceSectionProps) {
       return raw === "animation" || raw === "color" ? raw : "blur";
     })()
   );
+  const [playerBackgroundFps, setPlayerBackgroundFps] = createSignal<number>(
+    Math.min(256, Math.max(24, readNumber(STORAGE_KEYS.playerBackgroundFps, 30)))
+  );
   const [playerBackgroundFlowSpeed, setPlayerBackgroundFlowSpeed] = createSignal<number>(
     Math.min(10, Math.max(0.1, readNumber(STORAGE_KEYS.playerBackgroundFlowSpeed, 4)))
+  );
+  const [playerBackgroundRenderScale, setPlayerBackgroundRenderScale] = createSignal<number>(
+    Math.min(3, Math.max(0.1, readNumber(STORAGE_KEYS.playerBackgroundRenderScale, 0.5)))
   );
   const [playerBackgroundPause, setPlayerBackgroundPause] = createSignal<boolean>(
     readBool(STORAGE_KEYS.playerBackgroundPause, false)
   );
   const [playerBackgroundLowFreqVolume, setPlayerBackgroundLowFreqVolume] = createSignal<boolean>(
     readBool(STORAGE_KEYS.playerBackgroundLowFreqVolume, false)
+  );
+  const [playerExpandAnimation, setPlayerExpandAnimation] = createSignal<PlayerExpandAnimation>(
+    (() => {
+      const raw = readString(STORAGE_KEYS.playerExpandAnimation, "up");
+      return raw === "flow" ? "flow" : "up";
+    })()
+  );
+  const [playerFollowCoverColor, setPlayerFollowCoverColor] = createSignal<boolean>(
+    readBool(STORAGE_KEYS.playerFollowCoverColor, true)
   );
   const [sidebarHiddenItems, setSidebarHiddenItems] = createSignal<SidebarHiddenItems>(
     readBoolRecord(STORAGE_KEYS.sidebarHiddenItems, DEFAULT_SIDEBAR_HIDDEN_ITEMS)
@@ -399,6 +415,11 @@ export function AppearanceSection(props: AppearanceSectionProps) {
     { value: "color", label: t("settings.appearance.playerBackgroundType.color") }
   ]);
 
+  const playerExpandAnimationOptions = createMemo<SelectOption[]>(() => [
+    { value: "up", label: t("settings.appearance.playerExpandAnimation.up") },
+    { value: "flow", label: t("settings.appearance.playerExpandAnimation.flow") }
+  ]);
+
   const timeFormatOptions = createMemo<SelectOption[]>(() => [
     { value: "current-total", label: t("settings.appearance.timeFormat.currentTotal") },
     { value: "remaining-total", label: t("settings.appearance.timeFormat.remainingTotal") },
@@ -473,9 +494,26 @@ export function AppearanceSection(props: AppearanceSectionProps) {
     setPlayerBackgroundType(value);
     persist(STORAGE_KEYS.playerBackgroundType, value);
   };
+  const handlePlayerBackgroundFps = (value: number) => {
+    setPlayerBackgroundFps(value);
+    persist(STORAGE_KEYS.playerBackgroundFps, value);
+  };
   const handlePlayerBackgroundFlowSpeed = (value: number) => {
     setPlayerBackgroundFlowSpeed(value);
     persist(STORAGE_KEYS.playerBackgroundFlowSpeed, value);
+  };
+  const handlePlayerBackgroundRenderScale = (value: number) => {
+    setPlayerBackgroundRenderScale(value);
+    persist(STORAGE_KEYS.playerBackgroundRenderScale, value);
+  };
+  const handlePlayerExpandAnimation = (value: PlayerExpandAnimation) => {
+    setPlayerExpandAnimation(value);
+    persist(STORAGE_KEYS.playerExpandAnimation, value);
+  };
+  const handlePlayerFollowCoverColor = () => {
+    const next = !playerFollowCoverColor();
+    setPlayerFollowCoverColor(next);
+    persist(STORAGE_KEYS.playerFollowCoverColor, next);
   };
   const handleTimeFormat = (value: PlayerTimeFormat) => {
     setTimeFormat(value);
@@ -1003,6 +1041,24 @@ export function AppearanceSection(props: AppearanceSectionProps) {
 
         <Show when={playerBackgroundType() === "animation"}>
           <SettingItem
+            id="playerBackgroundFps"
+            label={t("settings.appearance.playerBackgroundFps")}
+            description={t("settings.appearance.playerBackgroundFps.desc")}
+            highlighted={isHi("playerBackgroundFps")}
+            index={nextIndex()}
+          >
+            <RangeInput
+              min={24}
+              max={256}
+              step={1}
+              value={playerBackgroundFps()}
+              onPreview={setPlayerBackgroundFps}
+              onCommit={handlePlayerBackgroundFps}
+              formatSuffix=" fps"
+            />
+          </SettingItem>
+
+          <SettingItem
             id="playerBackgroundFlowSpeed"
             label={t("settings.appearance.playerBackgroundFlowSpeed")}
             description={t("settings.appearance.playerBackgroundFlowSpeed.desc")}
@@ -1016,6 +1072,24 @@ export function AppearanceSection(props: AppearanceSectionProps) {
               value={playerBackgroundFlowSpeed()}
               onPreview={setPlayerBackgroundFlowSpeed}
               onCommit={handlePlayerBackgroundFlowSpeed}
+              formatSuffix="x"
+            />
+          </SettingItem>
+
+          <SettingItem
+            id="playerBackgroundRenderScale"
+            label={t("settings.appearance.playerBackgroundRenderScale")}
+            description={t("settings.appearance.playerBackgroundRenderScale.desc")}
+            highlighted={isHi("playerBackgroundRenderScale")}
+            index={nextIndex()}
+          >
+            <RangeInput
+              min={0.1}
+              max={3}
+              step={0.1}
+              value={playerBackgroundRenderScale()}
+              onPreview={setPlayerBackgroundRenderScale}
+              onCommit={handlePlayerBackgroundRenderScale}
               formatSuffix="x"
             />
           </SettingItem>
@@ -1066,6 +1140,37 @@ export function AppearanceSection(props: AppearanceSectionProps) {
             </label>
           </SettingItem>
         </Show>
+
+        <SettingItem
+          id="playerExpandAnimation"
+          label={t("settings.appearance.playerExpandAnimation")}
+          description={t("settings.appearance.playerExpandAnimation.desc")}
+          highlighted={isHi("playerExpandAnimation")}
+          index={nextIndex()}
+        >
+          <SelectInput
+            value={playerExpandAnimation()}
+            options={playerExpandAnimationOptions()}
+            onChange={(v) => handlePlayerExpandAnimation(v as PlayerExpandAnimation)}
+          />
+        </SettingItem>
+
+        <SettingItem
+          id="playerFollowCoverColor"
+          label={t("settings.appearance.playerFollowCoverColor")}
+          description={t("settings.appearance.playerFollowCoverColor.desc")}
+          highlighted={isHi("playerFollowCoverColor")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input
+              type="checkbox"
+              checked={playerFollowCoverColor()}
+              onChange={handlePlayerFollowCoverColor}
+            />
+            <span class="toggle-switch-slider" />
+          </label>
+        </SettingItem>
 
         <SettingItem
           id="showSpectrums"

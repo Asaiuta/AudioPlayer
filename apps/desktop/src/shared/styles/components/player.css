@@ -367,6 +367,15 @@
     transition: color 0.3s var(--ease-standard);
   }
 
+  .player-artist-item:disabled {
+    cursor: default;
+    opacity: 1;
+  }
+
+  .player-artist-item.is-static:hover {
+    color: inherit;
+  }
+
   .player-artist-item:hover {
     color: var(--accent);
   }
@@ -865,6 +874,41 @@
     margin-bottom: 2px;
   }
 
+  .player-quality-options {
+    min-width: 180px;
+  }
+
+  .player-quality-option {
+    width: 100%;
+    min-height: 34px;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--text-secondary);
+    background: transparent;
+    cursor: pointer;
+    font-size: 12px;
+    transition:
+      background 0.2s var(--ease-standard),
+      color 0.2s var(--ease-standard);
+  }
+
+  .player-quality-option:hover,
+  .player-quality-option.is-active {
+    color: var(--accent);
+    background: var(--accent-a12);
+  }
+
+  .player-quality-option.is-active {
+    font-weight: 700;
+  }
+
+  .player-quality-option-meta {
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
   .player-popover-grid {
     display: grid;
     grid-template-columns: auto 1fr;
@@ -917,6 +961,12 @@
   .player-controls-popover .player-menu-item:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  .player-controls-popover .player-menu-item-meta {
+    color: var(--muted);
+    font-size: 11px;
+    white-space: nowrap;
   }
 
   @keyframes floating-layer-enter {
@@ -1012,6 +1062,11 @@
     overflow: visible;
   }
 
+  .player-queue-button.is-open {
+    color: var(--accent);
+    background: var(--accent-a28);
+  }
+
   .player-queue-button:has(.player-queue-badge) {
     margin-right: 12px;
   }
@@ -1064,7 +1119,7 @@
     --full-player-ink-strong: oklch(1 0 0 / 0.88);
     --full-player-ink-soft: oklch(1 0 0 / 0.54);
     --full-player-ink-muted: oklch(1 0 0 / 0.26);
-    --full-player-ink-active: oklch(0.93 0.03 75);
+    --full-player-ink-active: var(--accent);
     --full-player-glass: oklch(1 0 0 / 0.08);
     --full-player-glass-strong: oklch(1 0 0 / 0.14);
     --full-player-shadow: oklch(0 0 0 / 0.46);
@@ -1073,7 +1128,10 @@
     --full-player-border-strong: oklch(1 0 0 / 0.10);
     --full-player-surface: oklch(1 0 0 / 0.08);
     --full-player-fluid-duration: 20s;
+    --full-player-fluid-frames: 600;
     --full-player-fluid-scale: 1.04;
+    --full-player-fluid-inset: -14%;
+    --full-player-fluid-render-scale: 0.5;
     --full-player-fullscreen-gradient: 15%;
     position: fixed;
     inset: 0;
@@ -1082,10 +1140,13 @@
     min-height: 0;
     height: auto;
     padding: 0;
-    background: oklch(0.08 0.018 260);
+    background:
+      radial-gradient(960px 620px at 28% 36%, color-mix(in oklch, var(--accent-dynamic) 36%, transparent), transparent 64%),
+      radial-gradient(780px 520px at 72% 68%, color-mix(in oklch, var(--accent-dynamic-strong) 18%, transparent), transparent 68%),
+      oklch(0.08 0.018 260);
     opacity: 0;
     pointer-events: none;
-    transform: scale(0.96);
+    transform: translateY(28px);
     transform-origin: 50% 50%;
     transition:
       opacity 300ms var(--ease-bounce),
@@ -1096,6 +1157,14 @@
   .full-player.is-open {
     opacity: 1;
     pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .full-player.expand-animation-flow {
+    transform: scale(0.96);
+  }
+
+  .full-player.expand-animation-flow.is-open {
     transform: scale(1);
   }
 
@@ -1104,15 +1173,31 @@
     pointer-events: none;
   }
 
+  .full-player-background {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+  }
+
   .full-player-fluid {
     position: absolute;
-    inset: -14%;
+    inset: var(--full-player-fluid-inset);
     background-position: center;
     background-size: cover;
     filter: blur(var(--full-player-background-blur, 32px)) saturate(1.08) brightness(0.42);
-    opacity: 0.62;
+    opacity: 0;
     transform: scale(var(--full-player-fluid-scale));
-    animation: full-player-fluid-drift var(--full-player-fluid-duration) ease-in-out infinite alternate;
+    animation: full-player-fluid-drift var(--full-player-fluid-duration) steps(var(--full-player-fluid-frames), end) infinite alternate;
+    transition: opacity 560ms var(--ease-standard);
+  }
+
+  .full-player-fluid.is-current {
+    opacity: 0.62;
+  }
+
+  .full-player-fluid.is-previous {
+    opacity: 0;
   }
 
   .full-player-fluid::before,
@@ -1128,7 +1213,7 @@
       radial-gradient(circle at 22% 34%, oklch(0.66 0.12 58 / 0.18), transparent 34%),
       radial-gradient(circle at 76% 18%, oklch(0.72 0.08 82 / 0.12), transparent 30%),
       radial-gradient(circle at 46% 82%, oklch(0.46 0.08 150 / 0.12), transparent 42%);
-    animation: full-player-color-swim 16s ease-in-out infinite alternate;
+    animation: full-player-color-swim 16s steps(var(--full-player-fluid-frames), end) infinite alternate;
   }
 
   .full-player-fluid::after {
@@ -1137,7 +1222,7 @@
       radial-gradient(circle at 50% 50%, transparent 0 30%, color-mix(in oklch, var(--full-player-shadow) 100%, transparent) 74%);
   }
 
-  .full-player.background-mode-blur .full-player-fluid {
+  .full-player.background-mode-blur .full-player-fluid.is-current {
     filter: blur(var(--full-player-background-blur, 32px)) saturate(1.1) brightness(0.42);
     opacity: 0.62;
     animation: none;
@@ -1147,9 +1232,13 @@
     display: none;
   }
 
-  .full-player.background-mode-color .full-player-fluid {
+  .full-player.background-mode-color .full-player-background {
+    background: var(--accent-dynamic);
+  }
+
+  .full-player.background-mode-color .full-player-fluid.is-current {
     filter: blur(var(--full-player-background-color-blur, 43px)) saturate(1.85) brightness(0.5);
-    opacity: 0.7;
+    opacity: 0.28;
     transform: scale(1.14);
     animation: none;
   }
@@ -1164,7 +1253,7 @@
       linear-gradient(115deg, oklch(0 0 0 / 0.36), transparent 46%, oklch(1 0 0 / 0.05));
   }
 
-  .full-player.background-mode-animation .full-player-fluid {
+  .full-player.background-mode-animation .full-player-fluid.is-current {
     filter: blur(var(--full-player-background-blur, 32px)) saturate(1.18) brightness(0.44);
     opacity: 0.68;
   }
@@ -1174,7 +1263,7 @@
     animation-play-state: paused;
   }
 
-  .full-player.player-type-fullscreen .full-player-fluid {
+  .full-player.player-type-fullscreen .full-player-fluid.is-current {
     inset: 0;
     filter: saturate(1.04) brightness(0.58);
     opacity: 0.92;
@@ -1240,13 +1329,6 @@
     transform: translateY(0);
   }
 
-  .full-player.is-open .full-player-overlay-menu,
-  .full-player.is-open .full-player-control-shell {
-    opacity: 0.94;
-    pointer-events: auto;
-    transform: translateY(0);
-  }
-
   .full-player.is-open .full-player-overlay-menu.is-visible,
   .full-player.is-open .full-player-control-shell.is-visible {
     opacity: 1;
@@ -1286,7 +1368,7 @@
     padding: 0 12px;
     border-radius: var(--radius-pill);
     color: var(--full-player-ink-strong);
-    background: oklch(1 0 0 / 0.07);
+    background: transparent;
     border: 0;
     backdrop-filter: none;
     box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.04);
@@ -1311,10 +1393,9 @@
     filter: drop-shadow(0 2px 8px oklch(0 0 0 / 0.28));
   }
   .full-player-menu-icon:hover,
-
   .full-player-menu-icon.is-active {
     color: var(--full-player-ink-active);
-    background: oklch(1 0 0 / 0.14);
+    background: color-mix(in oklch, var(--accent-dynamic) 14%, transparent);
     opacity: 1;
   }
 
@@ -2073,7 +2154,7 @@
   .full-player-transport .transport-button {
     width: 38px;
     height: 38px;
-    background: oklch(1 0 0 / 0.06);
+    background: transparent;
     border-color: transparent;
     color: var(--full-player-ink-strong);
     box-shadow: inset 0 0 0 1px oklch(1 0 0 / 0.03);
@@ -2090,7 +2171,7 @@
   .full-player-transport .transport-button:hover:not(:disabled),
   .full-player-transport .transport-button.is-active {
     color: var(--full-player-ink-active);
-    background: oklch(1 0 0 / 0.13);
+    background: color-mix(in oklch, var(--accent-dynamic) 14%, transparent);
     border-color: transparent;
   }
 

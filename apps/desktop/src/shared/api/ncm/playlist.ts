@@ -25,6 +25,8 @@ export interface NcmTopPlaylistParams {
   before?: number;
 }
 
+export type NcmCreatePlaylistType = "NORMAL" | "VIDEO" | "SHARED";
+
 export const playlistDetail = (params: NcmPlaylistDetailParams): Promise<NcmResponseEnvelope> =>
   requestNcm("playlist/detail", {
     method: "POST",
@@ -90,6 +92,21 @@ export const playlistCatlist = (hq = false): Promise<NcmResponseEnvelope> =>
   requestNcm(hq ? "playlist/highquality/tags" : "playlist/catlist", {
     method: "POST",
     data: { timestamp: Date.now() },
+    noCache: true
+  });
+
+export const createPlaylist = (
+  name: string,
+  privacy = false,
+  type: NcmCreatePlaylistType = "NORMAL"
+): Promise<NcmResponseEnvelope> =>
+  requestNcm("playlist/create", {
+    method: "POST",
+    params: {
+      name,
+      privacy: privacy ? "10" : null,
+      type
+    },
     noCache: true
   });
 

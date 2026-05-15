@@ -17,6 +17,8 @@ export type PlayerType = "cover" | "record" | "fullscreen";
 
 export type PlayerBackgroundType = "animation" | "blur" | "color";
 
+export type PlayerExpandAnimation = "up" | "flow";
+
 export type LyricsPosition = "flex-start" | "center" | "flex-end";
 
 export type LyricsBlendMode = "screen" | "plus-lighter";
@@ -88,9 +90,13 @@ export interface UISettings {
   playerStyleRatio: number;
   playerFullscreenGradient: number;
   playerBackgroundType: PlayerBackgroundType;
+  playerBackgroundFps: number;
   playerBackgroundFlowSpeed: number;
+  playerBackgroundRenderScale: number;
   playerBackgroundPause: boolean;
   playerBackgroundLowFreqVolume: boolean;
+  playerExpandAnimation: PlayerExpandAnimation;
+  playerFollowCoverColor: boolean;
   hiddenCovers: HiddenCovers;
   sidebarHiddenItems: SidebarHiddenItems;
   playlistPageElements: PlaylistPageElements;
@@ -160,9 +166,13 @@ export const STORAGE_KEYS = {
   playerStyleRatio: "ui.player.styleRatio",
   playerFullscreenGradient: "ui.player.fullscreenGradient",
   playerBackgroundType: "ui.player.backgroundType",
+  playerBackgroundFps: "ui.player.backgroundFps",
   playerBackgroundFlowSpeed: "ui.player.backgroundFlowSpeed",
+  playerBackgroundRenderScale: "ui.player.backgroundRenderScale",
   playerBackgroundPause: "ui.player.backgroundPause",
   playerBackgroundLowFreqVolume: "ui.player.backgroundLowFreqVolume",
+  playerExpandAnimation: "ui.player.expandAnimation",
+  playerFollowCoverColor: "ui.player.followCoverColor",
   hiddenCovers: "ui.cover.hiddenCovers",
   sidebarHiddenItems: "ui.sidebar.hiddenItems",
   playlistPageElements: "ui.playlistPage.elements",
@@ -290,9 +300,13 @@ const DEFAULTS: UISettings = {
   playerStyleRatio: 50,
   playerFullscreenGradient: 15,
   playerBackgroundType: "blur",
+  playerBackgroundFps: 30,
   playerBackgroundFlowSpeed: 4,
+  playerBackgroundRenderScale: 0.5,
   playerBackgroundPause: false,
   playerBackgroundLowFreqVolume: false,
+  playerExpandAnimation: "up",
+  playerFollowCoverColor: true,
   hiddenCovers: DEFAULT_HIDDEN_COVERS,
   sidebarHiddenItems: DEFAULT_SIDEBAR_HIDDEN_ITEMS,
   playlistPageElements: DEFAULT_PLAYLIST_PAGE_ELEMENTS,
@@ -440,6 +454,8 @@ const VALID_PLAYER_TYPES = new Set<PlayerType>(["cover", "record", "fullscreen"]
 
 const VALID_PLAYER_BACKGROUND_TYPES = new Set<PlayerBackgroundType>(["animation", "blur", "color"]);
 
+const VALID_PLAYER_EXPAND_ANIMATIONS = new Set<PlayerExpandAnimation>(["up", "flow"]);
+
 const VALID_TIME_FORMATS = new Set<PlayerTimeFormat>([
   "current-total",
   "remaining-total",
@@ -480,6 +496,13 @@ function readPlayerBackgroundType(): PlayerBackgroundType {
   return VALID_PLAYER_BACKGROUND_TYPES.has(raw as PlayerBackgroundType)
     ? (raw as PlayerBackgroundType)
     : DEFAULTS.playerBackgroundType;
+}
+
+function readPlayerExpandAnimation(): PlayerExpandAnimation {
+  const raw = readString(STORAGE_KEYS.playerExpandAnimation, DEFAULTS.playerExpandAnimation);
+  return VALID_PLAYER_EXPAND_ANIMATIONS.has(raw as PlayerExpandAnimation)
+    ? (raw as PlayerExpandAnimation)
+    : DEFAULTS.playerExpandAnimation;
 }
 
 function readClampedNumber(key: string, fallback: number, min: number, max: number): number {
@@ -554,11 +577,23 @@ function readSettings(): UISettings {
       100
     ),
     playerBackgroundType: readPlayerBackgroundType(),
+    playerBackgroundFps: readClampedNumber(
+      STORAGE_KEYS.playerBackgroundFps,
+      DEFAULTS.playerBackgroundFps,
+      24,
+      256
+    ),
     playerBackgroundFlowSpeed: readClampedNumber(
       STORAGE_KEYS.playerBackgroundFlowSpeed,
       DEFAULTS.playerBackgroundFlowSpeed,
       0.1,
       10
+    ),
+    playerBackgroundRenderScale: readClampedNumber(
+      STORAGE_KEYS.playerBackgroundRenderScale,
+      DEFAULTS.playerBackgroundRenderScale,
+      0.1,
+      3
     ),
     playerBackgroundPause: readBool(
       STORAGE_KEYS.playerBackgroundPause,
@@ -567,6 +602,11 @@ function readSettings(): UISettings {
     playerBackgroundLowFreqVolume: readBool(
       STORAGE_KEYS.playerBackgroundLowFreqVolume,
       DEFAULTS.playerBackgroundLowFreqVolume
+    ),
+    playerExpandAnimation: readPlayerExpandAnimation(),
+    playerFollowCoverColor: readBool(
+      STORAGE_KEYS.playerFollowCoverColor,
+      DEFAULTS.playerFollowCoverColor
     ),
     hiddenCovers: readBoolRecord(
       STORAGE_KEYS.hiddenCovers,

@@ -4,7 +4,7 @@ import { AlbumCard } from "../../../components/AlbumCard";
 import { MediaList } from "../../../components/media/MediaList";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
-import { isTranslationKey } from "../shared/parsers";
+import { DISCOVER_PAGE_LIMIT, isTranslationKey } from "../shared/parsers";
 import type { PlaybackController } from "../shared/playback";
 import type {
   DiscoverArtistArea,
@@ -17,8 +17,6 @@ import type {
   OnlineTrackItem
 } from "../shared/types";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
-
-const DISCOVER_PAGE_LIMIT = 50;
 
 export interface DiscoverPlaylistShowcaseProps {
   catName: string;
@@ -112,6 +110,7 @@ export interface DiscoverArtistShowcaseProps {
   discoverSectionTitle: string;
   discoverSectionSubtitle: string;
   discoverArtists: Resource<DiscoverCardItem[]>;
+  onLoadArtist: (artist: DiscoverCardItem) => void | Promise<void>;
 }
 
 export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
@@ -154,6 +153,7 @@ export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
                 coverVisible={!uiSettings.hiddenCovers.artist}
                 shape="round"
                 size="sm"
+                onClick={() => void props.onLoadArtist(item)}
               />
             )}
           </For>

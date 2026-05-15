@@ -88,6 +88,7 @@ function AppContent() {
               repeatMode={controller.repeatMode()}
               shuffleMode={controller.shuffleMode()}
               lyrics={controller.currentLyricLines()}
+              artistLinks={controller.currentNcmSupplement()?.artists ?? []}
               isLiked={controller.currentIsLiked()}
               onPlay={controller.handlePlay}
               onPause={controller.handlePause}
@@ -99,8 +100,19 @@ function AppContent() {
               onToggleShuffle={controller.handleToggleShuffle}
               onToggleLike={controller.handleToggleLike}
               onCoverClick={() => controller.setFullPlayerOpen(true)}
-              onOpenQueue={controller.handleOpenQueue}
+              onOpenQueue={controller.handleToggleQueue}
               onOpenSettings={() => controller.setSettingsOpen(true)}
+              onNavigate={controller.handleActivePageChange}
+              onSelectArtist={(artist) => controller.handleNavigateToArtistDetail({
+                id: artist.id,
+                title: artist.name,
+                subtitle: null,
+                coverUrl: controller.currentNcmCoverUrl(),
+                playCount: null,
+                description: null
+              })}
+              onSelectQuality={controller.handleChangeCurrentNcmQuality}
+              queueOpen={controller.queueDrawerOpen()}
             />
           }
         >
@@ -116,6 +128,8 @@ function AppContent() {
                     currentTrackPath={controller.currentTrackPath()}
                     currentMediaId={controller.currentMediaId()}
                     isPlaying={Boolean(controller.player()?.is_playing)}
+                    onPlay={controller.handlePlay}
+                    onPause={controller.handlePause}
                   />
                 </Match>
                 <Match
@@ -151,6 +165,7 @@ function AppContent() {
                     onNavigate={controller.handleActivePageChange}
                     onNavigateToDiscover={controller.handleNavigateToDiscover}
                     discoverTabRequest={controller.discoverTabRequest()}
+                    artistDetailRequest={controller.artistDetailRequest()}
                     onRequireNcmLogin={requireNcmLogin}
                   />
                 </Match>

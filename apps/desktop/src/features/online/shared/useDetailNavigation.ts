@@ -1,12 +1,14 @@
 import { createEffect, createMemo, createSignal, on } from "solid-js";
 import type { Accessor } from "solid-js";
 import { createApiClient } from "../../../shared/api/client";
-import type { TranslationKey, TranslationParams } from "../../../shared/i18n";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
+import {
+  createErrorMessageReader,
+  type FeedbackSetter,
+  type Translator
+} from "./feedback";
 import type { PlaybackController } from "./playback";
-import type { Feedback, FeedCardItem, NcmProfile, OnlineTrackItem } from "./types";
-
-type Translator = (key: TranslationKey, params?: TranslationParams) => string;
+import type { FeedCardItem, NcmProfile, OnlineTrackItem } from "./types";
 
 const PLAYLIST_TRACK_LIMIT = 200;
 const LIKED_SONGS_DETAIL_LIMIT = 100;
@@ -20,15 +22,14 @@ export interface DetailNavigationContext {
   t: Translator;
   loginProfile: Accessor<NcmProfile | null>;
   playback: PlaybackController;
-  setFeedback: (tone: Feedback["tone"], message: string) => void;
+  setFeedback: FeedbackSetter;
   onSelectedPlaylistChange?: (id: number | null) => void;
 }
 
 export function useDetailNavigation(ctx: DetailNavigationContext) {
   const { t, loginProfile, playback, setFeedback, onSelectedPlaylistChange } = ctx;
 
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const readErrorMessage = createErrorMessageReader(t);
 
   const [selectedPlaylist, setSelectedPlaylist] = createSignal<OnlinePlaylistSummary | null>(null);
   const [playlistTracksState, setPlaylistTracksState] = createSignal<OnlineTrackItem[]>([]);

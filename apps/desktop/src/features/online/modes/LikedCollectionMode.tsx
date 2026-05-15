@@ -16,7 +16,13 @@ import { userSubcount, type NcmUserSubcountData } from "../../../shared/api/ncm/
 import { useUISettings } from "../../../shared/state/useUISettings";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { PlaylistDetail } from "../details/PlaylistDetail";
-import type { Feedback, NcmProfile } from "../shared/types";
+import {
+  createErrorMessageReader,
+  createLoginStatusText,
+  type FeedbackSetter
+} from "../shared/feedback";
+import { readPositiveCount, readUserSubcountData } from "../shared/parsers";
+import type { NcmProfile } from "../shared/types";
 import type { PlaybackController } from "../shared/playback";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
@@ -37,7 +43,7 @@ interface LikedCollectionModeProps {
   onBeginLogin: () => void;
   onLogout: () => void | Promise<void>;
   onSelectedPlaylistChange?: (playlistId: number | null) => void;
-  setFeedback: (tone: Feedback["tone"], message: string) => void;
+  setFeedback: FeedbackSetter;
   playback: PlaybackController;
   currentTrackPath: string | null;
   currentSongId: number | null;
@@ -53,18 +59,6 @@ const collectionTabs: Array<{ value: CollectionTab; labelKey: TranslationKey }> 
   { value: "videos", labelKey: "ncm.collection.tabs.videos" },
   { value: "radios", labelKey: "ncm.collection.tabs.radios" }
 ];
-
-const readSubcountData = (payload: unknown): NcmUserSubcountData => {
-  if (typeof payload !== "object" || payload === null) return {};
-  const record = payload as { data?: unknown };
-  if (typeof record.data === "object" && record.data !== null) {
-    return record.data as NcmUserSubcountData;
-  }
-  return payload as NcmUserSubcountData;
-};
-
-const positiveCount = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 
 export function LikedCollectionMode(props: LikedCollectionModeProps) {
   const { t } = useTranslation();
@@ -84,8 +78,7 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
     onSelectedPlaylistChange: props.onSelectedPlaylistChange
   });
 
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const readErrorMessage = createErrorMessageReader(t);
 
   const visibleCreatedPlaylists = createMemo(() => createdPlaylists().slice(1));
   const currentPlaylists = createMemo(() =>
@@ -94,8 +87,9 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
 
   const totalPlaylistCount = createMemo(() => {
     const fromSubcount =
-      positiveCount(subcount().playlistCount) ||
-      positiveCount(subcount().createdPlaylistCount) + positiveCount(subcount().subPlaylistCount);
+      readPositiveCount(subcount().playlistCount) ||
+      readPositiveCount(subcount().createdPlaylistCount) +
+        readPositiveCount(subcount().subPlaylistCount);
     return fromSubcount || visibleCreatedPlaylists().length + collectedPlaylists().length;
   });
 
@@ -109,35 +103,30 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
     {
       key: "albums",
       labelKey: "ncm.collection.status.albums",
-      count: positiveCount(subcount().albumCount),
+      count: readPositiveCount(subcount().albumCount),
       icon: IconAlbum
     },
     {
       key: "artists",
       labelKey: "ncm.collection.status.artists",
-      count: positiveCount(subcount().artistCount),
+      count: readPositiveCount(subcount().artistCount),
       icon: IconArtist
     },
     {
       key: "videos",
       labelKey: "ncm.collection.status.videos",
-      count: positiveCount(subcount().mvCount),
+      count: readPositiveCount(subcount().mvCount),
       icon: IconPlayCircle
     },
     {
       key: "radios",
       labelKey: "ncm.collection.status.radios",
-      count: positiveCount(subcount().djRadioCount),
+      count: readPositiveCount(subcount().djRadioCount),
       icon: IconVolumeHigh
     }
   ]);
 
-  const loginStatusText = () => {
-    if (props.isCheckingLogin()) return t("ncm.login.status.checking");
-    const profile = props.loginProfile();
-    if (profile) return t("ncm.login.status.loggedIn", { name: profile.nickname ?? profile.userId });
-    return t("ncm.login.status.loggedOut");
-  };
+  const loginStatusText = createLoginStatusText(t, props.isCheckingLogin, props.loginProfile);
 
   createEffect(on(props.loginProfile, (profile, prev) => {
     if (prev !== undefined && prev !== null && profile === null) {
@@ -165,7 +154,7 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
         if (cancelled) return;
         setCreatedPlaylists(created);
         setCollectedPlaylists(collected);
-        setSubcount(countEnvelope === null ? {} : readSubcountData(countEnvelope));
+        setSubcount(countEnvelope === null ? {} : readUserSubcountData(countEnvelope));
       } catch (error) {
         if (!cancelled) {
           setCreatedPlaylists([]);

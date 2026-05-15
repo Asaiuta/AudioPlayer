@@ -50,8 +50,7 @@ pub(super) async fn refresh_active_ncm_account(data: web::Data<Arc<AppState>>) -
     let account = match data.app_db.active_ncm_account() {
         Ok(Some(account)) => account,
         Ok(None) => {
-            return HttpResponse::Ok()
-                .json(NcmAccountStateResponse::success(Vec::new(), None));
+            return HttpResponse::Ok().json(NcmAccountStateResponse::success(Vec::new(), None));
         }
         Err(err) => {
             return internal_server_error_response(err);

@@ -11,15 +11,22 @@ import { ArtistDetail } from "../details/ArtistDetail";
 import { DailySongsDetail } from "../details/DailySongsDetail";
 import { LikedSongsDetail } from "../details/LikedSongsDetail";
 import { PlaylistDetail } from "../details/PlaylistDetail";
+import { createErrorMessageReader, type FeedbackSetter } from "../shared/feedback";
+import {
+  ALL_PLAYLIST_CATEGORY,
+  DISCOVER_ARTIST_AREAS,
+  DISCOVER_ARTIST_INITIALS,
+  DISCOVER_NEW_AREAS,
+  DISCOVER_PAGE_LIMIT,
+  DISCOVER_SEARCH_LIMIT,
+  safeLoadDiscover
+} from "../shared/parsers";
 import type { PlaybackController } from "../shared/playback";
 import type {
-  DiscoverArtistArea,
-  DiscoverArtistInitial,
-  DiscoverNewArea,
   DiscoverNewKind,
   DiscoverPlaylistKind,
   DiscoverTab,
-  Feedback,
+  FeedCardItem,
   NcmProfile,
   OnlineTrackItem,
   SearchTab
@@ -34,57 +41,7 @@ import {
 } from "./discoverShowcases";
 import { SearchMode } from "./SearchMode";
 
-const SEARCH_LIMIT = 30;
-const DISCOVER_PAGE_LIMIT = 50;
-const ALL_PLAYLIST_CATEGORY = "全部歌单";
 const api = createApiClient();
-
-const safeLoadDiscover = async <T,>(load: () => Promise<T>, fallback: T): Promise<T> => {
-  try {
-    return await load();
-  } catch (error) {
-    console.warn("[NeteasePage] discover fetch failed", error);
-    return fallback;
-  }
-};
-
-const ARTIST_INITIALS: readonly DiscoverArtistInitial[] = [
-  { key: -1, label: "ncm.discover.artists.hot" },
-  ...Array.from({ length: 26 }, (_, index) => {
-    const letter = String.fromCharCode(index + 65);
-    return { key: letter, label: letter };
-  }),
-  { key: 0, label: "#" }
-];
-
-const ARTIST_AREAS: readonly DiscoverArtistArea[] = [
-  { labelKey: "common.all", type: -1, area: -1 },
-  { labelKey: "ncm.discover.artists.cn", type: -1, area: 7 },
-  { labelKey: "ncm.discover.artists.cnMale", type: 1, area: 7 },
-  { labelKey: "ncm.discover.artists.cnFemale", type: 2, area: 7 },
-  { labelKey: "ncm.discover.artists.cnGroup", type: 3, area: 7 },
-  { labelKey: "ncm.discover.artists.western", type: -1, area: 96 },
-  { labelKey: "ncm.discover.artists.westernMale", type: 1, area: 96 },
-  { labelKey: "ncm.discover.artists.westernFemale", type: 2, area: 96 },
-  { labelKey: "ncm.discover.artists.westernGroup", type: 3, area: 96 },
-  { labelKey: "ncm.discover.artists.jp", type: -1, area: 8 },
-  { labelKey: "ncm.discover.artists.jpMale", type: 1, area: 8 },
-  { labelKey: "ncm.discover.artists.jpFemale", type: 2, area: 8 },
-  { labelKey: "ncm.discover.artists.jpGroup", type: 3, area: 8 },
-  { labelKey: "ncm.discover.artists.kr", type: -1, area: 16 },
-  { labelKey: "ncm.discover.artists.krMale", type: 1, area: 16 },
-  { labelKey: "ncm.discover.artists.krFemale", type: 2, area: 16 },
-  { labelKey: "ncm.discover.artists.krGroup", type: 3, area: 16 },
-  { labelKey: "ncm.discover.artists.other", type: -1, area: 0 }
-];
-
-const NEW_AREAS: readonly DiscoverNewArea[] = [
-  { labelKey: "common.all", albumArea: "ALL", songType: 0 },
-  { labelKey: "ncm.discover.artists.cn", albumArea: "ZH", songType: 7 },
-  { labelKey: "ncm.discover.artists.western", albumArea: "EA", songType: 96 },
-  { labelKey: "ncm.discover.artists.kr", albumArea: "KR", songType: 16 },
-  { labelKey: "ncm.discover.artists.jp", albumArea: "JP", songType: 8 }
-];
 
 interface CatEntry { name: string; category: number; hot: boolean }
 
@@ -95,8 +52,9 @@ export interface DiscoverModeProps {
   pendingDiscoverSearch: Accessor<boolean>;
   clearPendingDiscoverSearch: () => void;
   discoverTabRequest?: { tab: string; version: number };
+  artistDetailRequest?: { artist: FeedCardItem | null; version: number };
   onSelectedPlaylistChange?: (playlistId: number | null) => void;
-  setFeedback: (tone: Feedback["tone"], message: string) => void;
+  setFeedback: FeedbackSetter;
   playback: PlaybackController;
   currentTrackPath: string | null;
   currentSongId: number | null;
@@ -135,11 +93,15 @@ export function DiscoverMode(props: DiscoverModeProps) {
     onSelectedPlaylistChange: props.onSelectedPlaylistChange
   });
 
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
+  const readErrorMessage = createErrorMessageReader(t);
 
-  const selectedArtistArea = createMemo(() => ARTIST_AREAS[discoverArtistAreaIndex()] ?? ARTIST_AREAS[0]);
-  const selectedNewArea = createMemo(() => NEW_AREAS[discoverNewAreaIndex()] ?? NEW_AREAS[0]);
+  const selectedArtistArea = createMemo(
+    () =>
+      DISCOVER_ARTIST_AREAS[discoverArtistAreaIndex()] ?? DISCOVER_ARTIST_AREAS[0]
+  );
+  const selectedNewArea = createMemo(
+    () => DISCOVER_NEW_AREAS[discoverNewAreaIndex()] ?? DISCOVER_NEW_AREAS[0]
+  );
 
   const playlistCards = createPagedDiscoverCards(
     ({ offset, currentItems }) => {
@@ -235,10 +197,15 @@ export function DiscoverMode(props: DiscoverModeProps) {
     detailNav.setPlaylistTracksState([]);
     try {
       if (searchTab() === "songs") {
-        setSongResults(await api.searchNcmTracks({ keywords: query, limit: SEARCH_LIMIT }));
+        setSongResults(
+          await api.searchNcmTracks({ keywords: query, limit: DISCOVER_SEARCH_LIMIT })
+        );
         setPlaylistResults([]);
       } else {
-        const playlists = await api.searchNcmPlaylists({ keywords: query, limit: SEARCH_LIMIT });
+        const playlists = await api.searchNcmPlaylists({
+          keywords: query,
+          limit: DISCOVER_SEARCH_LIMIT
+        });
         setPlaylistResults(playlists);
         setSongResults([]);
         if (playlists.length > 0) {
@@ -281,6 +248,19 @@ export function DiscoverMode(props: DiscoverModeProps) {
         if (tab) {
           setDiscoverTab(tab as DiscoverTab);
         }
+      }
+    )
+  );
+
+  createEffect(
+    on(
+      () => props.artistDetailRequest?.version,
+      (version) => {
+        if (version === undefined || version === 0) return;
+        const artist = props.artistDetailRequest?.artist;
+        if (!artist) return;
+        setDiscoverTab("artists");
+        void detailNav.loadArtistTracks(artist);
       }
     )
   );
@@ -462,8 +442,8 @@ export function DiscoverMode(props: DiscoverModeProps) {
                             </Show>
                             <Show when={discoverTab() === "artists"}>
                               <DiscoverArtistShowcase
-                                artistInitials={ARTIST_INITIALS}
-                                artistAreas={ARTIST_AREAS}
+                                artistInitials={DISCOVER_ARTIST_INITIALS}
+                                artistAreas={DISCOVER_ARTIST_AREAS}
                                 discoverArtistInitial={discoverArtistInitial()}
                                 setDiscoverArtistInitial={setDiscoverArtistInitial}
                                 discoverArtistAreaIndex={discoverArtistAreaIndex()}
@@ -471,11 +451,18 @@ export function DiscoverMode(props: DiscoverModeProps) {
                                 discoverSectionTitle={discoverSectionTitle()}
                                 discoverSectionSubtitle={discoverSectionSubtitle()}
                                 discoverArtists={discoverArtists}
+                                onLoadArtist={(artist) =>
+                                  void detailNav.loadArtistTracks({
+                                    ...artist,
+                                    playCount: null,
+                                    description: null
+                                  })
+                                }
                               />
                             </Show>
                             <Show when={discoverTab() === "new"}>
                               <DiscoverNewShowcase
-                                newAreas={NEW_AREAS}
+                                newAreas={DISCOVER_NEW_AREAS}
                                 discoverNewKind={discoverNewKind()}
                                 setDiscoverNewKind={setDiscoverNewKind}
                                 discoverNewAreaIndex={discoverNewAreaIndex()}

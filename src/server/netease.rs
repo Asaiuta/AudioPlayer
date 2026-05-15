@@ -114,7 +114,8 @@ mod tests {
 
         for &(method, path) in routes::domain_route_contracts() {
             let concrete_path = path.replace("{user_id}", "42");
-            let expected_method = Method::from_bytes(method.as_bytes()).expect("valid route method");
+            let expected_method =
+                Method::from_bytes(method.as_bytes()).expect("valid route method");
 
             let request = actix_test::TestRequest::default()
                 .method(expected_method)
@@ -286,7 +287,7 @@ mod tests {
                 {
                     "id": 42,
                     "name": "Needle",
-                    "ar": [{ "name": "A" }, { "name": "B" }],
+                    "ar": [{ "id": 10, "name": "A" }, { "id": 11, "name": "B" }],
                     "al": { "name": "Album", "picUrl": "cover.jpg" }
                 }
             ]
@@ -297,6 +298,16 @@ mod tests {
             Some(NcmTrackDetail {
                 title: Some("Needle".to_string()),
                 artist: Some("A, B".to_string()),
+                artists: vec![
+                    NcmArtistSummary {
+                        id: 10,
+                        name: "A".to_string(),
+                    },
+                    NcmArtistSummary {
+                        id: 11,
+                        name: "B".to_string(),
+                    },
+                ],
                 album: Some("Album".to_string()),
                 cover_url: Some("cover.jpg".to_string()),
             })
@@ -310,7 +321,7 @@ mod tests {
                 {
                     "id": 42,
                     "name": "Legacy",
-                    "artists": [{ "name": "Legacy Artist" }],
+                    "artists": [{ "id": 99, "name": "Legacy Artist" }],
                     "album": { "name": "Legacy Album" },
                     "picUrl": "legacy.jpg"
                 }
@@ -322,6 +333,10 @@ mod tests {
             Some(NcmTrackDetail {
                 title: Some("Legacy".to_string()),
                 artist: Some("Legacy Artist".to_string()),
+                artists: vec![NcmArtistSummary {
+                    id: 99,
+                    name: "Legacy Artist".to_string(),
+                }],
                 album: Some("Legacy Album".to_string()),
                 cover_url: Some("legacy.jpg".to_string()),
             })
@@ -970,11 +985,7 @@ mod tests {
 
         let offenders: Vec<&str> = HANDLER_SOURCES
             .iter()
-            .filter_map(|(name, content)| {
-                content
-                    .contains("build_error_response")
-                    .then_some(*name)
-            })
+            .filter_map(|(name, content)| content.contains("build_error_response").then_some(*name))
             .collect();
 
         assert!(

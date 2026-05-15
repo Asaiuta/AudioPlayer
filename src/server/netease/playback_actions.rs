@@ -265,6 +265,7 @@ pub(super) async fn resolve_ncm_track_supplement(
             song_id: request.song_id,
             title: detail.title,
             artist: detail.artist,
+            artists: detail.artists,
             album: detail.album,
             cover_url: detail.cover_url,
             lyrics,

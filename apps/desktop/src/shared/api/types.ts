@@ -52,6 +52,7 @@ export interface PersistentSettings {
   resample_quality: string;
   use_cache: boolean;
   preemptive_resample: boolean;
+  use_next_prefetch: boolean;
 }
 
 export interface PersistentSettingsUpdate {
@@ -79,6 +80,7 @@ export interface PersistentSettingsUpdate {
   resample_quality?: string;
   use_cache?: boolean;
   preemptive_resample?: boolean;
+  use_next_prefetch?: boolean;
 }
 
 export interface PlayerState {

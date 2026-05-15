@@ -67,9 +67,13 @@ export const SETTINGS_CATALOG: ReadonlyArray<SettingsCatalogEntry> = [
   { category: "appearance", itemId: "playerFullscreenGradient", labelKey: "settings.appearance.playerFullscreenGradient", descriptionKey: "settings.appearance.playerFullscreenGradient.desc", keywords: ["gradient", "fullscreen", "cover", "渐变"] },
   { category: "appearance", itemId: "fullPlayerCommentMode", labelKey: "settings.general.fullPlayer.commentMode", keywords: ["comment", "layout", "评论"] },
   { category: "appearance", itemId: "playerBackgroundType", labelKey: "settings.appearance.playerBackgroundType", descriptionKey: "settings.appearance.playerBackgroundType.desc", keywords: ["background", "blur", "fluid", "背景", "流体"] },
+  { category: "appearance", itemId: "playerBackgroundFps", labelKey: "settings.appearance.playerBackgroundFps", descriptionKey: "settings.appearance.playerBackgroundFps.desc", keywords: ["fps", "frame", "background", "帧率", "背景"] },
   { category: "appearance", itemId: "playerBackgroundFlowSpeed", labelKey: "settings.appearance.playerBackgroundFlowSpeed", descriptionKey: "settings.appearance.playerBackgroundFlowSpeed.desc", keywords: ["speed", "flow", "背景", "速度"] },
+  { category: "appearance", itemId: "playerBackgroundRenderScale", labelKey: "settings.appearance.playerBackgroundRenderScale", descriptionKey: "settings.appearance.playerBackgroundRenderScale.desc", keywords: ["render", "scale", "background", "渲染", "缩放"] },
   { category: "appearance", itemId: "playerBackgroundPause", labelKey: "settings.appearance.playerBackgroundPause", descriptionKey: "settings.appearance.playerBackgroundPause.desc", keywords: ["pause", "background", "暂停"] },
   { category: "appearance", itemId: "playerBackgroundLowFreqVolume", labelKey: "settings.appearance.playerBackgroundLowFreqVolume", descriptionKey: "settings.appearance.playerBackgroundLowFreqVolume.desc", keywords: ["bass", "pulse", "low", "低频", "跳动"] },
+  { category: "appearance", itemId: "playerExpandAnimation", labelKey: "settings.appearance.playerExpandAnimation", descriptionKey: "settings.appearance.playerExpandAnimation.desc", keywords: ["expand", "animation", "full player", "展开", "动画"] },
+  { category: "appearance", itemId: "playerFollowCoverColor", labelKey: "settings.appearance.playerFollowCoverColor", descriptionKey: "settings.appearance.playerFollowCoverColor.desc", keywords: ["accent", "cover", "color", "theme", "封面", "主色"] },
   { category: "appearance", itemId: "autoHidePlayerMeta", labelKey: "settings.appearance.autoHidePlayerMeta", descriptionKey: "settings.appearance.autoHidePlayerMeta.desc", keywords: ["auto", "hide", "controls", "自动隐藏"] },
   { category: "appearance", itemId: "showPlayMeta", labelKey: "settings.appearance.showPlayMeta", descriptionKey: "settings.appearance.showPlayMeta.desc", keywords: ["player", "meta", "status", "播放状态"] },
   { category: "appearance", itemId: "countDownShow", labelKey: "settings.appearance.countDownShow", descriptionKey: "settings.appearance.countDownShow.desc", keywords: ["countdown", "intro", "倒计时"] },
@@ -97,12 +101,14 @@ export const SETTINGS_CATALOG: ReadonlyArray<SettingsCatalogEntry> = [
 
   // ── playback ─────────────────────────────────────────
   { category: "playback", itemId: "autoPlay", labelKey: "settings.playback.autoPlay", descriptionKey: "settings.playback.autoPlay.desc", keywords: ["auto", "play", "启动"] },
+  { category: "playback", itemId: "useNextPrefetch", labelKey: "settings.playback.useNextPrefetch", descriptionKey: "settings.playback.useNextPrefetch.desc", keywords: ["preload", "prefetch", "next", "预载", "下一首"] },
   { category: "playback", itemId: "volumeFade", labelKey: "settings.playback.volumeFade", descriptionKey: "settings.playback.volumeFade.desc", keywords: ["fade", "volume", "渐入"] },
   { category: "playback", itemId: "volumeFadeTime", labelKey: "settings.playback.volumeFadeTime", keywords: ["fade", "duration", "时长"] },
   { category: "playback", itemId: "memoryLastSeek", labelKey: "settings.playback.memoryLastSeek", descriptionKey: "settings.playback.memoryLastSeek.desc", keywords: ["memory", "seek", "记忆"] },
   { category: "playback", itemId: "progressTooltipShow", labelKey: "settings.playback.progressTooltipShow", descriptionKey: "settings.playback.progressTooltipShow.desc", keywords: ["progress", "tooltip", "进度条"] },
   { category: "playback", itemId: "progressLyricShow", labelKey: "settings.playback.progressLyricShow", descriptionKey: "settings.playback.progressLyricShow.desc", keywords: ["progress", "lyric", "歌词"] },
   { category: "playback", itemId: "progressAdjustLyric", labelKey: "settings.playback.progressAdjustLyric", descriptionKey: "settings.playback.progressAdjustLyric.desc", keywords: ["progress", "snap", "seek", "吸附"] },
+  { category: "playback", itemId: "ncmSongLevel", labelKey: "settings.ncm.songLevel", descriptionKey: "settings.ncm.songLevel.desc", keywords: ["ncm", "quality", "音质", "网易云"] },
 
   // ── lyrics ───────────────────────────────────────────
   { category: "lyrics", itemId: "lyricFontSize", labelKey: "settings.lyric.fontSize", keywords: ["font", "size", "字体"] },
@@ -147,5 +153,4 @@ export const SETTINGS_CATALOG: ReadonlyArray<SettingsCatalogEntry> = [
   { category: "audio-engine", itemId: "preemptiveResample", labelKey: "settings.preemptiveResample", keywords: ["preemptive", "resample", "预先"] },
 
   // ── network ──────────────────────────────────────────
-  { category: "network", itemId: "ncmSongLevel", labelKey: "settings.ncm.songLevel", keywords: ["ncm", "quality", "音质", "网易云"] }
 ];

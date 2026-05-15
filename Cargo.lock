@@ -403,6 +403,7 @@ dependencies = [
  "crossbeam",
  "dotenv",
  "ebur128",
+ "encoding_rs",
  "env_logger",
  "hex",
  "lofty",

@@ -222,6 +222,7 @@ const parseResolvedNcmTrackSupplementResponse = (value: unknown): ResolvedNcmTra
     !isInteger(supplement.song_id) ||
     !isNullableString(supplement.title) ||
     !isNullableString(supplement.artist) ||
+    !Array.isArray(supplement.artists) ||
     !isNullableString(supplement.album) ||
     !isNullableString(supplement.cover_url) ||
     !Array.isArray(supplement.lyrics) ||
@@ -236,11 +237,22 @@ const parseResolvedNcmTrackSupplementResponse = (value: unknown): ResolvedNcmTra
     lyrics: supplement.lyrics,
     source: null
   }).lyrics;
+  const artists = supplement.artists
+    .filter((item): item is Record<string, unknown> => isRecord(item))
+    .map((item) => ({
+      id: item.id,
+      name: item.name
+    }))
+    .filter(
+      (item): item is { id: number; name: string } =>
+        isInteger(item.id) && isString(item.name) && item.name.trim().length > 0
+    );
 
   return {
     songId: supplement.song_id,
     title: supplement.title,
     artist: supplement.artist,
+    artists,
     album: supplement.album,
     coverUrl: supplement.cover_url,
     lyrics,

@@ -6,6 +6,7 @@ import type {
   NcmTrackSupplement
 } from "../features/online/ncmPlayback";
 import type { UserPlaylistMode } from "../features/online/ncmPlaylistSummary";
+import type { FeedCardItem } from "../features/online/shared/types";
 import type {
   PlayerState,
   QueueEntry,
@@ -14,7 +15,7 @@ import type {
   ShuffleMode
 } from "../shared/api/types";
 import { useEngineSocket } from "../shared/api/useEngineSocket";
-import { useUISettings } from "../shared/state/useUISettings";
+import { STORAGE_KEYS, useUISettings } from "../shared/state/useUISettings";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
 import { applyDynamicAccent, extractAccent } from "../shared/styles/dynamicAccent";
 import type { ApiClient, QueueAdjacent } from "../shared/api/client";
@@ -54,6 +55,7 @@ export interface AppController {
   settingsOpen: Accessor<boolean>;
   selectedPlaylistId: Accessor<number | null>;
   discoverTabRequest: Accessor<{ tab: string; version: number }>;
+  artistDetailRequest: Accessor<{ artist: FeedCardItem | null; version: number }>;
   player: Accessor<PlayerState | null>;
   currentTrackPath: Accessor<string | null>;
   currentMediaId: Accessor<string | null>;
@@ -92,6 +94,7 @@ export interface AppController {
   handleToggleLike: () => Promise<void>;
   handleActivePageChange: (page: ActivePage) => void;
   handleOpenQueue: () => void;
+  handleToggleQueue: () => void;
   handleOpenQueueFromFullPlayer: () => void;
   handlePlayQueueEntry: (entryId: number) => Promise<void>;
   handleRemoveQueueEntry: (entryId: number) => Promise<void>;
@@ -99,6 +102,8 @@ export interface AppController {
   handleSidebarPlaylistSelect: (page: UserPlaylistMode, playlistId: number) => void;
   handleSelectedPlaylistChange: (playlistId: number | null) => void;
   handleNavigateToDiscover: (tab: string) => void;
+  handleNavigateToArtistDetail: (artist: FeedCardItem) => void;
+  handleChangeCurrentNcmQuality: (level: string) => Promise<void>;
   handleGoBack: () => void;
   handleGoForward: () => void;
   registerNcmPlayback: (track: NcmTrackReference) => void;
@@ -593,6 +598,17 @@ export function useAppController(api: ApiClient): AppController {
     }, 0);
   };
 
+  const handleToggleQueue = () => {
+    const nextOpen = !queueDrawerOpen();
+    setQueueDrawerOpen(nextOpen);
+    if (!nextOpen) {
+      return;
+    }
+    window.setTimeout(() => {
+      void refreshQueue();
+    }, 0);
+  };
+
   const handleOpenQueueFromFullPlayer = () => {
     handleOpenQueue();
   };
@@ -604,7 +620,57 @@ export function useAppController(api: ApiClient): AppController {
     coverUrl
   });
 
+  const handleChangeCurrentNcmQuality = async (level: string) => {
+    if (level === uiSettings.ncmSongLevel) {
+      return;
+    }
+
+    const trackRef = ncm.currentTrackRef();
+    if (!trackRef) {
+      return;
+    }
+
+    const current = player();
+    const resumePosition = current?.current_time ?? 0;
+    const wasPlaying = Boolean(current?.is_playing);
+    setCommandError(null);
+    try {
+      localStorage.setItem(STORAGE_KEYS.ncmSongLevel, level);
+      window.dispatchEvent(new Event("ui-settings-changed"));
+    } catch {
+      // The stream switch can still proceed if persistence is unavailable.
+    }
+
+    try {
+      const result = await api.playNcmTrack({
+        songId: trackRef.songId,
+        level,
+        sourcePageUrl: trackRef.sourcePageUrl,
+        title: trackRef.title,
+        artist: trackRef.artist,
+        album: trackRef.album,
+        artworkUrl: trackRef.coverUrl,
+        durationSecs: trackRef.durationSecs
+      });
+      ncm.registerNcmPlayback(result.track);
+      applyPlayerState(result.state);
+      await refreshState(result.track.streamUrl);
+      if (resumePosition > 0) {
+        await handleSeek(resumePosition);
+      }
+      if (!wasPlaying) {
+        await handlePause();
+      }
+    } catch (error) {
+      setCommandError(readErrorMessage(error));
+    }
+  };
+
   createEffect(() => {
+    if (!uiSettings.playerFollowCoverColor) {
+      applyDynamicAccent(null);
+      return;
+    }
     const url = ncm.resolvedCoverUrl();
     let cancelled = false;
     if (!url) {
@@ -635,6 +701,7 @@ export function useAppController(api: ApiClient): AppController {
     settingsOpen,
     selectedPlaylistId: navigation.selectedPlaylistId,
     discoverTabRequest: navigation.discoverTabRequest,
+    artistDetailRequest: navigation.artistDetailRequest,
     player,
     currentTrackPath,
     currentMediaId,
@@ -673,6 +740,7 @@ export function useAppController(api: ApiClient): AppController {
     handleToggleLike: ncm.handleToggleLike,
     handleActivePageChange: navigation.handleActivePageChange,
     handleOpenQueue,
+    handleToggleQueue,
     handleOpenQueueFromFullPlayer,
     handlePlayQueueEntry,
     handleRemoveQueueEntry,
@@ -680,6 +748,8 @@ export function useAppController(api: ApiClient): AppController {
     handleSidebarPlaylistSelect: navigation.handleSidebarPlaylistSelect,
     handleSelectedPlaylistChange: navigation.handleSelectedPlaylistChange,
     handleNavigateToDiscover: navigation.handleNavigateToDiscover,
+    handleNavigateToArtistDetail: navigation.handleNavigateToArtistDetail,
+    handleChangeCurrentNcmQuality,
     handleGoBack: navigation.handleGoBack,
     handleGoForward: navigation.handleGoForward,
     registerNcmPlayback: ncm.registerNcmPlayback,

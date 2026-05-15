@@ -1,4 +1,6 @@
-import { Show, createSignal } from "solid-js";
+import { Show, createMemo, createSignal, onMount } from "solid-js";
+import { createApiClient } from "../../../shared/api/client";
+import type { TranslationKey } from "../../../shared/i18n";
 import { useTranslation } from "../../../shared/i18n";
 import { STORAGE_KEYS } from "../../../shared/state/useUISettings";
 import {
@@ -7,16 +9,31 @@ import {
   settingsSectionClass
 } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
-import { persist, readBool, readNumber } from "../storage";
+import { SelectInput, type SelectOption } from "../components/SelectInput";
+import { persist, readBool, readNumber, readString } from "../storage";
+
+const api = createApiClient();
 
 interface PlaybackSectionProps {
   highlightId: string | null;
 }
 
+const SONG_LEVELS: { value: string; i18nKey: TranslationKey }[] = [
+  { value: "standard", i18nKey: "settings.ncm.songLevel.standard" },
+  { value: "higher", i18nKey: "settings.ncm.songLevel.higher" },
+  { value: "exhigh", i18nKey: "settings.ncm.songLevel.exhigh" },
+  { value: "lossless", i18nKey: "settings.ncm.songLevel.lossless" },
+  { value: "hires", i18nKey: "settings.ncm.songLevel.hires" },
+  { value: "jyeffect", i18nKey: "settings.ncm.songLevel.jyeffect" },
+  { value: "sky", i18nKey: "settings.ncm.songLevel.sky" },
+  { value: "jymaster", i18nKey: "settings.ncm.songLevel.jymaster" }
+];
+
 export function PlaybackSection(props: PlaybackSectionProps) {
   const { t } = useTranslation();
 
   const [autoPlay, setAutoPlay] = createSignal<boolean>(readBool(STORAGE_KEYS.autoPlay, false));
+  const [useNextPrefetch, setUseNextPrefetch] = createSignal<boolean>(true);
   const [volumeFade, setVolumeFade] = createSignal<boolean>(readBool(STORAGE_KEYS.volumeFade, true));
   const [volumeFadeTime, setVolumeFadeTime] = createSignal<number>(
     readNumber(STORAGE_KEYS.volumeFadeTime, 300)
@@ -33,15 +50,41 @@ export function PlaybackSection(props: PlaybackSectionProps) {
   const [progressAdjustLyric, setProgressAdjustLyric] = createSignal<boolean>(
     readBool(STORAGE_KEYS.progressAdjustLyric, false)
   );
+  const [ncmSongLevel, setNcmSongLevel] = createSignal<string>(
+    readString(STORAGE_KEYS.ncmSongLevel, "exhigh")
+  );
+
+  const songLevelOptions = createMemo<SelectOption[]>(() =>
+    SONG_LEVELS.map((level) => ({
+      value: level.value,
+      label: t(level.i18nKey)
+    }))
+  );
 
   const isHi = (id: string) => props.highlightId === id;
   let itemIndex = 0;
   const nextIndex = () => itemIndex++;
 
+  onMount(() => {
+    void api.getSettings().then((settings) => {
+      setUseNextPrefetch(settings.use_next_prefetch);
+    }).catch(() => {
+      setUseNextPrefetch(true);
+    });
+  });
+
   const handleAutoPlay = () => {
     const next = !autoPlay();
     setAutoPlay(next);
     persist(STORAGE_KEYS.autoPlay, next);
+  };
+  const handleUseNextPrefetch = () => {
+    const previous = useNextPrefetch();
+    const next = !previous;
+    setUseNextPrefetch(next);
+    void api.saveSettings({ use_next_prefetch: next }).catch(() => {
+      setUseNextPrefetch(previous);
+    });
   };
   const handleVolumeFade = () => {
     const next = !volumeFade();
@@ -72,6 +115,10 @@ export function PlaybackSection(props: PlaybackSectionProps) {
     setProgressAdjustLyric(next);
     persist(STORAGE_KEYS.progressAdjustLyric, next);
   };
+  const handleNcmSongLevel = (level: string) => {
+    setNcmSongLevel(level);
+    persist(STORAGE_KEYS.ncmSongLevel, level);
+  };
 
   return (
     <section class={settingsSectionClass}>
@@ -85,6 +132,19 @@ export function PlaybackSection(props: PlaybackSectionProps) {
         >
           <label class="toggle-switch">
             <input type="checkbox" checked={autoPlay()} onChange={handleAutoPlay} />
+            <span class="toggle-switch-slider" />
+          </label>
+        </SettingItem>
+
+        <SettingItem
+          id="useNextPrefetch"
+          label={t("settings.playback.useNextPrefetch")}
+          description={t("settings.playback.useNextPrefetch.desc")}
+          highlighted={isHi("useNextPrefetch")}
+          index={nextIndex()}
+        >
+          <label class="toggle-switch">
+            <input type="checkbox" checked={useNextPrefetch()} onChange={handleUseNextPrefetch} />
             <span class="toggle-switch-slider" />
           </label>
         </SettingItem>
@@ -169,6 +229,22 @@ export function PlaybackSection(props: PlaybackSectionProps) {
             />
           </SettingItem>
         </Show>
+      </SettingGroup>
+
+      <SettingGroup title={t("settings.playback.audioSettings")}>
+        <SettingItem
+          id="ncmSongLevel"
+          label={t("settings.ncm.songLevel")}
+          description={t("settings.ncm.songLevel.desc")}
+          highlighted={isHi("ncmSongLevel")}
+          index={nextIndex()}
+        >
+          <SelectInput
+            value={ncmSongLevel()}
+            options={songLevelOptions()}
+            onChange={handleNcmSongLevel}
+          />
+        </SettingItem>
       </SettingGroup>
     </section>
   );
