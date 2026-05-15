@@ -5,6 +5,7 @@ import { createApiClient } from "../shared/api/client";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useUISettings, type SidebarHiddenItemKey } from "../shared/state/useUISettings";
 import { useTranslation } from "../shared/i18n";
+import { CreatePlaylistModal } from "./CreatePlaylistModal";
 import {
   type OnlinePlaylistSummary,
   type UserPlaylistMode
@@ -162,6 +163,7 @@ export function Sidebar(props: SidebarProps) {
   const [collapsedSections, setCollapsedSections] = createSignal(readPersistedCollapsedSections());
   const [createdPlaylists, setCreatedPlaylists] = createSignal<OnlinePlaylistSummary[]>([]);
   const [collectedPlaylists, setCollectedPlaylists] = createSignal<OnlinePlaylistSummary[]>([]);
+  const [createPlaylistOpen, setCreatePlaylistOpen] = createSignal<boolean>(false);
 
   const readErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : t("common.error.requestFailed");
@@ -183,29 +185,34 @@ export function Sidebar(props: SidebarProps) {
     onCleanup(() => window.removeEventListener("resize", handler));
   });
 
+  const loadUserPlaylists = async (userId: number) => {
+    return Promise.all([
+      api.listNcmUserPlaylists({
+        uid: userId,
+        limit: 100,
+        mode: "created-playlists"
+      }),
+      api.listNcmUserPlaylists({
+        uid: userId,
+        limit: 100,
+        mode: "collected-playlists"
+      })
+    ]);
+  };
+
   createEffect(() => {
     const activeAccount = accountStore.activeAccount();
     if (!activeAccount) {
       setCreatedPlaylists([]);
       setCollectedPlaylists([]);
+      setCreatePlaylistOpen(false);
       return;
     }
 
     let cancelled = false;
     void (async () => {
       try {
-        const [created, collected] = await Promise.all([
-          api.listNcmUserPlaylists({
-            uid: activeAccount.userId,
-            limit: 100,
-            mode: "created-playlists"
-          }),
-          api.listNcmUserPlaylists({
-            uid: activeAccount.userId,
-            limit: 100,
-            mode: "collected-playlists"
-          })
-        ]);
+        const [created, collected] = await loadUserPlaylists(activeAccount.userId);
         if (cancelled) return;
         setCreatedPlaylists(created);
         setCollectedPlaylists(collected);
@@ -259,6 +266,20 @@ export function Sidebar(props: SidebarProps) {
     if (!canOpenPage(page)) return;
     props.onSelectPlaylist?.(page, playlistId);
   };
+  const handleCreatePlaylistClick = () => {
+    if (!props.isNcmLoggedIn) {
+      props.onRequireNcmLogin();
+      return;
+    }
+    setCreatePlaylistOpen(true);
+  };
+  const handlePlaylistCreated = async () => {
+    const activeAccount = accountStore.activeAccount();
+    if (!activeAccount) return;
+    const [created, collected] = await loadUserPlaylists(activeAccount.userId);
+    setCreatedPlaylists(created);
+    setCollectedPlaylists(collected);
+  };
 
   return (
     <nav class={className()} aria-label={t("sidebar.aria.primary")}>
@@ -290,6 +311,10 @@ export function Sidebar(props: SidebarProps) {
                             class="sidebar-section-action-icon"
                             aria-label={td("sidebar.playlist.create")}
                             title={td("sidebar.playlist.create")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleCreatePlaylistClick();
+                            }}
                           >
                             <IconPlus />
                           </button>
@@ -403,6 +428,11 @@ export function Sidebar(props: SidebarProps) {
           return <Icon />;
         })()}
       </button>
+      <CreatePlaylistModal
+        open={createPlaylistOpen()}
+        onClose={() => setCreatePlaylistOpen(false)}
+        onCreated={handlePlaylistCreated}
+      />
     </nav>
   );
 }

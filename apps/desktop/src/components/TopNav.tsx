@@ -86,6 +86,7 @@ export function TopNav(props: TopNavProps) {
         <button
           type="button"
           class="top-nav-icon-button"
+          data-no-drag
           aria-label={t("nav.aria.back")}
           title={t("nav.aria.back")}
           onClick={props.onGoBack}
@@ -96,6 +97,7 @@ export function TopNav(props: TopNavProps) {
         <button
           type="button"
           class="top-nav-icon-button"
+          data-no-drag
           aria-label={t("nav.aria.forward")}
           title={t("nav.aria.forward")}
           onClick={props.onGoForward}
@@ -107,7 +109,7 @@ export function TopNav(props: TopNavProps) {
 
       <div class="top-nav-main">
         <div class="top-nav-search-wrap">
-          <label class={searchClassName()} title={searchTitle()}>
+          <label class={searchClassName()} title={searchTitle()} data-no-drag>
             <IconSearch class="top-nav-search-icon" />
             <input
               type="search"
@@ -169,6 +171,7 @@ export function TopNav(props: TopNavProps) {
         <button
           type="button"
           class="top-nav-account"
+          data-no-drag
           aria-label={t("nav.account.aria", { name: accountName() })}
           onClick={handleAccountClick}
         >
@@ -187,6 +190,7 @@ export function TopNav(props: TopNavProps) {
         <button
           type="button"
           class="top-nav-icon-button"
+          data-no-drag
           aria-label={t("sidebar.nav.settings.label")}
           title={t("sidebar.nav.settings.label")}
           onClick={props.onOpenSettings}

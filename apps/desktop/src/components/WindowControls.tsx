@@ -53,35 +53,57 @@ export function WindowControls(props: WindowControlsProps) {
   return (
     <Show when={props.visible && appWindow() !== null}>
       <div class="window-controls" data-no-drag>
-        <button
-          type="button"
-          class="window-control-button"
-          onClick={handleMinimize}
-          aria-label={t("window.aria.minimize")}
-          title={t("window.aria.minimize")}
-        >
-          <IconMinimize />
-        </button>
-        <button
-          type="button"
-          class="window-control-button"
+        <div class="window-control-wrapper" onClick={handleMinimize} title={t("window.aria.minimize")}>
+          <button
+            type="button"
+            class="window-control-button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleMinimize();
+            }}
+            aria-label={t("window.aria.minimize")}
+            title={t("window.aria.minimize")}
+          >
+            <IconMinimize />
+          </button>
+          <span class="window-control-expanded-area is-minimize" aria-hidden="true" />
+        </div>
+        <div
+          class="window-control-wrapper"
           onClick={handleToggleMaximize}
-          aria-label={maximized() ? t("window.aria.restore") : t("window.aria.maximize")}
           title={maximized() ? t("window.aria.restore") : t("window.aria.maximize")}
         >
-          <Show when={maximized()} fallback={<IconMaximize />}>
-            <IconRestore />
-          </Show>
-        </button>
-        <button
-          type="button"
-          class="window-control-button is-close"
-          onClick={handleClose}
-          aria-label={t("window.aria.close")}
-          title={t("window.aria.close")}
-        >
-          <IconClose />
-        </button>
+          <button
+            type="button"
+            class="window-control-button"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleToggleMaximize();
+            }}
+            aria-label={maximized() ? t("window.aria.restore") : t("window.aria.maximize")}
+            title={maximized() ? t("window.aria.restore") : t("window.aria.maximize")}
+          >
+            <Show when={maximized()} fallback={<IconMaximize />}>
+              <IconRestore />
+            </Show>
+          </button>
+          <span class="window-control-expanded-area is-maximize" aria-hidden="true" />
+        </div>
+        <div class="window-control-wrapper" onClick={handleClose} title={t("window.aria.close")}>
+          <button
+            type="button"
+            class="window-control-button is-close"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleClose();
+            }}
+            aria-label={t("window.aria.close")}
+            title={t("window.aria.close")}
+          >
+            <IconClose />
+          </button>
+          <span class="window-control-expanded-area is-close" aria-hidden="true" />
+        </div>
       </div>
     </Show>
   );
