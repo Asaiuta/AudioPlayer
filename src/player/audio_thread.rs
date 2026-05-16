@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use cpal::traits::StreamTrait;
 use cpal::Stream;
-use crossbeam::channel::{Receiver, Sender};
+use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
 
 use super::callback::{audio_callback_lockfree, LockfreeDspContext};
 use super::output_stream::{
@@ -781,13 +781,22 @@ fn handle_wasapi_exclusive(
             };
 
             loop {
-                if let Ok(cmd) = cmd_rx.try_recv() {
-                    match handle_wasapi_command(cmd, &wasapi_player, &command_context) {
+                match cmd_rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                    Ok(cmd) => match handle_wasapi_command(cmd, &wasapi_player, &command_context)
+                    {
                         WasapiCommandOutcome::Continue => {}
                         WasapiCommandOutcome::StopPlayback => break,
                         WasapiCommandOutcome::ShutdownThread => {
                             return WasapiPlaybackOutcome::ShutdownThread;
                         }
+                    },
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {
+                        log::warn!(
+                            "WASAPI command channel disconnected; stopping playback"
+                        );
+                        let _ = wasapi_player.stop();
+                        break;
                     }
                 }
 
@@ -796,8 +805,6 @@ fn handle_wasapi_exclusive(
                     let _ = wasapi_player.stop();
                     break;
                 }
-
-                std::thread::sleep(std::time::Duration::from_millis(50));
             }
 
             WasapiPlaybackOutcome::Handled
