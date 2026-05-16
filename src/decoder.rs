@@ -83,6 +83,13 @@ impl std::fmt::Display for NetworkError {
 
 const NETWORK_MAX_ATTEMPTS: usize = 3;
 const NETWORK_BACKOFF_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(2)];
+const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const HTTP_RANGE_STREAM_TIMEOUT: Duration = Duration::from_secs(30);
+const HTTP_FULL_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
+const BYTES_PER_MIB: usize = 1024 * 1024;
+const DEFAULT_DECODE_MAX_MEMORY_MB: usize = 2048;
+const F64_SAMPLE_BYTES: usize = std::mem::size_of::<f64>();
+const NON_RANGE_DOWNLOAD_MEMORY_DIVISOR: usize = 8;
 
 fn with_network_retry<T, F>(operation_name: &str, mut op: F) -> Result<T, NetworkError>
 where
@@ -458,12 +465,25 @@ struct RangeStream {
 
 const RANGE_PREFETCH: usize = 256 * 1024; // 256 KB per fetch
 
+fn configured_decode_memory_limit() -> (usize, usize) {
+    let max_memory_mb: usize = std::env::var("DECODE_MAX_MEMORY_MB")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(DEFAULT_DECODE_MAX_MEMORY_MB);
+    (max_memory_mb, max_memory_mb * BYTES_PER_MIB)
+}
+
+fn bytes_to_mib(bytes: usize) -> usize {
+    bytes / BYTES_PER_MIB
+}
+
 impl RangeStream {
     fn new(url: String, credentials: Option<HttpCredentials>) -> Result<Self, DecoderError> {
-        // FIX for Defect 28: Add timeout to prevent indefinite blocking
+        // Range streaming should fail quickly enough for playback to surface an error
+        // instead of pinning the decoder thread on a stalled HTTP server.
         let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .connect_timeout(Duration::from_secs(10))
+            .timeout(HTTP_RANGE_STREAM_TIMEOUT)
+            .connect_timeout(HTTP_CONNECT_TIMEOUT)
             .build()
             .map_err(|e| {
                 DecoderError::Network(NetworkError::Other(format!(
@@ -730,22 +750,17 @@ impl StreamingDecoder {
                         path_str
                     );
 
-                    // FIX for Defect 49: Check memory limit before downloading full file.
-                    // Peak memory = raw bytes + decoded f64 samples (~8x expansion).
-                    // Use the same limit as decode_all (2GB default).
-                    let max_memory_mb: usize = std::env::var("DECODE_MAX_MEMORY_MB")
-                        .ok()
-                        .and_then(|s| s.parse().ok())
-                        .unwrap_or(2048);
-                    let max_memory_bytes = max_memory_mb * 1024 * 1024;
-                    // Conservative estimate: decoded samples are ~8x raw bytes for typical formats
-                    // So limit raw download to 1/8 of max memory
-                    let max_download_bytes = max_memory_bytes / 8;
+                    // Non-Range servers require a full raw download before Symphonia can
+                    // probe the source. Keep that raw file budget below the decode_all
+                    // f64 sample budget because decoded audio can expand substantially.
+                    let (_, max_memory_bytes) = configured_decode_memory_limit();
+                    let max_download_bytes = max_memory_bytes / NON_RANGE_DOWNLOAD_MEMORY_DIVISOR;
 
-                    // FIX for Defect 28: Add timeout to prevent indefinite blocking
+                    // Full downloads get a longer deadline than Range probes but still
+                    // must not block the playback pipeline indefinitely.
                     let client = reqwest::blocking::Client::builder()
-                        .timeout(Duration::from_secs(120)) // Longer for full downloads
-                        .connect_timeout(Duration::from_secs(10))
+                        .timeout(HTTP_FULL_DOWNLOAD_TIMEOUT)
+                        .connect_timeout(HTTP_CONNECT_TIMEOUT)
                         .build()
                         .map_err(|e| {
                             DecoderError::Network(NetworkError::Other(format!(
@@ -774,18 +789,18 @@ impl StreamingDecoder {
                     // Check if file is too large
                     if let Some(len) = content_length {
                         if len as usize > max_download_bytes {
-                            let len_mb = len / (1024 * 1024);
+                            let len_mb = len / BYTES_PER_MIB as u64;
                             return Err(DecoderError::Network(NetworkError::Other(format!(
                                 "File too large for non-Range download: {} MB (limit: {} MB). \
                                  Server must support Range requests for files this size. \
                                  Increase DECODE_MAX_MEMORY_MB env var if needed.",
                                 len_mb,
-                                max_download_bytes / (1024 * 1024)
+                                bytes_to_mib(max_download_bytes)
                             ))));
                         }
                         log::info!(
                             "Downloading {} MB file (server does not support Range)",
-                            len / (1024 * 1024)
+                            len / BYTES_PER_MIB as u64
                         );
                     } else {
                         log::warn!("Content-Length unknown, downloading without size check (may cause OOM)");
@@ -804,9 +819,8 @@ impl StreamingDecoder {
                     })
                     .map_err(DecoderError::Network)?;
 
-                    // FIX for Defect-49: Avoid double memory allocation
-                    // Previously: bytes.to_vec() created a copy, causing 2x memory spike
-                    // Now: Pre-allocate Vec with known size and use copy_from_slice()
+                    // Known-size responses can be copied into a single pre-allocated
+                    // buffer, avoiding a second full-size allocation during fallback.
                     let download_size = content_length.unwrap_or(0) as usize;
 
                     let cursor = if download_size > 0 {
@@ -829,11 +843,11 @@ impl StreamingDecoder {
 
                             // Check size limit during streaming download
                             if pos > max_download_bytes {
-                                let actual_mb = pos / (1024 * 1024);
+                                let actual_mb = bytes_to_mib(pos);
                                 return Err(DecoderError::Network(NetworkError::Other(format!(
                                     "Downloaded file exceeds memory limit: {} MB (limit: {} MB)",
                                     actual_mb,
-                                    max_download_bytes / (1024 * 1024)
+                                    bytes_to_mib(max_download_bytes)
                                 ))));
                             }
                         }
@@ -851,15 +865,16 @@ impl StreamingDecoder {
 
                         // Check actual download size
                         if bytes.len() > max_download_bytes {
-                            let actual_mb = bytes.len() / (1024 * 1024);
+                            let actual_mb = bytes_to_mib(bytes.len());
                             return Err(DecoderError::Network(NetworkError::Other(format!(
                                 "Downloaded file exceeds memory limit: {} MB (limit: {} MB)",
                                 actual_mb,
-                                max_download_bytes / (1024 * 1024)
+                                bytes_to_mib(max_download_bytes)
                             ))));
                         }
 
-                        // FIX: Use .to_vec() instead of .into_iter().collect() — avoids per-byte iteration overhead
+                        // `Bytes::to_vec` performs a direct slice copy instead of
+                        // per-byte collection.
                         Cursor::new(bytes.to_vec())
                     };
 
@@ -1008,7 +1023,7 @@ impl StreamingDecoder {
             let channels = self.info.channels;
 
             // === Delay trimming (skip first encoder_delay samples) ===
-            // FIX for Defect 26: encoder_delay is in FRAMES (per channel), not interleaved samples.
+            // Symphonia reports encoder_delay in frames per channel, not interleaved samples.
             // Must multiply by channels to get correct number of interleaved samples to skip.
             let delay_frames = self.info.encoder_delay as u64;
             let delay_samples = delay_frames * channels as u64; // Convert frames to interleaved samples
@@ -1048,22 +1063,16 @@ impl StreamingDecoder {
     ///
     /// Automatically trims encoder delay and end padding for gapless playback.
     ///
-    /// FIX for Defect 42: Check estimated memory size before decoding to prevent OOM.
     /// Maximum allowed: 2 GB of decoded audio data (configurable via DECODE_MAX_MEMORY_MB env var).
     pub fn decode_all(&mut self) -> Result<Vec<f64>, DecoderError> {
-        // FIX for Defect 42: Estimate memory requirement before decoding
-        // Each f64 sample = 8 bytes
-        // Memory = total_frames * channels * 8 bytes
-        let max_memory_mb: usize = std::env::var("DECODE_MAX_MEMORY_MB")
-            .ok()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(2048); // Default: 2 GB limit
-        let max_memory_bytes = max_memory_mb * 1024 * 1024;
+        // Decode-all materializes f64 samples, so estimate the full output buffer
+        // before allocating and keep checking for streams with unknown duration.
+        let (max_memory_mb, max_memory_bytes) = configured_decode_memory_limit();
 
         if let Some(total_frames) = self.info.total_frames {
-            let estimated_bytes = total_frames as usize * self.info.channels * 8;
+            let estimated_bytes = total_frames as usize * self.info.channels * F64_SAMPLE_BYTES;
             if estimated_bytes > max_memory_bytes {
-                let estimated_mb = estimated_bytes / (1024 * 1024);
+                let estimated_mb = bytes_to_mib(estimated_bytes);
                 return Err(DecoderError::Decoder(format!(
                     "File too large to decode into memory: estimated {} MB (limit: {} MB). \
                      Use streaming mode instead or increase DECODE_MAX_MEMORY_MB env var.",
@@ -1076,7 +1085,7 @@ impl StreamingDecoder {
             log::info!(
                 "Pre-allocating buffer for {} samples (~{} MB)",
                 total_samples,
-                total_samples * 8 / (1024 * 1024)
+                bytes_to_mib(total_samples * F64_SAMPLE_BYTES)
             );
         }
 
@@ -1084,10 +1093,9 @@ impl StreamingDecoder {
         while let Some(samples) = self.decode_next()? {
             all_samples.extend(samples);
 
-            // FIX for Defect 42: Also check during streaming (for unknown duration files)
-            let current_bytes = all_samples.len() * 8;
+            let current_bytes = all_samples.len() * F64_SAMPLE_BYTES;
             if current_bytes > max_memory_bytes {
-                let current_mb = current_bytes / (1024 * 1024);
+                let current_mb = bytes_to_mib(current_bytes);
                 return Err(DecoderError::Decoder(format!(
                     "Memory limit exceeded during decode: {} MB (limit: {} MB). \
                      File may be corrupted or extremely long.",
@@ -1128,7 +1136,7 @@ impl StreamingDecoder {
 
         self.decoder.reset();
 
-        // FIX for Defect 48: Reset finished flag and samples counter when seeking.
+        // Seeking restarts trim accounting for the new packet position.
         // Without this, decode_next() would immediately return None after a seek
         // because the finished flag was still true from previous EOF.
         self.finished = false;
