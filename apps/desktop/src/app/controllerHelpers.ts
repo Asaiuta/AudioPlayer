@@ -1,11 +1,5 @@
-export const mediaKeyForPath = (path: string | null | undefined): string | null => {
-  if (!path) return null;
-  return path
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/")
-    .toLowerCase();
-};
+import { mediaKeyForPath } from "../shared/media/mediaIdentity";
+export { mediaKeyForPath } from "../shared/media/mediaIdentity";
 
 export const sameMediaPath = (
   left: string | null | undefined,

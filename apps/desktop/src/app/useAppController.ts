@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, onCleanup } from "solid-js";
 import type { Accessor } from "solid-js";
 import type {
   NcmLyricLine,
@@ -14,31 +14,19 @@ import type {
   RequestState,
   ShuffleMode
 } from "../shared/api/types";
-import { useEngineSocket } from "../shared/api/useEngineSocket";
 import { STORAGE_KEYS, useUISettings } from "../shared/state/useUISettings";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
 import { applyDynamicAccent, extractAccent } from "../shared/styles/dynamicAccent";
-import type { ApiClient, QueueAdjacent } from "../shared/api/client";
-import {
-  firstNonEmpty,
-  readErrorMessage,
-  sameMediaPath
-} from "./controllerHelpers";
+import type { ApiClient } from "../shared/api/client";
+import { readErrorMessage } from "./controllerHelpers";
 import { useNavigationController } from "./useNavigationController";
 import { useNcmTrackEnrichment } from "./useNcmTrackEnrichment";
-
-type WsStatus = "connected" | "connecting" | "disconnected";
-
-const REPEAT_CYCLE: ReadonlyArray<RepeatMode> = ["off", "all", "one"];
-const TRACK_STATE_SETTLE_TIMEOUT_MS = 2500;
-const TRACK_STATE_POLL_INTERVAL_MS = 120;
-const PLAYER_STATE_POLL_MS = 1500;
-const SEEK_REMOTE_SUPPRESS_MS = 900;
-
-const nextRepeatMode = (current: RepeatMode): RepeatMode => {
-  const index = REPEAT_CYCLE.indexOf(current);
-  return REPEAT_CYCLE[(index + 1) % REPEAT_CYCLE.length] ?? "off";
-};
+import {
+  usePlaybackController,
+  type PlaybackController,
+  type WsStatus
+} from "./usePlaybackController";
+import { useQueueController } from "./useQueueController";
 
 export interface AppController {
   state: Accessor<RequestState<PlayerState>>;
@@ -118,506 +106,29 @@ export function useAppController(api: ApiClient): AppController {
   const uiSettings = useUISettings();
   const navigation = useNavigationController();
 
-  const [state, setState] = createSignal<RequestState<PlayerState>>({ status: "idle" });
-  const [spectrum, setSpectrum] = createSignal<number[]>([]);
-  const [loadingProgress, setLoadingProgress] = createSignal<number | null>(null);
-  const [wsStatus, setWsStatus] = createSignal<WsStatus>("connecting");
-  const [preloadRequested, setPreloadRequested] = createSignal(false);
-  const [commandError, setCommandError] = createSignal<string | null>(null);
-  const [queueEntries, setQueueEntries] = createSignal<QueueEntry[]>([]);
-  const [queueAdjacent, setQueueAdjacent] = createSignal<QueueAdjacent>({
-    previousEntryId: null,
-    nextEntryId: null
-  });
-  const [queueDrawerOpen, setQueueDrawerOpen] = createSignal(false);
-  const [livePosition, setLivePosition] = createSignal<number | null>(null);
-  const [fullPlayerOpen, setFullPlayerOpen] = createSignal(false);
-  const [settingsOpen, setSettingsOpen] = createSignal(false);
+  const [fullPlayerOpen, setFullPlayerOpen] = createSignal<boolean>(false);
+  const [settingsOpen, setSettingsOpen] = createSignal<boolean>(false);
   const [playbackHistoryVersion, setPlaybackHistoryVersion] = createSignal<number>(0);
-  let lastRefreshAt = 0;
-  let seekCommandId = 0;
-  let volumeCommandId = 0;
-  let suppressRemotePositionUntil = 0;
+  let playbackBridge: PlaybackController | null = null;
 
   const notifyPlaybackHistoryChanged = () => {
     setPlaybackHistoryVersion((version) => version + 1);
   };
 
-  const applyPlayerState = (next: PlayerState) => {
-    const current = state();
-    if (
-      current.status === "success" &&
-      sameMediaPath(current.data.file_path, next.file_path)
-    ) {
-      setState({
-        status: "success",
-        data: {
-          ...next,
-          media_id: next.media_id ?? current.data.media_id,
-          ncm_song_id: next.ncm_song_id ?? current.data.ncm_song_id,
-          ncm_source_page_url: firstNonEmpty(
-            next.ncm_source_page_url,
-            current.data.ncm_source_page_url
-          ),
-          title: firstNonEmpty(next.title, current.data.title),
-          artist: firstNonEmpty(next.artist, current.data.artist),
-          album: firstNonEmpty(next.album, current.data.album),
-          has_cover_art: next.has_cover_art || current.data.has_cover_art,
-          external_artwork_url: firstNonEmpty(
-            next.external_artwork_url,
-            current.data.external_artwork_url
-          )
-        }
-      });
-      return;
-    }
+  const queue = useQueueController(api, () => playbackBridge);
 
-    setState({ status: "success", data: next });
-  };
-
-  const patchPlayerState = (
-    patch:
-      | Partial<PlayerState>
-      | ((current: PlayerState) => Partial<PlayerState> | PlayerState | null)
-  ) => {
-    const current = state();
-    if (current.status !== "success") {
-      return;
-    }
-
-    const nextPatch = typeof patch === "function" ? patch(current.data) : patch;
-    if (!nextPatch) {
-      return;
-    }
-
-    applyPlayerState({
-      ...current.data,
-      ...nextPatch
-    });
-  };
-
-  const refreshState = async (expectedPath?: string | null) => {
-    const current = state();
-    if (current.status !== "success") {
-      setState({ status: "loading" });
-    }
-
-    const normalizedExpectedPath = expectedPath?.trim() ? expectedPath : null;
-    const deadline = normalizedExpectedPath
-      ? Date.now() + TRACK_STATE_SETTLE_TIMEOUT_MS
-      : 0;
-    let latestState: PlayerState | null = null;
-
-    while (true) {
-      try {
-        const next = await api.getState();
-        latestState = next;
-
-        if (!normalizedExpectedPath || sameMediaPath(next.file_path, normalizedExpectedPath)) {
-          applyPlayerState(next);
-          return;
-        }
-
-        if (Date.now() >= deadline) {
-          const latestRequest = state();
-          if (
-            latestRequest.status === "success" &&
-            sameMediaPath(latestRequest.data.file_path, normalizedExpectedPath)
-          ) {
-            return;
-          }
-          applyPlayerState(next);
-          return;
-        }
-      } catch (error) {
-        if (!normalizedExpectedPath || Date.now() >= deadline) {
-          setState({ status: "error", error: readErrorMessage(error) });
-          return;
-        }
-      }
-
-      await new Promise<void>((resolve) =>
-        window.setTimeout(resolve, TRACK_STATE_POLL_INTERVAL_MS)
-      );
-      if (latestState && sameMediaPath(latestState.file_path, normalizedExpectedPath)) {
-        applyPlayerState(latestState);
-        return;
-      }
-    }
-  };
-
-  const refreshQueue = async () => {
-    try {
-      const entries = await api.getPersistentQueue();
-      setQueueEntries(entries);
-      try {
-        setQueueAdjacent(await api.getQueueAdjacent());
-      } catch {
-        setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
-      }
-    } catch {
-      setQueueEntries([]);
-      setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
-    }
-  };
-
-  const refreshQueueAdjacent = async () => {
-    try {
-      setQueueAdjacent(await api.getQueueAdjacent());
-    } catch {
-      setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
-    }
-  };
-
-  const refreshQueueForCurrentSurface = () => {
-    if (queueDrawerOpen()) {
-      void refreshQueue();
-      return;
-    }
-    void refreshQueueAdjacent();
-  };
-
-  onMount(() => {
-    void refreshState();
-    refreshQueueForCurrentSurface();
+  const playback = usePlaybackController({
+    api,
+    notifyPlaybackHistoryChanged,
+    refreshQueueForCurrentSurface: queue.refreshQueueForCurrentSurface
   });
-
-  const scheduleRefresh = (expectedPath?: string | null) => {
-    const now = Date.now();
-    if (now - lastRefreshAt < 300) {
-      return;
-    }
-    lastRefreshAt = now;
-    void refreshState(expectedPath);
-  };
-
-  useEngineSocket({
-    onOpen: () => {
-      setWsStatus("connected");
-      void refreshState();
-      refreshQueueForCurrentSurface();
-    },
-    onClose: () => setWsStatus("disconnected"),
-    onError: () => setWsStatus("disconnected"),
-    onReconnect: () => setWsStatus("connecting"),
-    onEvent: (event) => {
-      switch (event.type) {
-        case "loading_progress":
-          setLoadingProgress(event.progress);
-          break;
-        case "spectrum_data":
-          setSpectrum(event.data);
-          break;
-        case "load_complete":
-          patchPlayerState((currentPlayer) => ({
-            file_path: event.file_path ?? currentPlayer.file_path,
-            duration: event.duration,
-            current_time: 0,
-            is_loading: false
-          }));
-          setLoadingProgress(null);
-          setPreloadRequested(false);
-          scheduleRefresh();
-          break;
-        case "load_error":
-          patchPlayerState({
-            is_loading: false
-          });
-          setLoadingProgress(null);
-          setPreloadRequested(false);
-          scheduleRefresh();
-          break;
-        case "track_changed":
-          {
-            const currentRequest = state();
-            const base =
-              currentRequest.status === "success" ? currentRequest.data : null;
-            if (!base) {
-              scheduleRefresh(event.file_path);
-              break;
-            }
-            applyPlayerState({
-              ...base,
-              file_path: event.file_path,
-              duration: event.duration,
-              media_id: event.media_id,
-              ncm_song_id: event.ncm_song_id,
-              ncm_source_page_url: event.ncm_source_page_url,
-              title: event.title,
-              artist: event.artist,
-              album: event.album,
-              has_cover_art: event.has_cover_art,
-              external_artwork_url: event.external_artwork_url,
-              current_time: 0,
-              is_loading: false
-            });
-          }
-          setPreloadRequested(false);
-          setLivePosition(0);
-          scheduleRefresh(event.file_path);
-          refreshQueueForCurrentSurface();
-          break;
-        case "playback_ended":
-          setPreloadRequested(false);
-          setLivePosition(event.position);
-          scheduleRefresh();
-          break;
-        case "needs_preload":
-          setPreloadRequested(true);
-          break;
-        case "queue_updated":
-          refreshQueueForCurrentSurface();
-          break;
-        case "play":
-          patchPlayerState({
-            is_playing: true,
-            is_paused: false,
-            current_time: event.position
-          });
-          setLivePosition(event.position);
-          scheduleRefresh();
-          break;
-        case "pause":
-          patchPlayerState({
-            is_playing: false,
-            is_paused: true,
-            current_time: event.position
-          });
-          setLivePosition(event.position);
-          scheduleRefresh();
-          break;
-        case "stop":
-          patchPlayerState({
-            is_playing: false,
-            is_paused: false,
-            current_time: event.position
-          });
-          setLivePosition(event.position);
-          scheduleRefresh();
-          break;
-        case "seek":
-          if (Date.now() < suppressRemotePositionUntil) {
-            break;
-          }
-          patchPlayerState({
-            current_time: event.position
-          });
-          setLivePosition(event.position);
-          scheduleRefresh();
-          break;
-        case "position":
-          if (Date.now() < suppressRemotePositionUntil) {
-            break;
-          }
-          patchPlayerState({
-            current_time: event.position
-          });
-          setLivePosition(event.position);
-          break;
-        case "playback_history_updated":
-          notifyPlaybackHistoryChanged();
-          break;
-        default: {
-          const _exhaustive: never = event;
-          return _exhaustive;
-        }
-      }
-    }
-  });
-
-  const runPlayerCommand = async (command: () => Promise<PlayerState>) => {
-    setCommandError(null);
-    try {
-      const next = await command();
-      applyPlayerState(next);
-      window.setTimeout(() => {
-        void refreshState();
-      }, TRACK_STATE_POLL_INTERVAL_MS);
-    } catch (error) {
-      setCommandError(readErrorMessage(error));
-    }
-  };
-
-  const handlePlay = () => runPlayerCommand(() => api.play());
-  const handlePause = () => runPlayerCommand(() => api.pause());
-  const handleSeek = async (position: number) => {
-    const commandId = ++seekCommandId;
-    const target = Math.max(0, position);
-    suppressRemotePositionUntil = Date.now() + SEEK_REMOTE_SUPPRESS_MS;
-    setCommandError(null);
-    patchPlayerState({ current_time: target });
-    setLivePosition(target);
-
-    try {
-      const next = await api.seek(target);
-      if (commandId !== seekCommandId) {
-        return;
-      }
-      applyPlayerState({
-        ...next,
-        current_time: target
-      });
-      setLivePosition(target);
-      suppressRemotePositionUntil = 0;
-      window.setTimeout(() => {
-        if (commandId === seekCommandId) {
-          void refreshState();
-        }
-      }, TRACK_STATE_POLL_INTERVAL_MS);
-    } catch (error) {
-      if (commandId !== seekCommandId) {
-        return;
-      }
-      suppressRemotePositionUntil = 0;
-      setCommandError(readErrorMessage(error));
-      void refreshState();
-    }
-  };
-  const handleVolumeChange = async (volume: number) => {
-    const commandId = ++volumeCommandId;
-    const target = Math.max(0, Math.min(1, volume));
-    setCommandError(null);
-    patchPlayerState({ volume: target });
-
-    try {
-      const next = await api.setVolume(target);
-      if (commandId !== volumeCommandId) {
-        return;
-      }
-      applyPlayerState({
-        ...next,
-        volume: target
-      });
-    } catch (error) {
-      if (commandId !== volumeCommandId) {
-        return;
-      }
-      setCommandError(readErrorMessage(error));
-      void refreshState();
-    }
-  };
-
-  createEffect(() => {
-    const shouldPoll = Boolean(player()?.is_playing || player()?.is_loading);
-    if (!shouldPoll) {
-      return;
-    }
-
-    const timer = window.setInterval(() => {
-      void refreshState();
-    }, PLAYER_STATE_POLL_MS);
-
-    onCleanup(() => {
-      window.clearInterval(timer);
-    });
-  });
-
-  const player = createMemo(() => {
-    const request = state();
-    return request.status === "success" ? request.data : null;
-  });
-  const currentTrackPath = createMemo(() => player()?.file_path ?? null);
-  const currentMediaId = createMemo(() => player()?.media_id ?? null);
-  const hasCoverArt = createMemo(() => Boolean(player()?.has_cover_art));
-  const coverUrl = createMemo(() => {
-    const mediaId = currentMediaId();
-    return mediaId && hasCoverArt() ? api.getCoverArtUrl(mediaId) : null;
-  });
-  const playQueueEntry = async (entryId: number, options?: { rethrow?: boolean }) => {
-    const entry = queueEntries().find((item) => item.entry_id === entryId);
-    setCommandError(null);
-    try {
-      const next = await api.playFromQueue({ entryId, sourcePath: entry?.source_path });
-      applyPlayerState(next);
-      await Promise.all([refreshState(entry?.source_path ?? null), refreshQueue()]);
-    } catch (error) {
-      setCommandError(readErrorMessage(error));
-      if (options?.rethrow) {
-        throw error;
-      }
-    }
-  };
-
-  const prevEntryId = createMemo(() => queueAdjacent().previousEntryId);
-  const nextEntryId = createMemo(() => queueAdjacent().nextEntryId);
-  const handleSkipPrev = async () => {
-    setCommandError(null);
-    try {
-      const next = await api.playPreviousQueueEntry();
-      applyPlayerState(next);
-      await Promise.all([refreshState(next.file_path), refreshQueue()]);
-    } catch (error) {
-      setCommandError(readErrorMessage(error));
-    }
-  };
-  const handleSkipNext = async () => {
-    setCommandError(null);
-    try {
-      const next = await api.playNextQueueEntry();
-      applyPlayerState(next);
-      await Promise.all([refreshState(next.file_path), refreshQueue()]);
-    } catch (error) {
-      setCommandError(readErrorMessage(error));
-    }
-  };
-  const handlePlayQueueEntry = (entryId: number) => playQueueEntry(entryId, { rethrow: true });
-  const handleRemoveQueueEntry = async (entryId: number) => {
-    setCommandError(null);
-    try {
-      const entries = await api.removeQueueEntry(entryId);
-      setQueueEntries(entries);
-    } catch (error) {
-      setCommandError(readErrorMessage(error));
-    }
-  };
-  const handleClearQueue = async () => {
-    if (queueEntries().length === 0) return;
-    setCommandError(null);
-    try {
-      await api.clearPersistentQueue();
-      setQueueEntries([]);
-    } catch (error) {
-      setCommandError(readErrorMessage(error));
-    }
-  };
-  const repeatMode = createMemo<RepeatMode>(() => player()?.repeat_mode ?? "off");
-  const shuffleMode = createMemo<ShuffleMode>(() => player()?.shuffle_mode ?? "off");
-  const handleCycleRepeat = () => {
-    const target = nextRepeatMode(repeatMode());
-    return runPlayerCommand(() => api.setRepeatMode(target));
-  };
-  const handleToggleShuffle = () => {
-    const target: ShuffleMode = shuffleMode() === "on" ? "off" : "on";
-    return runPlayerCommand(() => api.setShuffleMode(target));
-  };
-
-  const handleOpenQueue = () => {
-    setQueueDrawerOpen(true);
-    window.setTimeout(() => {
-      void refreshQueue();
-    }, 0);
-  };
-
-  const handleToggleQueue = () => {
-    const nextOpen = !queueDrawerOpen();
-    setQueueDrawerOpen(nextOpen);
-    if (!nextOpen) {
-      return;
-    }
-    window.setTimeout(() => {
-      void refreshQueue();
-    }, 0);
-  };
-
-  const handleOpenQueueFromFullPlayer = () => {
-    handleOpenQueue();
-  };
+  playbackBridge = playback;
 
   const ncm = useNcmTrackEnrichment({
     api,
-    player,
-    livePosition,
-    coverUrl
+    player: playback.player,
+    livePosition: playback.livePosition,
+    coverUrl: playback.coverUrl
   });
 
   const handleChangeCurrentNcmQuality = async (level: string) => {
@@ -630,10 +141,10 @@ export function useAppController(api: ApiClient): AppController {
       return;
     }
 
-    const current = player();
+    const current = playback.player();
     const resumePosition = current?.current_time ?? 0;
     const wasPlaying = Boolean(current?.is_playing);
-    setCommandError(null);
+    playback.setCommandError(null);
     try {
       localStorage.setItem(STORAGE_KEYS.ncmSongLevel, level);
       window.dispatchEvent(new Event("ui-settings-changed"));
@@ -653,16 +164,16 @@ export function useAppController(api: ApiClient): AppController {
         durationSecs: trackRef.durationSecs
       });
       ncm.registerNcmPlayback(result.track);
-      applyPlayerState(result.state);
-      await refreshState(result.track.streamUrl);
+      playback.applyPlayerState(result.state);
+      await playback.refreshState(result.track.streamUrl);
       if (resumePosition > 0) {
-        await handleSeek(resumePosition);
+        await playback.handleSeek(resumePosition);
       }
       if (!wasPlaying) {
-        await handlePause();
+        await playback.handlePause();
       }
     } catch (error) {
-      setCommandError(readErrorMessage(error));
+      playback.setCommandError(readErrorMessage(error));
     }
   };
 
@@ -687,30 +198,30 @@ export function useAppController(api: ApiClient): AppController {
   });
 
   return {
-    state,
-    spectrum,
-    loadingProgress,
-    wsStatus,
-    preloadRequested,
-    commandError,
+    state: playback.state,
+    spectrum: playback.spectrum,
+    loadingProgress: playback.loadingProgress,
+    wsStatus: playback.wsStatus,
+    preloadRequested: playback.preloadRequested,
+    commandError: playback.commandError,
     activePage: navigation.activePage,
-    queueEntries,
-    queueDrawerOpen,
-    livePosition,
+    queueEntries: queue.queueEntries,
+    queueDrawerOpen: queue.queueDrawerOpen,
+    livePosition: playback.livePosition,
     fullPlayerOpen,
     settingsOpen,
     selectedPlaylistId: navigation.selectedPlaylistId,
     discoverTabRequest: navigation.discoverTabRequest,
     artistDetailRequest: navigation.artistDetailRequest,
-    player,
-    currentTrackPath,
-    currentMediaId,
-    hasCoverArt,
-    coverUrl,
-    prevEntryId,
-    nextEntryId,
-    repeatMode,
-    shuffleMode,
+    player: playback.player,
+    currentTrackPath: playback.currentTrackPath,
+    currentMediaId: playback.currentMediaId,
+    hasCoverArt: playback.hasCoverArt,
+    coverUrl: playback.coverUrl,
+    prevEntryId: queue.prevEntryId,
+    nextEntryId: queue.nextEntryId,
+    repeatMode: playback.repeatMode,
+    shuffleMode: playback.shuffleMode,
     canGoBack: navigation.canGoBack,
     canGoForward: navigation.canGoForward,
     currentTrackRef: ncm.currentTrackRef,
@@ -727,24 +238,24 @@ export function useAppController(api: ApiClient): AppController {
     currentIsLiked: ncm.currentIsLiked,
     playbackHistoryVersion,
     uiSettings,
-    refreshState,
-    refreshQueue,
-    handlePlay,
-    handlePause,
-    handleSeek,
-    handleVolumeChange,
-    handleSkipPrev,
-    handleSkipNext,
-    handleCycleRepeat,
-    handleToggleShuffle,
+    refreshState: playback.refreshState,
+    refreshQueue: queue.refreshQueue,
+    handlePlay: playback.handlePlay,
+    handlePause: playback.handlePause,
+    handleSeek: playback.handleSeek,
+    handleVolumeChange: playback.handleVolumeChange,
+    handleSkipPrev: queue.handleSkipPrev,
+    handleSkipNext: queue.handleSkipNext,
+    handleCycleRepeat: playback.handleCycleRepeat,
+    handleToggleShuffle: playback.handleToggleShuffle,
     handleToggleLike: ncm.handleToggleLike,
     handleActivePageChange: navigation.handleActivePageChange,
-    handleOpenQueue,
-    handleToggleQueue,
-    handleOpenQueueFromFullPlayer,
-    handlePlayQueueEntry,
-    handleRemoveQueueEntry,
-    handleClearQueue,
+    handleOpenQueue: queue.handleOpenQueue,
+    handleToggleQueue: queue.handleToggleQueue,
+    handleOpenQueueFromFullPlayer: queue.handleOpenQueueFromFullPlayer,
+    handlePlayQueueEntry: queue.handlePlayQueueEntry,
+    handleRemoveQueueEntry: queue.handleRemoveQueueEntry,
+    handleClearQueue: queue.handleClearQueue,
     handleSidebarPlaylistSelect: navigation.handleSidebarPlaylistSelect,
     handleSelectedPlaylistChange: navigation.handleSelectedPlaylistChange,
     handleNavigateToDiscover: navigation.handleNavigateToDiscover,
@@ -754,9 +265,9 @@ export function useAppController(api: ApiClient): AppController {
     handleGoForward: navigation.handleGoForward,
     registerNcmPlayback: ncm.registerNcmPlayback,
     setFullPlayerOpen,
-    setQueueDrawerOpen,
+    setQueueDrawerOpen: queue.setQueueDrawerOpen,
     setSettingsOpen,
-    setPreloadRequested,
+    setPreloadRequested: playback.setPreloadRequested,
     isPlaceholderPage
   };
 }

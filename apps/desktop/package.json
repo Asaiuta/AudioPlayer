@@ -12,6 +12,7 @@
     "build:bundle": "npm run build:web && npm run build:sidecar",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node ./scripts/run-focused-tests.mjs",
     "tauri": "powershell -ExecutionPolicy Bypass -File ./scripts/tauri-wrapper.ps1"
   },
   "dependencies": {

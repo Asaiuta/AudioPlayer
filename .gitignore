@@ -48,6 +48,7 @@ Desktop.ini
 
 # Temp files
 .tmp-*/
+.tmp/
 tmp/
 
 # Archived apps (removed post-migration)
