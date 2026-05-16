@@ -96,6 +96,7 @@ mod tests {
     };
     use ncm_api_rs::{ApiResponse, NcmError, Query};
     use serde_json::{json, Value};
+    use std::collections::HashSet;
 
     fn header_map_with_cookie(cookie: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
@@ -107,6 +108,17 @@ mod tests {
     fn route_to_method_replaces_slashes() {
         assert_eq!(normalize_route("/login/qr/key/"), "login/qr/key");
         assert_eq!(route_to_method("login/qr/key"), "login_qr_key");
+    }
+
+    #[test]
+    fn qr_login_payloads_match_upstream_rust_sdk() {
+        assert_eq!(proxy::login_qr_key_payload(), json!({ "type": 3 }));
+
+        let query = Query::new().param("key", "abc123");
+        assert_eq!(
+            proxy::login_qr_check_payload(&query),
+            json!({ "key": "abc123", "type": 3 })
+        );
     }
 
     #[actix_web::test]
@@ -224,6 +236,68 @@ mod tests {
                 path, expected
             );
         }
+    }
+
+    #[test]
+    fn raw_proxy_method_registry_is_unique_and_resolves_known_routes() {
+        let mut seen = HashSet::new();
+        for &(group, methods) in proxy::proxy_method_registry() {
+            assert!(
+                !methods.is_empty(),
+                "proxy route group {:?} must register at least one method",
+                group
+            );
+            for &method in methods {
+                assert!(
+                    seen.insert(method),
+                    "proxy method {} is registered more than once",
+                    method
+                );
+                assert_eq!(
+                    proxy::proxy_route_group_for_method(method),
+                    Some(group),
+                    "proxy method {} should resolve back to its registered group",
+                    method
+                );
+            }
+        }
+
+        for (route, expected_group) in [
+            ("login/qr/key", proxy::ProxyRouteGroup::Auth),
+            ("search/hot/detail", proxy::ProxyRouteGroup::Search),
+            ("song/url/v1", proxy::ProxyRouteGroup::Catalog),
+            ("top/playlist/highquality", proxy::ProxyRouteGroup::Playlist),
+            ("user/cloud/del", proxy::ProxyRouteGroup::User),
+            ("recommend/songs", proxy::ProxyRouteGroup::Recommend),
+            ("dj/category/recommend", proxy::ProxyRouteGroup::Dj),
+            ("mv/first", proxy::ProxyRouteGroup::Mv),
+        ] {
+            let method = route_to_method(&normalize_route(route));
+            assert_eq!(
+                proxy::proxy_route_group_for_method(&method),
+                Some(expected_group),
+                "route {} should resolve through the raw proxy registry",
+                route
+            );
+        }
+
+        assert_eq!(proxy::proxy_route_group_for_method("missing_method"), None);
+    }
+
+    #[test]
+    fn raw_proxy_method_registry_matches_handler_table() {
+        let registry_methods: HashSet<&str> = proxy::proxy_method_registry()
+            .iter()
+            .flat_map(|(_, methods)| methods.iter().copied())
+            .collect();
+        let handler_methods: HashSet<&str> = proxy::proxy_handler_method_names()
+            .into_iter()
+            .collect();
+
+        assert_eq!(
+            registry_methods, handler_methods,
+            "proxy method registry and handler table must stay in sync"
+        );
     }
 
     #[test]
@@ -892,6 +966,21 @@ mod tests {
             read_json_body(response).await,
             json!({"code": 503, "msg": "slow down"}),
             "raw /api/netease errors expose the upstream-compatible body code"
+        );
+    }
+
+    #[actix_web::test]
+    async fn raw_api_error_keeps_upstream_406_message() {
+        let response = build_error_response(NcmError::Api {
+            code: 406,
+            msg: "request risk blocked".to_string(),
+        });
+
+        assert_eq!(response.status(), StatusCode::NOT_ACCEPTABLE);
+        assert_eq!(
+            read_json_body(response).await,
+            json!({"code": 406, "msg": "request risk blocked"}),
+            "raw /api/netease errors should leave upstream code/msg readable by the frontend"
         );
     }
 
