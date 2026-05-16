@@ -3,7 +3,7 @@ import { Modal } from "../../components/Modal";
 import { IconDelete, IconPlaylist, IconPlus } from "../../components/icons";
 import type { LocalPlaylist } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
-import type { LibraryListItem } from "./libraryDataTypes";
+import type { LibraryListItem } from "./libraryViewTypes";
 
 interface LibraryPlaylistTargetModalProps {
   open: boolean;

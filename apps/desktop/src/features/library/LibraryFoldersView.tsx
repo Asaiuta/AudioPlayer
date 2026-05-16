@@ -9,16 +9,17 @@ import {
 } from "../../components/media/MediaList";
 import { useTranslation } from "../../shared/i18n";
 import {
+  ALL_FOLDERS_VALUE,
   type LibraryFolderNode,
   type LibraryListItem
-} from "./libraryDataTypes";
-import { ALL_FOLDERS_VALUE } from "./useLibraryDataController";
+} from "./libraryViewTypes";
 
 interface LibraryFoldersViewProps {
   nodes: readonly LibraryFolderNode[];
   selectedFolder: string;
   items: LibraryListItem[];
   currentTrackPath: string | null;
+  currentMediaId: string | null;
   isPlaying: boolean;
   isLoading: boolean;
   sort: MediaSortState;
@@ -124,6 +125,7 @@ export function LibraryFoldersView(props: LibraryFoldersViewProps) {
           <MediaList
             items={props.items}
             currentSourcePath={props.currentTrackPath}
+            currentMediaId={props.currentMediaId}
             isPlayingNow={props.isPlaying}
             onPlay={(item) => props.onPlay(item, props.items)}
             onEnqueue={props.onEnqueue}

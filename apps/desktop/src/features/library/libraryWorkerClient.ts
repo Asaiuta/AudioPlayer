@@ -1,13 +1,13 @@
 import type { LibraryFolderSummary, LibraryTrackSummary } from "../../shared/api/types";
+import type { LibrarySortState } from "./libraryViewTypes";
 import type {
-  LibrarySortState,
   LibraryWorkerFolderGroup,
   LibraryWorkerRange,
   LibraryWorkerRequest,
   LibraryWorkerResponse,
   LibraryWorkerRow,
   LibraryWorkerViewInput
-} from "./libraryDataTypes";
+} from "./libraryWorkerProtocol";
 
 export interface LibraryWorkerViewResult {
   rows: LibraryWorkerRow[];

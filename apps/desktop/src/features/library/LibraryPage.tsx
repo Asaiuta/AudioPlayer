@@ -13,11 +13,7 @@ import {
   IconStorage
 } from "../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
-import {
-  MediaList,
-  isMediaListItemCurrent,
-  type MediaContextAction
-} from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/MediaList";
 import type { LocalPlaylist } from "../../shared/api/types";
 import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { ManageRootsModal } from "./ManageRootsModal";
@@ -26,11 +22,10 @@ import {
   LibraryConfirmActionModal,
   LibraryPlaylistTargetModal
 } from "./LibraryActionModals";
-import { LibraryFoldersView } from "./LibraryFoldersView";
-import { LibraryGroupedView } from "./LibraryGroupedView";
-import { LibraryPlaylistsView } from "./LibraryPlaylistsView";
-import type { LibraryListItem, LibraryTab } from "./libraryDataTypes";
-import { ALL_FOLDERS_VALUE, useLibraryDataController } from "./useLibraryDataController";
+import { LibraryTabContent } from "./LibraryTabContent";
+import { ALL_FOLDERS_VALUE, type LibraryListItem, type LibraryTab } from "./libraryViewTypes";
+import { createLibraryPlaybackCoordinator } from "./libraryPlaybackCoordinator";
+import { useLibraryDataController } from "./useLibraryDataController";
 
 interface LibraryPageProps {
   onStateRefresh: (expectedPath?: string | null) => Promise<void>;
@@ -41,7 +36,7 @@ interface LibraryPageProps {
   onPause: () => Promise<void> | undefined;
 }
 
-export type { LibraryListItem } from "./libraryDataTypes";
+export type { LibraryListItem } from "./libraryViewTypes";
 
 type LibraryConfirmAction =
   | { kind: "delete-library"; items: LibraryListItem[] }
@@ -57,6 +52,19 @@ export function LibraryPage(props: LibraryPageProps) {
   const [confirmAction, setConfirmAction] = createSignal<LibraryConfirmAction | null>(null);
   const [moreMenu, setMoreMenu] = createSignal({ open: false, x: 0, y: 0 });
   const [groupPlaybackItems, setGroupPlaybackItems] = createSignal<LibraryListItem[]>([]);
+  const playbackCoordinator = createLibraryPlaybackCoordinator({
+    getSnapshot: () => ({
+      currentTrackPath: props.currentTrackPath,
+      currentMediaId: props.currentMediaId,
+      isPlaying: props.isPlaying
+    }),
+    playCurrent: props.onPlay,
+    pauseCurrent: props.onPause,
+    playLibraryItem: async (item, contextItems) => {
+      await controller.playItem(item, contextItems);
+      await props.onStateRefresh(item.source_path ?? null);
+    }
+  });
 
   const activePlaybackItems = createMemo<LibraryListItem[]>(() =>
     controller.activeTab() === "playlists"
@@ -100,17 +108,7 @@ export function LibraryPage(props: LibraryPageProps) {
     contextItems: readonly LibraryListItem[] = controller.filteredItems()
   ) => {
     try {
-      if (
-        isMediaListItemCurrent(item, {
-          sourcePath: props.currentTrackPath,
-          mediaId: props.currentMediaId
-        })
-      ) {
-        await (props.isPlaying ? props.onPause() : props.onPlay());
-        return;
-      }
-      await controller.playItem(item, contextItems);
-      await props.onStateRefresh(item.source_path ?? null);
+      await playbackCoordinator.play(item, contextItems);
     } catch {
       // Feedback is handled inside the controller.
     }
@@ -341,128 +339,20 @@ export function LibraryPage(props: LibraryPageProps) {
         </div>
       </header>
 
-      <div class="local-library-router">
-        <Show when={controller.activeTab() === "songs"}>
-          <Show
-            when={controller.virtualTotal() > 0}
-            fallback={
-              <Show
-                when={controller.libraryTotalCount() === 0}
-                fallback={<div class="status-line">{t("library.tracks.emptyFilter")}</div>}
-              >
-                <div class="local-library-empty" role="status">
-                  <span class="empty-tab-icon" aria-hidden="true">
-                    <IconMusic />
-                  </span>
-                  <span>{t("library.tracks.emptyAll")}</span>
-                  <button
-                    type="button"
-                    class="primary-button page-action"
-                    onClick={() => controller.setManageOpen(true)}
-                  >
-                    <IconFolder />
-                    <span>{t("library.action.manageRoots")}</span>
-                  </button>
-                </div>
-              </Show>
-            }
-          >
-            <MediaList
-              items={controller.filteredItems()}
-              totalCount={controller.virtualTotal()}
-              virtualStart={controller.virtualRange().start}
-              currentSourcePath={props.currentTrackPath}
-              currentMediaId={props.currentMediaId}
-              isPlayingNow={props.isPlaying}
-              onPlay={(item) => void handlePlay(item, controller.filteredItems())}
-              onEnqueue={(item) => void handleEnqueue(item)}
-              onCopyPath={(item) => void controller.copyItemPath(item)}
-              onContextAction={handleContextAction}
-              onVisibleRangeChange={controller.setVirtualRange}
-              isLoading={controller.isFetching()}
-              emptyState={t("library.tracks.emptyAll")}
-              contextActions={["play", "enqueue", "add-to-playlist", "copy-path", "delete"]}
-              deleteActionLabel={t("library.action.deleteFromLibrary")}
-              sort={controller.sort()}
-              onSortChange={controller.updateSort}
-              onSortOrderChange={controller.updateSortOrder}
-            />
-          </Show>
-        </Show>
-
-        <Show when={controller.activeTab() === "artists"}>
-          <LibraryGroupedView
-            kind="artists"
-            groups={controller.artistGroups()}
-            currentTrackPath={props.currentTrackPath}
-            isPlaying={props.isPlaying}
-            onPlay={(item, groupSongs) => void handlePlay(item, groupSongs)}
-            onEnqueue={(item) => void handleEnqueue(item)}
-            onContextAction={handleContextAction}
-            isLoading={controller.isFetching()}
-            contextActions={["play", "enqueue", "add-to-playlist", "copy-path", "delete"]}
-            deleteActionLabel={t("library.action.deleteFromLibrary")}
-            sort={controller.sort()}
-            onSortChange={controller.updateSort}
-            onSortOrderChange={controller.updateSortOrder}
-            onActiveItemsChange={setGroupPlaybackItems}
-          />
-        </Show>
-        <Show when={controller.activeTab() === "albums"}>
-          <LibraryGroupedView
-            kind="albums"
-            groups={controller.albumGroups()}
-            currentTrackPath={props.currentTrackPath}
-            isPlaying={props.isPlaying}
-            onPlay={(item, groupSongs) => void handlePlay(item, groupSongs)}
-            onEnqueue={(item) => void handleEnqueue(item)}
-            onContextAction={handleContextAction}
-            isLoading={controller.isFetching()}
-            contextActions={["play", "enqueue", "add-to-playlist", "copy-path", "delete"]}
-            deleteActionLabel={t("library.action.deleteFromLibrary")}
-            sort={controller.sort()}
-            onSortChange={controller.updateSort}
-            onSortOrderChange={controller.updateSortOrder}
-            onActiveItemsChange={setGroupPlaybackItems}
-          />
-        </Show>
-        <Show when={controller.activeTab() === "playlists"}>
-          <LibraryPlaylistsView
-            playlists={controller.localPlaylists()}
-            selectedPlaylistId={controller.selectedPlaylistId()}
-            items={controller.selectedPlaylistSortedItems()}
-            currentTrackPath={props.currentTrackPath}
-            isPlaying={props.isPlaying}
-            isLoading={controller.isFetching()}
-            sort={controller.sort()}
-            onSortChange={controller.updateSort}
-            onSortOrderChange={controller.updateSortOrder}
-            onSelectPlaylist={(playlistId) => void controller.selectLocalPlaylist(playlistId)}
-            onCreatePlaylist={openCreatePlaylist}
-            onDeletePlaylist={(playlist) => setConfirmAction({ kind: "delete-playlist", playlist })}
-            onPlay={(item, playlistSongs) => void handlePlay(item, playlistSongs)}
-            onEnqueue={(item) => void handleEnqueue(item)}
-            onContextAction={handleContextAction}
-          />
-        </Show>
-        <Show when={controller.activeTab() === "folders"}>
-          <LibraryFoldersView
-            nodes={controller.folderTree()}
-            selectedFolder={controller.selectedFolder()}
-            items={controller.filteredItems()}
-            currentTrackPath={props.currentTrackPath}
-            isPlaying={props.isPlaying}
-            isLoading={controller.isFetching()}
-            sort={controller.sort()}
-            onSortChange={controller.updateSort}
-            onSortOrderChange={controller.updateSortOrder}
-            onSelectFolder={controller.setSelectedFolder}
-            onPlay={(item, folderSongs) => void handlePlay(item, folderSongs)}
-            onEnqueue={(item) => void handleEnqueue(item)}
-            onContextAction={handleContextAction}
-          />
-        </Show>
-      </div>
+      <LibraryTabContent
+        controller={controller}
+        currentTrackPath={props.currentTrackPath}
+        currentMediaId={props.currentMediaId}
+        isPlaying={props.isPlaying}
+        onManageRoots={() => controller.setManageOpen(true)}
+        onCreatePlaylist={openCreatePlaylist}
+        onDeletePlaylist={(playlist) => setConfirmAction({ kind: "delete-playlist", playlist })}
+        onPlay={(item, contextItems) => void handlePlay(item, contextItems)}
+        onEnqueue={(item) => void handleEnqueue(item)}
+        onContextAction={handleContextAction}
+        onActiveItemsChange={setGroupPlaybackItems}
+        t={t}
+      />
 
       <Show when={controller.feedback().message && controller.feedback().message !== t("library.feedback.initial")}>
         <div

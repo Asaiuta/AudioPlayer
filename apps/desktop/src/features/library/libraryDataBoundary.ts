@@ -1,5 +1,6 @@
 import type { MediaItem } from "../../shared/api/types";
-import type { LibraryListItem, LibraryWorkerRow } from "./libraryDataTypes";
+import type { LibraryListItem } from "./libraryViewTypes";
+import type { LibraryWorkerRow } from "./libraryWorkerProtocol";
 
 export interface LibraryItemUrlProvider {
   getCoverArtUrl: (mediaId: string) => string;

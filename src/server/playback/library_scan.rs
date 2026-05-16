@@ -8,6 +8,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
+type IndexedPaths = Arc<std::sync::Mutex<Vec<String>>>;
+
 pub(super) struct LibraryScanOutcome {
     pub(super) scanned_files: u64,
     pub(super) indexed_files: u64,
@@ -160,7 +162,7 @@ pub(super) fn scan_local_library(
             let mtime_unchanged = old_mtime.map_or(false, |old| (old - mtime).abs() < 1.0);
             let size_unchanged = old_size.map_or(false, |old| old == size);
             if mtime_unchanged && size_unchanged {
-                indexed_paths.lock().unwrap().push(canonical);
+                push_indexed_path(&indexed_paths, canonical);
                 indexed_count.fetch_add(1, Ordering::Relaxed);
                 return;
             }
@@ -233,7 +235,7 @@ pub(super) fn scan_local_library(
 
     let final_scanned = scanned.load(Ordering::Relaxed);
     let final_indexed = indexed_count.load(Ordering::Relaxed);
-    let final_indexed_paths = indexed_paths.lock().unwrap().clone();
+    let final_indexed_paths = clone_indexed_paths(&indexed_paths);
 
     let removed = data
         .app_db
@@ -295,7 +297,7 @@ fn collect_supported_local_media_paths(root_path: &str) -> Result<Vec<std::path:
 fn spawn_local_scan_writer(
     data: &web::Data<Arc<AppState>>,
     rx: std::sync::mpsc::Receiver<ParsedTrack>,
-    indexed_paths: Arc<std::sync::Mutex<Vec<String>>>,
+    indexed_paths: IndexedPaths,
     indexed_count: Arc<AtomicU64>,
     scan_task_id: u64,
     started_at: u64,
@@ -349,7 +351,7 @@ fn spawn_local_scan_writer(
 
 fn write_parsed_track_batch(
     db: &Arc<crate::app_database::AppDatabase>,
-    indexed_paths: &Arc<std::sync::Mutex<Vec<String>>>,
+    indexed_paths: &IndexedPaths,
     indexed_count: &Arc<AtomicU64>,
     batch: &[ParsedTrack],
 ) {
@@ -364,15 +366,36 @@ fn write_parsed_track_batch(
             Some(track.size),
         ) {
             Ok(_) => {
-                indexed_paths
-                    .lock()
-                    .unwrap()
-                    .push(track.canonical_path.clone());
+                push_indexed_path(indexed_paths, track.canonical_path.clone());
                 indexed_count.fetch_add(1, Ordering::Relaxed);
             }
             Err(e) => log::warn!("Failed to index '{}': {}", track.canonical_path, e),
         }
     }
+}
+
+fn with_indexed_paths<T>(
+    indexed_paths: &IndexedPaths,
+    action: impl FnOnce(&mut Vec<String>) -> T,
+) -> T {
+    let mut paths = match indexed_paths.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!(
+                "Local library scan indexed path lock was poisoned; recovering partial path list"
+            );
+            poisoned.into_inner()
+        }
+    };
+    action(&mut paths)
+}
+
+fn push_indexed_path(indexed_paths: &IndexedPaths, path: String) {
+    with_indexed_paths(indexed_paths, |paths| paths.push(path));
+}
+
+fn clone_indexed_paths(indexed_paths: &IndexedPaths) -> Vec<String> {
+    with_indexed_paths(indexed_paths, |paths| paths.clone())
 }
 
 pub(super) fn scan_webdav_library(

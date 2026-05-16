@@ -1,19 +1,19 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
-import { createApiClient } from "../../shared/api/client";
+import { createApiClient, type ApiClient } from "../../shared/api/client";
 import type { LibraryRoot, LibraryScanTask, LocalPlaylist, MediaItem } from "../../shared/api/types";
 import type { TranslationKey } from "../../shared/i18n";
-import type {
-  LibraryFolderNode,
-  LibraryGroup,
-  LibraryListItem,
-  LibrarySortField,
-  LibrarySortOrder,
-  LibrarySortState,
-  LibraryTab,
-  LibraryWorkerFolderGroup,
-  LibraryWorkerRow
-} from "./libraryDataTypes";
+import {
+  ALL_FOLDERS_VALUE,
+  type LibraryFolderNode,
+  type LibraryGroup,
+  type LibraryListItem,
+  type LibrarySortField,
+  type LibrarySortOrder,
+  type LibrarySortState,
+  type LibraryTab
+} from "./libraryViewTypes";
+import type { LibraryWorkerFolderGroup, LibraryWorkerRow } from "./libraryWorkerProtocol";
 import {
   LibraryWorkerClient,
   createLibraryWorkerViewInput
@@ -23,267 +23,76 @@ import {
   adaptWorkerRowToListItem,
   LibraryTrackDetailResolver
 } from "./libraryDataBoundary";
+import {
+  buildFolderTreeFromFolders,
+  fallbackLabel,
+  folderNameFromPath,
+  groupByKey,
+  sortItems,
+  splitArtists
+} from "./libraryViewModel";
+import {
+  type ScanProgress,
+  scanCompletionCounts,
+  scanProgressFromStart,
+  scanProgressFromTask
+} from "./libraryScanState";
+import { nextSortForField, nextSortForOrder } from "./librarySortModel";
+import { uniqueMediaIds } from "./librarySelectionModel";
 
-const api = createApiClient();
-const ALL_FOLDERS_VALUE = "__all";
 const DEFAULT_LIBRARY_RANGE = { start: 0, end: 80 };
+const LEGACY_LIBRARY_TABS: readonly LibraryTab[] = ["artists", "albums", "folders"];
+
+export type LibraryDataControllerApi = Pick<
+  ApiClient,
+  | "addMediaToLocalPlaylist"
+  | "createLocalPlaylist"
+  | "deleteLibraryRoot"
+  | "deleteLocalPlaylist"
+  | "deleteMediaItems"
+  | "enqueueTrack"
+  | "getCoverArtUrl"
+  | "getLibraryRoots"
+  | "getLibraryScanTask"
+  | "getLibraryTrackCoverArtUrl"
+  | "getLibraryTrackDetail"
+  | "getLibraryTrackSummaries"
+  | "getLocalPlaylist"
+  | "listLocalPlaylists"
+  | "playFromQueue"
+  | "removeMediaFromLocalPlaylist"
+  | "replaceQueue"
+  | "replaceQueueFromTrackKeys"
+  | "scanLibraryRoot"
+>;
 
 interface Feedback {
   tone: "neutral" | "success" | "error";
   message: string;
 }
 
-interface ScanProgress {
-  taskId: number;
-  scanned: number;
-  indexed: number;
-  removed: number;
-}
-
 interface UseLibraryDataControllerOptions {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
   globalQuery: Accessor<string>;
+  apiClient?: LibraryDataControllerApi;
 }
-
-const urlProvider = {
-  getCoverArtUrl: (mediaId: string) => api.getCoverArtUrl(mediaId),
-  getLibraryTrackCoverArtUrl: (trackKey: number) => api.getLibraryTrackCoverArtUrl(trackKey)
-};
-
-const adaptItem = (item: MediaItem): LibraryListItem =>
-  adaptMediaItemToListItem(item, urlProvider);
-
-const adaptWorkerRow = (row: LibraryWorkerRow): LibraryListItem =>
-  adaptWorkerRowToListItem(row, urlProvider);
-
-const matchesSearch = (item: LibraryListItem, query: string) => {
-  if (!query) return true;
-  const haystacks = [item.title, item.artist, item.album, item.source_path];
-  return haystacks.some((value) => value?.toLowerCase().includes(query));
-};
-
-const fallbackLabel = (value: string | null, fallback: string) => {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : fallback;
-};
-
-const normalizePath = (path: string) =>
-  path
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/");
-
-const folderPathFromSource = (sourcePath: string) => {
-  const normalized = normalizePath(sourcePath).replace(/\/+$/, "");
-  const index = normalized.lastIndexOf("/");
-  return index > 0 ? normalized.slice(0, index) : normalized;
-};
-
-const folderNameFromPath = (path: string) => {
-  const normalized = normalizePath(path).replace(/\/+$/, "");
-  return normalized.split("/").filter(Boolean).pop() ?? path;
-};
-
-const pathContainsFolder = (parentFolder: string, childFolder: string) => {
-  const parent = normalizePath(parentFolder).replace(/\/+$/, "");
-  const child = normalizePath(childFolder).replace(/\/+$/, "");
-  return child === parent || child.startsWith(`${parent}/`);
-};
-
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
-
-const compareText = (left: string | null | undefined, right: string | null | undefined) =>
-  collator.compare(left?.trim() ?? "", right?.trim() ?? "");
-
-const sortItems = (
-  items: readonly LibraryListItem[],
-  sort: LibrarySortState
-): LibraryListItem[] => {
-  if (sort.field === "default" || sort.order === "default") {
-    return [...items];
-  }
-
-  const factor = sort.order === "asc" ? 1 : -1;
-  return [...items].sort((left, right) => {
-    let result = 0;
-    switch (sort.field) {
-      case "title":
-        result = compareText(
-          left.title ?? folderNameFromPath(left.source_path ?? left.id),
-          right.title ?? folderNameFromPath(right.source_path ?? right.id)
-        );
-        break;
-      case "album":
-        result = compareText(left.album, right.album);
-        break;
-      case "artist":
-        result = compareText(left.artist, right.artist);
-        break;
-      case "trackNumber":
-        result = (left.track_number ?? 0) - (right.track_number ?? 0);
-        break;
-      case "filename":
-        result = compareText(
-          left.fileName ?? folderNameFromPath(left.source_path ?? left.id),
-          right.fileName ?? folderNameFromPath(right.source_path ?? right.id)
-        );
-        break;
-      case "duration":
-        result = (left.duration_secs ?? 0) - (right.duration_secs ?? 0);
-        break;
-      case "size":
-        result = (left.size_bytes ?? 0) - (right.size_bytes ?? 0);
-        break;
-      case "createTime":
-        result = (left.added_at_epoch_secs ?? 0) - (right.added_at_epoch_secs ?? 0);
-        break;
-      case "updatedTime":
-        result = (left.updated_at_epoch_secs ?? 0) - (right.updated_at_epoch_secs ?? 0);
-        break;
-      case "default":
-        result = 0;
-        break;
-      default: {
-        const _exhaustive: never = sort.field;
-        throw new Error(`Unhandled library sort field: ${_exhaustive}`);
-      }
-    }
-    return result * factor;
-  });
-};
-
-interface MutableFolderNode {
-  key: string;
-  label: string;
-  directCount: number;
-  totalCount: number;
-  depth: number;
-  children: Map<string, MutableFolderNode>;
-}
-
-const toFolderNode = (node: MutableFolderNode): LibraryFolderNode => ({
-  key: node.key,
-  label: node.label,
-  directCount: node.directCount,
-  totalCount: node.totalCount,
-  depth: node.depth,
-  children: [...node.children.values()]
-    .sort((left, right) => collator.compare(left.label, right.label))
-    .map(toFolderNode)
-});
-
-const compactFolderNode = (node: LibraryFolderNode, depth: number): LibraryFolderNode => {
-  let current = node;
-  let label = node.label;
-
-  while (current.children.length === 1 && current.directCount === 0) {
-    const child = current.children[0];
-    const separator = child.key.includes("\\") ? "\\" : "/";
-    label = `${label}${separator}${child.label}`;
-    current = child;
-  }
-
-  return {
-    key: current.key,
-    label,
-    directCount: current.directCount,
-    totalCount: node.totalCount,
-    depth,
-    children: current.children.map((child) => compactFolderNode(child, depth + 1))
-  };
-};
-
-const buildFolderTree = (items: readonly LibraryListItem[]): LibraryFolderNode[] => {
-  const roots = new Map<string, MutableFolderNode>();
-  const nodeByPath = new Map<string, MutableFolderNode>();
-
-  const ensureNode = (key: string, label: string, depth: number, parent?: MutableFolderNode) => {
-    const existing = nodeByPath.get(key);
-    if (existing) return existing;
-    const node: MutableFolderNode = {
-      key,
-      label,
-      directCount: 0,
-      totalCount: 0,
-      depth,
-      children: new Map<string, MutableFolderNode>()
-    };
-    nodeByPath.set(key, node);
-    if (parent) {
-      parent.children.set(key, node);
-    } else {
-      roots.set(key, node);
-    }
-    return node;
-  };
-
-  items.forEach((item) => {
-    const folderPath = folderPathFromSource(item.source_path ?? item.id);
-    const normalized = normalizePath(folderPath).replace(/\/+$/, "");
-    const prefix = normalized.startsWith("/") ? "/" : "";
-    const segments = normalized.split("/").filter(Boolean);
-    let parent: MutableFolderNode | undefined;
-    let currentPath = prefix;
-
-    segments.forEach((segment, index) => {
-      currentPath =
-        currentPath === "/" || currentPath === ""
-          ? `${currentPath}${segment}`
-          : `${currentPath}/${segment}`;
-      parent = ensureNode(currentPath, segment, index, parent);
-      parent.totalCount += 1;
-      if (index === segments.length - 1) {
-        parent.directCount += 1;
-      }
-    });
-  });
-
-  return [...roots.values()]
-    .sort((left, right) => collator.compare(left.label, right.label))
-    .map(toFolderNode)
-    .map((node) => compactFolderNode(node, 0));
-};
-
-const splitArtists = (artist: string | null, fallback: string) =>
-  fallbackLabel(artist, fallback)
-    .split(/[/、，,;&]+/g)
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0);
-
-const groupByKey = (
-  items: LibraryListItem[],
-  keyForItem: (item: LibraryListItem) => string[],
-  detailForGroup?: (key: string, songs: LibraryListItem[]) => string | undefined
-): LibraryGroup[] => {
-  const groups = items.reduce<Map<string, LibraryListItem[]>>((map, item) => {
-    keyForItem(item).forEach((key) => {
-      const current = map.get(key) ?? [];
-      if (!current.some((existing) => existing.media_id === item.media_id)) {
-        map.set(key, [...current, item]);
-      }
-    });
-    return map;
-  }, new Map<string, LibraryListItem[]>());
-
-  return [...groups.entries()]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, songs]) => ({
-      key,
-      label: key,
-      songs,
-      artworkUrl: songs.find((song) => song.artworkUrl)?.artworkUrl ?? null,
-      detail: detailForGroup?.(key, songs)
-    }));
-};
 
 export function useLibraryDataController(options: UseLibraryDataControllerOptions) {
   const { t, globalQuery } = options;
+  const api = options.apiClient ?? createApiClient();
+  const urlProvider = {
+    getCoverArtUrl: (mediaId: string) => api.getCoverArtUrl(mediaId),
+    getLibraryTrackCoverArtUrl: (trackKey: number) => api.getLibraryTrackCoverArtUrl(trackKey)
+  };
+  const adaptItem = (item: MediaItem): LibraryListItem =>
+    adaptMediaItemToListItem(item, urlProvider);
+  const adaptWorkerRow = (row: LibraryWorkerRow): LibraryListItem =>
+    adaptWorkerRowToListItem(row, urlProvider);
   const [roots, setRoots] = createSignal<LibraryRoot[]>([]);
-  const [allItems, setAllItems] = createSignal<MediaItem[]>([]);
-  const [legacyItemsLoaded, setLegacyItemsLoaded] = createSignal<boolean>(false);
   const [libraryRevision, setLibraryRevision] = createSignal<string | null>(null);
   const [libraryTotalCount, setLibraryTotalCount] = createSignal<number>(0);
   const [virtualRows, setVirtualRows] = createSignal<LibraryListItem[]>([]);
+  const [legacyRows, setLegacyRows] = createSignal<LibraryListItem[]>([]);
   const [virtualTotal, setVirtualTotal] = createSignal<number>(0);
   const [virtualRange, setVirtualRange] =
     createSignal<{ start: number; end: number }>(DEFAULT_LIBRARY_RANGE);
@@ -358,13 +167,16 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     workerClient.requestView(currentWorkerViewInput(), virtualRange());
   };
 
-  const requestWorkerTrackKeys = async (): Promise<number[]> => {
+  const requestWorkerTrackKeys = async (startTrackKey?: number): Promise<number[]> => {
     if (!workerReady()) {
       throw new Error(t("common.error.requestFailed"));
     }
     const trackKeys = await workerClient.requestTrackKeys(currentWorkerViewInput());
     if (trackKeys.length === 0) {
       throw new Error(t("library.tracks.emptyFilter"));
+    }
+    if (startTrackKey !== undefined && !trackKeys.includes(startTrackKey)) {
+      return [startTrackKey, ...trackKeys];
     }
     return trackKeys;
   };
@@ -377,17 +189,53 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     return rows.map(adaptWorkerRow);
   };
 
+  let legacyRowsRequestId = 0;
+
+  const refreshLegacyRows = async () => {
+    if (!workerReady()) {
+      setLegacyRows([]);
+      return;
+    }
+    const requestId = ++legacyRowsRequestId;
+    try {
+      const rows = await requestWorkerRows();
+      if (requestId === legacyRowsRequestId) {
+        setLegacyRows(rows);
+      }
+    } catch (error) {
+      if (requestId === legacyRowsRequestId) {
+        setLegacyRows([]);
+        setRawFeedback("error", readErrorMessage(error));
+      }
+    }
+  };
+
+  const trackKeysForPlaybackContext = async (
+    item: LibraryListItem,
+    contextItems: readonly LibraryListItem[]
+  ): Promise<number[]> => {
+    if (item.trackKey === undefined) {
+      throw new Error(t("common.error.requestFailed"));
+    }
+    if (activeTab() === "songs") {
+      return requestWorkerTrackKeys(item.trackKey);
+    }
+    const contextTrackKeys = contextItems
+      .map((contextItem) => contextItem.trackKey)
+      .filter((trackKey): trackKey is number => trackKey !== undefined);
+    if (contextTrackKeys.length === 0) {
+      return requestWorkerTrackKeys(item.trackKey);
+    }
+    return contextTrackKeys.includes(item.trackKey)
+      ? contextTrackKeys
+      : [item.trackKey, ...contextTrackKeys];
+  };
+
   const updateVirtualRange = (range: { start: number; end: number }) => {
     setVirtualRange((current) =>
       current.start === range.start && current.end === range.end ? current : range
     );
   };
-
-  const selectedFolderPath = createMemo<string | null>(() => {
-    const selected = selectedFolder();
-    if (selected === ALL_FOLDERS_VALUE) return null;
-    return folderOptions().find((folder) => folder.key === selected)?.path ?? null;
-  });
 
   const ensureItemDetail = (item: LibraryListItem): Promise<MediaItem | null> =>
     detailResolver.resolve(item);
@@ -406,28 +254,13 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     try {
       const response = await api.getLibraryTrackSummaries();
       detailResolver.clear();
-      setAllItems([]);
-      setLegacyItemsLoaded(false);
+      setLegacyRows([]);
       setLibraryRevision(response.revision);
       setLibraryTotalCount(response.total_count);
       setVirtualTotal(response.total_count);
       setVirtualSizeBytes(response.total_size_bytes);
       setWorkerReady(false);
       workerClient.init(response.tracks, response.folders);
-    } catch (error) {
-      setRawFeedback("error", readErrorMessage(error));
-    } finally {
-      setIsFetching(false);
-    }
-  };
-
-  const refreshLegacyItems = async () => {
-    if (legacyItemsLoaded()) return;
-    setIsFetching(true);
-    try {
-      const list = await api.getMediaItems(undefined, true);
-      setAllItems(list);
-      setLegacyItemsLoaded(true);
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
     } finally {
@@ -467,13 +300,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   };
 
   const applyScanTask = (task: LibraryScanTask) => {
-    const payload = task.result ?? {};
-    setScanProgress({
-      taskId: task.task_id,
-      scanned: payload.scanned_files ?? 0,
-      indexed: payload.indexed_files ?? 0,
-      removed: payload.removed_files ?? 0
-    });
+    setScanProgress(scanProgressFromTask(task));
   };
 
   const pollScanTask = async (taskId: number) => {
@@ -517,22 +344,15 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
 
   createEffect(() => {
     const tab = activeTab();
-    if (tab === "artists" || tab === "albums" || tab === "folders") {
-      void refreshLegacyItems();
+    workerReady();
+    debouncedQueries();
+    selectedFolder();
+    sort();
+    if (LEGACY_LIBRARY_TABS.includes(tab)) {
+      void refreshLegacyRows();
     }
   });
 
-  const adaptedItems = createMemo(() => allItems().map(adaptItem));
-  const activeQueries = createMemo<string[]>(() =>
-    [globalQuery(), localQuery()]
-      .map((value) => value.trim().toLowerCase())
-      .filter((value) => value.length > 0)
-  );
-  const queryFilteredItems = createMemo(() => {
-    const queries = activeQueries();
-    if (queries.length === 0) return adaptedItems();
-    return adaptedItems().filter((item) => queries.every((query) => matchesSearch(item, query)));
-  });
   const folderGroups = createMemo<LibraryGroup[]>(() => {
     const rootOptions = roots();
     if (rootOptions.length > 0) {
@@ -546,16 +366,8 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     }
     return [];
   });
-  const folderTree = createMemo<LibraryFolderNode[]>(() => buildFolderTree(queryFilteredItems()));
-  const folderFilteredItems = createMemo(() => {
-    const selected = selectedFolder();
-    if (selected === ALL_FOLDERS_VALUE) return queryFilteredItems();
-    const selectedPath = selectedFolderPath() ?? selected;
-    return queryFilteredItems().filter((item) =>
-      pathContainsFolder(selectedPath, folderPathFromSource(item.source_path ?? item.id))
-    );
-  });
-  const legacyFilteredItems = createMemo(() => sortItems(folderFilteredItems(), sort()));
+  const folderTree = createMemo<LibraryFolderNode[]>(() => buildFolderTreeFromFolders(folderOptions()));
+  const legacyFilteredItems = createMemo(() => legacyRows());
   const filteredItems = createMemo(() =>
     activeTab() === "songs" ? virtualRows() : legacyFilteredItems()
   );
@@ -572,7 +384,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     if (activeTab() === "songs") {
       return Number((virtualSizeBytes() / (1024 * 1024 * 1024)).toFixed(2));
     }
-    const totalBytes = folderFilteredItems().reduce((total, item) => total + (item.size_bytes ?? 0), 0);
+    const totalBytes = legacyFilteredItems().reduce((total, item) => total + (item.size_bytes ?? 0), 0);
     return Number((totalBytes / (1024 * 1024 * 1024)).toFixed(2));
   });
 
@@ -585,27 +397,20 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     setRawFeedback("neutral", t("library.feedback.scanning", { path }));
     try {
       const result = await api.scanLibraryRoot(path, display ? display : undefined);
-      setScanProgress({
-        taskId: result.task_id,
-        scanned: result.scanned_files,
-        indexed: result.indexed_files,
-        removed: 0
-      });
+      setScanProgress(scanProgressFromStart(result));
       const task = await pollScanTask(result.task_id);
       if (task.status === "error") {
         throw new Error(task.error ?? t("common.error.requestFailed"));
       }
 
-      const finalScanned = task.result?.scanned_files ?? result.scanned_files;
-      const finalIndexed = task.result?.indexed_files ?? result.indexed_files;
-      const finalRemoved = task.result?.removed_files ?? 0;
+      const finalCounts = scanCompletionCounts(task, result);
       await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
       setRawFeedback(
         "success",
         t("library.feedback.scanComplete", {
-          scanned: finalScanned,
-          indexed: finalIndexed,
-          removed: finalRemoved
+          scanned: finalCounts.scanned,
+          indexed: finalCounts.indexed,
+          removed: finalCounts.removed
         })
       );
     } catch (error) {
@@ -625,26 +430,19 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
         root.display_name,
         root.source_key ?? undefined
       );
-      setScanProgress({
-        taskId: result.task_id,
-        scanned: result.scanned_files,
-        indexed: result.indexed_files,
-        removed: 0
-      });
+      setScanProgress(scanProgressFromStart(result));
       const task = await pollScanTask(result.task_id);
       if (task.status === "error") {
         throw new Error(task.error ?? t("common.error.requestFailed"));
       }
-      const finalScanned = task.result?.scanned_files ?? result.scanned_files;
-      const finalIndexed = task.result?.indexed_files ?? result.indexed_files;
-      const finalRemoved = task.result?.removed_files ?? 0;
+      const finalCounts = scanCompletionCounts(task, result);
       await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
       setRawFeedback(
         "success",
         t("library.feedback.rescanComplete", {
-          scanned: finalScanned,
-          indexed: finalIndexed,
-          removed: finalRemoved
+          scanned: finalCounts.scanned,
+          indexed: finalCounts.indexed,
+          removed: finalCounts.removed
         })
       );
     } catch (error) {
@@ -670,7 +468,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     setKeyedFeedback("neutral", "library.feedback.initial");
     try {
       if (item.trackKey !== undefined) {
-        const trackKeys = await requestWorkerTrackKeys();
+        const trackKeys = await trackKeysForPlaybackContext(item, contextItems);
         await api.replaceQueueFromTrackKeys({
           trackKeys,
           startTrackKey: item.trackKey
@@ -783,7 +581,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
 
   const addItemsToPlaylist = async (playlistId: string, items: readonly LibraryListItem[]) => {
     const details = await Promise.all(items.map(ensureItemDetail));
-    const mediaIds = [...new Set(details.flatMap((item) => (item ? [item.media_id] : [])))];
+    const mediaIds = uniqueMediaIds(details);
     if (mediaIds.length === 0) return 0;
     try {
       const addedCount = await api.addMediaToLocalPlaylist(playlistId, mediaIds);
@@ -803,7 +601,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     const playlistId = selectedPlaylistId();
     if (!playlistId || items.length === 0) return 0;
     const details = await Promise.all(items.map(ensureItemDetail));
-    const mediaIds = [...new Set(details.flatMap((item) => (item ? [item.media_id] : [])))];
+    const mediaIds = uniqueMediaIds(details);
     try {
       const removedCount = await api.removeMediaFromLocalPlaylist(playlistId, mediaIds);
       await refreshPlaylists();
@@ -818,7 +616,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
 
   const deleteItemsFromLibrary = async (items: readonly LibraryListItem[]) => {
     const details = await Promise.all(items.map(ensureItemDetail));
-    const mediaIds = [...new Set(details.flatMap((item) => (item ? [item.media_id] : [])))];
+    const mediaIds = uniqueMediaIds(details);
     if (mediaIds.length === 0) return 0;
     try {
       const deletedCount = await api.deleteMediaItems(mediaIds);
@@ -840,36 +638,11 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   };
 
   const updateSort = (field: LibrarySortField) => {
-    setSort((current) => {
-      if (field === "default") {
-        return { field: "default", order: "default" };
-      }
-      if (current.field === field) {
-        return {
-          field,
-          order: current.order === "asc" ? "desc" : "asc"
-        };
-      }
-      return {
-        field,
-        order:
-          field === "duration" || field === "size" || field === "createTime" || field === "updatedTime"
-            ? "desc"
-            : "asc"
-      };
-    });
+    setSort((current) => nextSortForField(current, field));
   };
 
   const updateSortOrder = (order: LibrarySortOrder) => {
-    setSort((current) => {
-      if (order === "default") {
-        return { field: "default", order: "default" };
-      }
-      if (current.field === "default") {
-        return { field: "title", order };
-      }
-      return { ...current, order };
-    });
+    setSort((current) => nextSortForOrder(current, order));
   };
 
   const notifyCopyPath = () => {
@@ -914,7 +687,6 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
 
   return {
     roots,
-    allItems,
     libraryRevision,
     libraryTotalCount,
     virtualTotal,
@@ -925,7 +697,6 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     selectedPlaylistItems,
     selectedPlaylistSortedItems,
     filteredItems,
-    folderFilteredItems,
     artistGroups,
     albumGroups,
     folderGroups,
@@ -969,5 +740,3 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     refreshPlaylists
   };
 }
-
-export { ALL_FOLDERS_VALUE };

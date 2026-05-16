@@ -9,15 +9,7 @@ import { MediaList } from "../../components/media/MediaList";
 import type { MediaContextAction, MediaSortField, MediaSortOrder, MediaSortState } from "../../components/media/MediaList";
 import { useTranslation } from "../../shared/i18n";
 import { useUISettings } from "../../shared/state/useUISettings";
-import type { LibraryListItem } from "./libraryDataTypes";
-
-export interface LibraryGroup {
-  key: string;
-  label: string;
-  songs: LibraryListItem[];
-  artworkUrl?: string | null;
-  detail?: string;
-}
+import type { LibraryGroup, LibraryListItem } from "./libraryViewTypes";
 
 type LibraryGroupedKind = "artists" | "albums" | "folders";
 
@@ -25,6 +17,7 @@ interface LibraryGroupedViewProps {
   kind: LibraryGroupedKind;
   groups: LibraryGroup[];
   currentTrackPath: string | null;
+  currentMediaId: string | null;
   isPlaying: boolean;
   isLoading: boolean;
   sort?: MediaSortState;
@@ -130,6 +123,7 @@ export function LibraryGroupedView(props: LibraryGroupedViewProps) {
               <MediaList
                 items={group().songs}
                 currentSourcePath={props.currentTrackPath}
+                currentMediaId={props.currentMediaId}
                 isPlayingNow={props.isPlaying}
                 onPlay={(item) => props.onPlay(item, group().songs)}
                 onEnqueue={props.onEnqueue}

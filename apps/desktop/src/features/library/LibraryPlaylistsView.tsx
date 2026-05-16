@@ -19,7 +19,7 @@ import type { LocalPlaylist } from "../../shared/api/types";
 import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { useUISettings } from "../../shared/state/useUISettings";
-import type { LibraryListItem } from "./libraryDataTypes";
+import type { LibraryListItem } from "./libraryViewTypes";
 
 interface LibraryPlaylistsViewProps {
   playlists: readonly LocalPlaylist[];

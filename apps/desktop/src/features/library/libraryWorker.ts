@@ -1,11 +1,11 @@
 import type { LibraryFolderSummary, LibraryTrackSummary } from "../../shared/api/types";
+import type { LibrarySortState } from "./libraryViewTypes";
 import type {
-  LibrarySortState,
   LibraryWorkerFolderGroup,
   LibraryWorkerRequest,
   LibraryWorkerResponse,
   LibraryWorkerRow
-} from "./libraryDataTypes";
+} from "./libraryWorkerProtocol";
 
 interface IndexedTrack {
   summary: LibraryTrackSummary;

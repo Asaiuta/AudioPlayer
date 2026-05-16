@@ -16,6 +16,8 @@ import {
   IconQueueAdd
 } from "../icons";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { isMediaListItemCurrent } from "../../shared/media/mediaIdentity";
+export { isMediaListItemCurrent, mediaKeyForPath } from "../../shared/media/mediaIdentity";
 
 export type MediaContextAction = "play" | "enqueue" | "copy-path" | "add-to-playlist" | "delete";
 export type MediaSortField =
@@ -109,37 +111,6 @@ export const displayNameFromSourcePath = (sourcePath: string): string => {
   const trimmed = normalized.replace(/\/+$/, "");
   return trimmed.split("/").filter(Boolean).pop() ?? sourcePath;
 };
-
-export const mediaKeyForPath = (path: string | null | undefined): string | null => {
-  if (!path) return null;
-  return path
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/")
-    .toLowerCase();
-};
-
-export const isMediaListItemCurrent = (
-  item: MediaListItem,
-  current: {
-    sourcePath?: string | null;
-    mediaId?: string | null;
-    songId?: number | null;
-  }
-): boolean =>
-  (current.songId !== null &&
-    current.songId !== undefined &&
-    item.songId === current.songId) ||
-  (current.mediaId !== null &&
-    current.mediaId !== undefined &&
-    item.media_id !== null &&
-    item.media_id !== undefined &&
-    item.media_id === current.mediaId) ||
-  (current.sourcePath !== null &&
-    current.sourcePath !== undefined &&
-    item.source_path !== null &&
-    item.source_path !== undefined &&
-    mediaKeyForPath(item.source_path) === mediaKeyForPath(current.sourcePath));
 
 const stripBracketedContent = (value: string): string => {
   const stripped = value
