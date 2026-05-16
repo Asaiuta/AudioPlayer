@@ -2,6 +2,7 @@
 //!
 //! Contains shared state, commands, device info, and cache utilities.
 
+use crate::config::{DEFAULT_CACHE_MAX_BYTES, ENV_AUDIO_CACHE_MAX_BYTES};
 use crate::processor::{DspChain, NoiseShaperCurve};
 use arc_swap::{ArcSwap, ArcSwapOption};
 use crossbeam::queue::ArrayQueue;
@@ -9,7 +10,7 @@ use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicU8, Ordering};
 use std::sync::Arc;
 
@@ -18,6 +19,14 @@ use std::sync::Arc;
 const CACHE_MAGIC: &[u8; 4] = b"VCP1";
 const CACHE_VERSION: u32 = 1;
 const CACHE_HEADER_SIZE: usize = 32;
+const CACHE_SAMPLE_BYTES: usize = std::mem::size_of::<f64>();
+const CACHE_MIN_FILE_SIZE: usize = CACHE_HEADER_SIZE + CACHE_SAMPLE_BYTES;
+pub fn configured_cache_max_bytes() -> u64 {
+    std::env::var(ENV_AUDIO_CACHE_MAX_BYTES)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_CACHE_MAX_BYTES)
+}
 
 /// Calculate CRC32 checksum for cache validation
 fn calculate_checksum(data: &[f64]) -> u32 {
@@ -43,7 +52,21 @@ pub fn save_cache_with_header(
     sample_rate: u32,
     channels: u32,
 ) -> std::io::Result<()> {
-    let frame_count = (samples.len() / channels as usize) as u64;
+    if channels == 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "cache channels must be greater than zero",
+        ));
+    }
+    let channels_usize = channels as usize;
+    if samples.len() % channels_usize != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "sample count must be divisible by channel count",
+        ));
+    }
+
+    let frame_count = (samples.len() / channels_usize) as u64;
     let checksum = calculate_checksum(samples);
 
     if let Some(parent) = path.parent() {
@@ -84,9 +107,9 @@ pub fn save_cache_with_header(
 pub fn load_cache_with_header(path: &Path, expected_sr: u32, expected_ch: u32) -> Option<Vec<f64>> {
     let mut file = fs::File::open(path).ok()?;
     let metadata = file.metadata().ok()?;
-    let file_size = metadata.len() as usize;
+    let file_size = usize::try_from(metadata.len()).ok()?;
 
-    if file_size < CACHE_HEADER_SIZE + 8 {
+    if file_size < CACHE_MIN_FILE_SIZE {
         log::warn!("Cache file too small: {} bytes", file_size);
         return None;
     }
@@ -129,11 +152,32 @@ pub fn load_cache_with_header(path: &Path, expected_sr: u32, expected_ch: u32) -
         return None;
     }
 
-    let expected_data_size = frame_count as usize * channels as usize * 8;
-    if file_size != CACHE_HEADER_SIZE + expected_data_size {
+    let (sample_count, expected_data_size) = match cache_data_layout(frame_count, channels) {
+        Some(layout) => layout,
+        None => {
+            log::warn!(
+                "Invalid cache layout: frame_count={}, channels={}",
+                frame_count,
+                channels
+            );
+            return None;
+        }
+    };
+    let expected_file_size = match CACHE_HEADER_SIZE.checked_add(expected_data_size) {
+        Some(size) => size,
+        None => {
+            log::warn!(
+                "Invalid cache file size calculation: frame_count={}, channels={}",
+                frame_count,
+                channels
+            );
+            return None;
+        }
+    };
+    if file_size != expected_file_size {
         log::warn!(
             "Cache file size mismatch: expected {}, got {}",
-            CACHE_HEADER_SIZE + expected_data_size,
+            expected_file_size,
             file_size
         );
         return None;
@@ -141,10 +185,9 @@ pub fn load_cache_with_header(path: &Path, expected_sr: u32, expected_ch: u32) -
 
     // FIX for Defect 6: Stream CRC32 computation while reading samples
     // in a single pass, instead of reading all then checksumming all.
-    let sample_count = frame_count as usize * channels as usize;
     let mut samples = Vec::with_capacity(sample_count);
     let mut hasher = crc32fast::Hasher::new();
-    let mut sample_bytes = [0u8; 8];
+    let mut sample_bytes = [0u8; CACHE_SAMPLE_BYTES];
 
     for _ in 0..sample_count {
         if file.read_exact(&mut sample_bytes).is_err() {
@@ -171,6 +214,96 @@ pub fn load_cache_with_header(path: &Path, expected_sr: u32, expected_ch: u32) -
         samples.len()
     );
     Some(samples)
+}
+
+fn cache_data_layout(frame_count: u64, channels: u32) -> Option<(usize, usize)> {
+    if channels == 0 {
+        return None;
+    }
+    let frames = usize::try_from(frame_count).ok()?;
+    let channel_count = usize::try_from(channels).ok()?;
+    let sample_count = frames.checked_mul(channel_count)?;
+    let data_size = sample_count.checked_mul(CACHE_SAMPLE_BYTES)?;
+    Some((sample_count, data_size))
+}
+
+pub fn prune_cache_dir_to_limit(cache_dir: &Path, max_bytes: u64) -> Result<u64, String> {
+    let mut entries = collect_cache_entries(cache_dir)?;
+    let mut total_bytes = entries.iter().map(|entry| entry.size_bytes).sum::<u64>();
+    if total_bytes <= max_bytes {
+        return Ok(0);
+    }
+
+    entries.sort_by_key(|entry| entry.modified_epoch_secs);
+    let mut removed = 0_u64;
+
+    for entry in entries {
+        if total_bytes <= max_bytes {
+            break;
+        }
+        match fs::remove_file(&entry.path) {
+            Ok(()) => {
+                total_bytes = total_bytes.saturating_sub(entry.size_bytes);
+                removed += 1;
+            }
+            Err(e) => {
+                return Err(format!("Failed to remove old cache file: {}", e));
+            }
+        }
+    }
+
+    if removed > 0 {
+        log::info!(
+            "Pruned {} cache files to keep runtime cache under {} bytes",
+            removed,
+            max_bytes
+        );
+    }
+
+    Ok(removed)
+}
+
+#[derive(Debug)]
+struct CacheEntry {
+    path: PathBuf,
+    size_bytes: u64,
+    modified_epoch_secs: u64,
+}
+
+fn collect_cache_entries(cache_dir: &Path) -> Result<Vec<CacheEntry>, String> {
+    let read_dir = match fs::read_dir(cache_dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("Failed to read cache directory: {}", e)),
+    };
+
+    let mut entries = Vec::new();
+    for entry in read_dir {
+        let entry = entry.map_err(|e| format!("Failed to read cache directory entry: {}", e))?;
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("bin") {
+            continue;
+        }
+        let metadata = entry
+            .metadata()
+            .map_err(|e| format!("Failed to inspect cache file: {}", e))?;
+        if !metadata.is_file() {
+            continue;
+        }
+        let modified_epoch_secs = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
+        entries.push(CacheEntry {
+            path,
+            size_bytes: metadata.len(),
+            modified_epoch_secs,
+        });
+    }
+
+    Ok(entries)
 }
 
 // ============ Event Flag Constants (Task E) ============
@@ -399,6 +532,16 @@ pub struct SharedState {
     pub is_loading: AtomicBool,
     pub load_progress: AtomicU64, // Percentage (0-100)
     pub load_error: RwLock<Option<String>>,
+    pub load_error_count: AtomicU64,
+    pub last_decode_duration_ms: AtomicU64,
+    pub last_decode_input_frames: AtomicU64,
+    pub last_decode_output_samples: AtomicU64,
+    pub last_decode_chunk_count: AtomicU64,
+    pub last_decode_throughput_frames_per_sec: AtomicU64,
+    pub audio_underrun_count: AtomicU64,
+    pub audio_underrun_silence_frames: AtomicU64,
+    pub ws_spectrum_event_count: AtomicU64,
+    pub ws_position_event_count: AtomicU64,
 
     // WebSocket event flags — unified bitmask (Task E)
     // Writers: audio thread or async tasks use fetch_or(EVENT_*, Release)
@@ -462,6 +605,16 @@ impl SharedState {
             is_loading: AtomicBool::new(false),
             load_progress: AtomicU64::new(0),
             load_error: RwLock::new(None),
+            load_error_count: AtomicU64::new(0),
+            last_decode_duration_ms: AtomicU64::new(0),
+            last_decode_input_frames: AtomicU64::new(0),
+            last_decode_output_samples: AtomicU64::new(0),
+            last_decode_chunk_count: AtomicU64::new(0),
+            last_decode_throughput_frames_per_sec: AtomicU64::new(0),
+            audio_underrun_count: AtomicU64::new(0),
+            audio_underrun_silence_frames: AtomicU64::new(0),
+            ws_spectrum_event_count: AtomicU64::new(0),
+            ws_position_event_count: AtomicU64::new(0),
 
             event_flags: std::sync::atomic::AtomicU32::new(0),
             playback_end_count: AtomicU64::new(0),
@@ -553,4 +706,84 @@ pub struct AudioDeviceInfo {
     pub name: String,
     pub is_default: bool,
     pub sample_rate: Option<u32>,
+}
+
+#[cfg(test)]
+mod cache_policy_tests {
+    use super::{
+        load_cache_with_header, prune_cache_dir_to_limit, save_cache_with_header, CACHE_HEADER_SIZE,
+        CACHE_MAGIC, CACHE_SAMPLE_BYTES, CACHE_VERSION,
+    };
+    use std::fs;
+    use std::io::Write;
+
+    #[test]
+    fn prune_cache_dir_removes_old_bin_files_until_under_limit() {
+        let cache_dir = std::env::temp_dir().join("audio_player_cache_policy");
+        let _ = fs::remove_dir_all(&cache_dir);
+        fs::create_dir_all(&cache_dir).unwrap();
+
+        write_file(&cache_dir.join("old.bin"), 8);
+        write_file(&cache_dir.join("new.bin"), 8);
+        write_file(&cache_dir.join("keep.txt"), 8);
+
+        let removed = prune_cache_dir_to_limit(&cache_dir, 8).unwrap();
+
+        assert_eq!(removed, 1);
+        assert_eq!(bin_cache_bytes(&cache_dir), 8);
+        assert!(cache_dir.join("keep.txt").exists());
+
+        let _ = fs::remove_dir_all(&cache_dir);
+    }
+
+    #[test]
+    fn load_cache_rejects_overflowing_header_layout() {
+        let cache_dir = std::env::temp_dir().join("audio_player_cache_overflow");
+        let _ = fs::remove_dir_all(&cache_dir);
+        fs::create_dir_all(&cache_dir).unwrap();
+        let cache_path = cache_dir.join("corrupt.bin");
+
+        let mut header_bytes = [0_u8; CACHE_HEADER_SIZE];
+        header_bytes[0..4].copy_from_slice(CACHE_MAGIC);
+        header_bytes[4..8].copy_from_slice(&CACHE_VERSION.to_le_bytes());
+        header_bytes[8..12].copy_from_slice(&44_100_u32.to_le_bytes());
+        header_bytes[12..16].copy_from_slice(&2_u32.to_le_bytes());
+        header_bytes[16..24].copy_from_slice(&u64::MAX.to_le_bytes());
+
+        let mut file = fs::File::create(&cache_path).unwrap();
+        file.write_all(&header_bytes).unwrap();
+        file.write_all(&[0_u8; CACHE_SAMPLE_BYTES]).unwrap();
+
+        assert!(load_cache_with_header(&cache_path, 44_100, 2).is_none());
+
+        let _ = fs::remove_dir_all(&cache_dir);
+    }
+
+    #[test]
+    fn save_cache_rejects_invalid_channel_layouts() {
+        let cache_dir = std::env::temp_dir().join("audio_player_cache_invalid_layout");
+        let _ = fs::remove_dir_all(&cache_dir);
+        fs::create_dir_all(&cache_dir).unwrap();
+        let cache_path = cache_dir.join("invalid.bin");
+
+        assert!(save_cache_with_header(&cache_path, &[0.0], 44_100, 0).is_err());
+        assert!(save_cache_with_header(&cache_path, &[0.0], 44_100, 2).is_err());
+
+        let _ = fs::remove_dir_all(&cache_dir);
+    }
+
+    fn write_file(path: &std::path::Path, len: usize) {
+        let mut file = fs::File::create(path).unwrap();
+        file.write_all(&vec![1_u8; len]).unwrap();
+    }
+
+    fn bin_cache_bytes(path: &std::path::Path) -> u64 {
+        fs::read_dir(path)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("bin"))
+            .map(|path| fs::metadata(path).unwrap().len())
+            .sum()
+    }
 }

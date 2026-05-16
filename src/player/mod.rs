@@ -6,6 +6,7 @@
 mod audio_thread;
 mod callback;
 mod gapless;
+mod output_stream;
 mod spectrum;
 mod state;
 
@@ -20,7 +21,7 @@ pub use state::{
     EVENT_QUEUE_UPDATED, EVENT_TRACK_CHANGED, EVENT_TRACK_EOF,
 };
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 
@@ -48,7 +49,7 @@ use crate::processor::{
 };
 
 // Import internal modules
-use audio_thread::audio_thread_main;
+use audio_thread::{audio_thread_main, AudioThreadStartup};
 use spectrum::spectrum_thread_main;
 use state::{load_cache_with_header, save_cache_with_header};
 
@@ -99,6 +100,7 @@ pub struct AudioPlayer {
 
     config: EngineSettings,
     device_id: Option<usize>,
+    current_load_cancel: Option<Arc<AtomicBool>>,
 }
 
 impl AudioPlayer {
@@ -183,23 +185,23 @@ impl AudioPlayer {
         let target_lufs = config.loudness.target_lufs;
 
         let audio_thread = thread::spawn(move || {
-            audio_thread_main(
+            audio_thread_main(AudioThreadStartup {
                 cmd_rx,
-                thread_state,
-                lf_eq,
-                lf_sat,
-                lf_cross,
-                lf_limiter,
-                lf_vol,
-                lf_ns,
-                lf_dl,
-                lf_dl_telemetry,
-                lf_loudness_state,
-                config.output_bits, // M-1 fix: read from config instead of hardcoded 24
+                shared_state: thread_state,
+                eq_params: lf_eq,
+                saturation_params: lf_sat,
+                crossfeed_params: lf_cross,
+                limiter_params: lf_limiter,
+                volume_params: lf_vol,
+                noise_shaper_params: lf_ns,
+                dynamic_loudness_params: lf_dl,
+                dynamic_loudness_telemetry: lf_dl_telemetry,
+                loudness_state: lf_loudness_state,
+                noise_shaper_bits: config.output_bits, // M-1 fix: read from config instead of hardcoded 24
                 spectrum_tx,
                 phase_response,
                 target_lufs,
-            );
+            });
         });
 
         shared_state.volume.store(
@@ -252,6 +254,7 @@ impl AudioPlayer {
             ir_path: None,
             config,
             device_id,
+            current_load_cancel: None,
         }
     }
 
@@ -332,6 +335,8 @@ impl AudioPlayer {
         );
         self.stop_for_track_load();
         GaplessManager::cancel_preload(&self.shared_state);
+        self.cancel_current_load();
+        let load_cancel = self.create_load_cancel_token();
         let generation = self
             .shared_state
             .load_generation
@@ -357,12 +362,24 @@ impl AudioPlayer {
                 device_id,
                 &shared_state,
                 loudness_enabled,
+                &load_cancel,
             );
 
-            shared_state.is_loading.store(false, Ordering::Release);
+            let is_current = shared_state.load_generation.load(Ordering::Acquire) == generation;
+            if is_current {
+                shared_state.is_loading.store(false, Ordering::Release);
+            }
 
             match result {
                 Ok(load_result) => {
+                    if load_cancel.load(Ordering::Acquire) || !is_current {
+                        log::info!(
+                            "Discarding cancelled async load result for '{}' (generation {})",
+                            path_owned,
+                            generation
+                        );
+                        return;
+                    }
                     let _ = cmd_tx.send(AudioCommand::LoadComplete {
                         generation,
                         result: load_result,
@@ -375,8 +392,20 @@ impl AudioPlayer {
                     }
                 }
                 Err(e) => {
+                    if load_cancel.load(Ordering::Acquire) || !is_current {
+                        log::info!(
+                            "Async load cancelled for '{}' (generation {}): {}",
+                            path_owned,
+                            generation,
+                            e
+                        );
+                        return;
+                    }
                     log::error!("Async load failed: {}", e);
-                    if shared_state.load_generation.load(Ordering::Acquire) == generation {
+                    if is_current {
+                        shared_state
+                            .load_error_count
+                            .fetch_add(1, Ordering::Relaxed);
                         *shared_state.load_error.write() = Some(e.clone());
                     }
                     let _ = cmd_tx.send(AudioCommand::LoadError {
@@ -388,6 +417,25 @@ impl AudioPlayer {
         });
 
         Ok(())
+    }
+
+    fn create_load_cancel_token(&mut self) -> Arc<AtomicBool> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.current_load_cancel = Some(Arc::clone(&cancel));
+        cancel
+    }
+
+    fn cancel_current_load(&mut self) {
+        let was_loading = self.shared_state.is_loading.swap(false, Ordering::AcqRel);
+        if let Some(cancel) = self.current_load_cancel.take() {
+            cancel.store(true, Ordering::Release);
+        }
+        if was_loading {
+            self.shared_state
+                .load_generation
+                .fetch_add(1, Ordering::AcqRel);
+            self.shared_state.load_progress.store(0, Ordering::Relaxed);
+        }
     }
 
     fn begin_loading_track(&self, path: &str, autoplay: bool) {
@@ -416,15 +464,22 @@ impl AudioPlayer {
         device_id: Option<usize>,
         shared_state: &Arc<SharedState>,
         _loudness_enabled: bool,
+        load_cancel: &Arc<AtomicBool>,
     ) -> Result<state::LoadResult, String> {
-        use crate::decoder::StreamingDecoder;
+        use crate::decoder::{DecodeCancelToken, StreamingDecoder};
         use crate::processor::StreamingResampler;
 
-        let mut decoder =
-            StreamingDecoder::open_with_credentials(path, credentials).map_err(|e| {
-                log::error!("Failed to open decoder for {}: {}", path, e);
-                e.to_string()
-            })?;
+        let decode_started_at = std::time::Instant::now();
+        let cancel_token = DecodeCancelToken::new(Arc::clone(load_cancel));
+        let mut decoder = StreamingDecoder::open_with_credentials_and_cancel(
+            path,
+            credentials,
+            Some(cancel_token.clone()),
+        )
+        .map_err(|e| {
+            log::error!("Failed to open decoder for {}: {}", path, e);
+            e.to_string()
+        })?;
 
         let info = decoder.info.clone();
         let original_sr = info.sample_rate;
@@ -551,10 +606,13 @@ impl AudioPlayer {
 
         let total_estimated = estimated_input_frames.max(1);
         let mut chunk_count = 0;
-        let mut decoded_frames = 0;
+        let mut decoded_frames = 0_u64;
 
         while let Some(decoded_chunk) = decoder.decode_next().map_err(|e| e.to_string())? {
-            decoded_frames += decoded_chunk.len() / channels;
+            if load_cancel.load(Ordering::Acquire) {
+                return Err("Load cancelled".to_string());
+            }
+            decoded_frames += (decoded_chunk.len() / channels) as u64;
             if let Some(ref mut rs) = resampler {
                 let resampled = rs.process_chunk(&decoded_chunk);
                 samples.extend(resampled);
@@ -585,6 +643,30 @@ impl AudioPlayer {
         }
 
         shared_state.load_progress.store(100, Ordering::Relaxed);
+        let decode_duration_ms = decode_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        let throughput = if decode_duration_ms > 0 {
+            decoded_frames.saturating_mul(1000) / decode_duration_ms
+        } else {
+            decoded_frames
+        };
+        shared_state
+            .last_decode_duration_ms
+            .store(decode_duration_ms, Ordering::Relaxed);
+        shared_state
+            .last_decode_input_frames
+            .store(decoded_frames, Ordering::Relaxed);
+        shared_state
+            .last_decode_output_samples
+            .store(samples.len() as u64, Ordering::Relaxed);
+        shared_state
+            .last_decode_chunk_count
+            .store(chunk_count, Ordering::Relaxed);
+        shared_state
+            .last_decode_throughput_frames_per_sec
+            .store(throughput, Ordering::Relaxed);
 
         log::info!(
             "Streaming decode complete: {} chunks, {} output samples ({}→{} Hz)",
@@ -601,6 +683,11 @@ impl AudioPlayer {
                     save_cache_with_header(cp, &samples, final_target_sr, channels as u32)
                 {
                     log::warn!("Failed to save cache: {}", e);
+                } else if let Some(cache_dir) = cp.parent() {
+                    let cache_max_bytes = state::configured_cache_max_bytes();
+                    if let Err(e) = state::prune_cache_dir_to_limit(cache_dir, cache_max_bytes) {
+                        log::warn!("Failed to prune resample cache: {}", e);
+                    }
                 }
             }
         }
@@ -655,6 +742,7 @@ impl AudioPlayer {
     }
 
     pub fn stop(&mut self) {
+        self.cancel_current_load();
         self.shared_state
             .position_frames
             .store(0, Ordering::Relaxed);
@@ -1166,6 +1254,7 @@ impl AudioPlayer {
 
 impl Drop for AudioPlayer {
     fn drop(&mut self) {
+        self.cancel_current_load();
         let _ = self.cmd_tx.send(AudioCommand::Shutdown);
         if let Some(handle) = self.audio_thread.take() {
             let _ = handle.join();

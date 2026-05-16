@@ -7,6 +7,8 @@
 use std::fs::File;
 use std::io::{Cursor, Read, Seek, SeekFrom};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use symphonia::core::audio::SampleBuffer;
 use symphonia::core::codecs::{DecoderOptions, CODEC_TYPE_NULL};
@@ -43,6 +45,18 @@ impl NetworkError {
             std::io::ErrorKind::ConnectionReset => NetworkError::ConnectionReset,
             _ => NetworkError::Other(e.to_string()),
         }
+    }
+
+    fn is_decode_cancelled(&self) -> bool {
+        matches!(self, NetworkError::Other(message) if message == "Decode cancelled")
+    }
+}
+
+fn network_error_to_decoder_error(error: NetworkError) -> DecoderError {
+    if error.is_decode_cancelled() {
+        DecoderError::Canceled
+    } else {
+        DecoderError::Network(error)
     }
 }
 
@@ -91,6 +105,21 @@ const DEFAULT_DECODE_MAX_MEMORY_MB: usize = 2048;
 const F64_SAMPLE_BYTES: usize = std::mem::size_of::<f64>();
 const NON_RANGE_DOWNLOAD_MEMORY_DIVISOR: usize = 8;
 
+#[derive(Clone, Debug)]
+pub struct DecodeCancelToken {
+    cancelled: Arc<AtomicBool>,
+}
+
+impl DecodeCancelToken {
+    pub fn new(cancelled: Arc<AtomicBool>) -> Self {
+        Self { cancelled }
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Acquire)
+    }
+}
+
 fn with_network_retry<T, F>(operation_name: &str, mut op: F) -> Result<T, NetworkError>
 where
     F: FnMut() -> Result<T, NetworkError>,
@@ -128,9 +157,13 @@ fn fetch_range_once(
     credentials: Option<&HttpCredentials>,
     start: u64,
     len: usize,
+    cancel_token: Option<&DecodeCancelToken>,
 ) -> Result<Vec<u8>, NetworkError> {
     if len == 0 {
         return Ok(Vec::new());
+    }
+    if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
+        return Err(NetworkError::Other("Decode cancelled".to_string()));
     }
 
     let end = start
@@ -149,7 +182,12 @@ fn fetch_range_once(
         return Err(e);
     }
 
-    Ok(response.bytes().map_err(NetworkError::from)?.to_vec())
+    let bytes = response.bytes().map_err(NetworkError::from)?;
+    if cancel_token.is_some_and(DecodeCancelToken::is_cancelled) {
+        return Err(NetworkError::Other("Decode cancelled".to_string()));
+    }
+
+    Ok(bytes.to_vec())
 }
 
 #[derive(Error, Debug)]
@@ -166,6 +204,8 @@ pub enum DecoderError {
     Decoder(String),
     #[error("Probe error: {0}")]
     Probe(String),
+    #[error("Decode cancelled")]
+    Canceled,
 }
 
 /// Track metadata extracted from audio file tags
@@ -461,6 +501,7 @@ struct RangeStream {
     pos: u64,       // current logical read position
     content_length: Option<u64>,
     supports_range: bool, // whether server supports Range requests
+    cancel_token: Option<DecodeCancelToken>,
 }
 
 const RANGE_PREFETCH: usize = 256 * 1024; // 256 KB per fetch
@@ -478,7 +519,11 @@ fn bytes_to_mib(bytes: usize) -> usize {
 }
 
 impl RangeStream {
-    fn new(url: String, credentials: Option<HttpCredentials>) -> Result<Self, DecoderError> {
+    fn new(
+        url: String,
+        credentials: Option<HttpCredentials>,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<Self, DecoderError> {
         // Range streaming should fail quickly enough for playback to surface an error
         // instead of pinning the decoder thread on a stalled HTTP server.
         let client = reqwest::blocking::Client::builder()
@@ -494,6 +539,12 @@ impl RangeStream {
 
         let (content_length, supports_range) =
             with_network_retry("HTTP stream initialization", || {
+                if cancel_token
+                    .as_ref()
+                    .is_some_and(DecodeCancelToken::is_cancelled)
+                {
+                    return Err(NetworkError::Other("Decode cancelled".to_string()));
+                }
                 // Use HEAD request to probe server capabilities without downloading body.
                 let mut head_req = client.head(&url);
                 if let Some(ref creds) = credentials {
@@ -528,6 +579,12 @@ impl RangeStream {
                     .unwrap_or(false);
 
                 if content_length.is_none() {
+                    if cancel_token
+                        .as_ref()
+                        .is_some_and(DecodeCancelToken::is_cancelled)
+                    {
+                        return Err(NetworkError::Other("Decode cancelled".to_string()));
+                    }
                     let mut range_req = client.get(&url).header("Range", "bytes=0-0");
                     if let Some(ref creds) = credentials {
                         range_req = range_req.basic_auth(&creds.username, Some(&creds.password));
@@ -555,16 +612,23 @@ impl RangeStream {
 
                 Ok((content_length, supports_range))
             })
-            .map_err(DecoderError::Network)?;
+            .map_err(network_error_to_decoder_error)?;
 
         let initial_fetch_len = content_length
             .map(|len| RANGE_PREFETCH.min(len as usize))
             .unwrap_or(RANGE_PREFETCH);
         let initial_buf = if initial_fetch_len > 0 {
             with_network_retry("HTTP stream initial range GET", || {
-                fetch_range_once(&client, &url, credentials.as_ref(), 0, initial_fetch_len)
+                fetch_range_once(
+                    &client,
+                    &url,
+                    credentials.as_ref(),
+                    0,
+                    initial_fetch_len,
+                    cancel_token.as_ref(),
+                )
             })
-            .map_err(DecoderError::Network)?
+            .map_err(network_error_to_decoder_error)?
         } else {
             Vec::new()
         };
@@ -578,6 +642,7 @@ impl RangeStream {
             pos: 0,
             content_length,
             supports_range,
+            cancel_token,
         })
     }
 
@@ -588,8 +653,9 @@ impl RangeStream {
             self.credentials.as_ref(),
             start,
             len,
+            self.cancel_token.as_ref(),
         )
-        .map_err(DecoderError::Network)
+        .map_err(network_error_to_decoder_error)
     }
 
     /// Ensure buf covers [pos, pos+need)
@@ -622,6 +688,16 @@ impl Read for RangeStream {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         if buf.is_empty() {
             return Ok(0);
+        }
+        if self
+            .cancel_token
+            .as_ref()
+            .is_some_and(DecodeCancelToken::is_cancelled)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "Decode cancelled",
+            ));
         }
         self.ensure_buffered(buf.len())?;
         let offset = (self.pos - self.buf_start) as usize;
@@ -683,6 +759,7 @@ pub struct StreamingDecoder {
     samples_output: u64,
     /// Flag indicating if we've finished outputting (for padding trim)
     finished: bool,
+    cancel_token: Option<DecodeCancelToken>,
 }
 
 #[cfg(test)]
@@ -709,6 +786,40 @@ mod tests {
         assert!(!NetworkError::TlsError("bad cert".into()).is_retriable());
         assert!(!NetworkError::Other("invalid response".into()).is_retriable());
     }
+
+    #[test]
+    fn cancelled_open_returns_before_touching_source() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let token = DecodeCancelToken::new(cancelled);
+
+        let result = StreamingDecoder::open_with_credentials_and_cancel(
+            "Z:/definitely/not/a/real/audio-file.flac",
+            None,
+            Some(token),
+        );
+
+        assert!(matches!(result, Err(DecoderError::Canceled)));
+    }
+
+    #[test]
+    fn cancelled_range_fetch_returns_before_network_request() {
+        let cancelled = Arc::new(AtomicBool::new(true));
+        let token = DecodeCancelToken::new(cancelled);
+        let client = reqwest::blocking::Client::builder().build().unwrap();
+
+        let result = fetch_range_once(
+            &client,
+            "http://127.0.0.1:9/never-requested.flac",
+            None,
+            0,
+            8,
+            Some(&token),
+        );
+
+        assert!(
+            matches!(result, Err(NetworkError::Other(message)) if message == "Decode cancelled")
+        );
+    }
 }
 
 impl StreamingDecoder {
@@ -722,13 +833,32 @@ impl StreamingDecoder {
         path: P,
         credentials: Option<&HttpCredentials>,
     ) -> Result<Self, DecoderError> {
+        Self::open_with_credentials_and_cancel(path, credentials, None)
+    }
+
+    /// Open an audio source with optional Basic Auth credentials and cooperative cancellation.
+    pub fn open_with_credentials_and_cancel<P: AsRef<Path>>(
+        path: P,
+        credentials: Option<&HttpCredentials>,
+        cancel_token: Option<DecodeCancelToken>,
+    ) -> Result<Self, DecoderError> {
         let path_str = path.as_ref().to_string_lossy();
         let is_url = path_str.starts_with("http://") || path_str.starts_with("https://");
+        if cancel_token
+            .as_ref()
+            .is_some_and(DecodeCancelToken::is_cancelled)
+        {
+            return Err(DecoderError::Canceled);
+        }
 
         let (mss, hint) = if is_url {
             // Try Range-based streaming first; fall back to full download if server doesn't support it
             let owned_creds = credentials.cloned();
-            let range_stream = RangeStream::new(path_str.to_string(), owned_creds.clone());
+            let range_stream = RangeStream::new(
+                path_str.to_string(),
+                owned_creds.clone(),
+                cancel_token.clone(),
+            );
             match range_stream {
                 Ok(stream) if stream.content_length.is_some() => {
                     log::info!("HTTP URL supports Range requests, streaming: {}", path_str);
@@ -744,6 +874,7 @@ impl StreamingDecoder {
                     }
                     (mss, hint)
                 }
+                Err(DecoderError::Canceled) => return Err(DecoderError::Canceled),
                 _ => {
                     log::info!(
                         "HTTP URL does not support Range, falling back to full download: {}",
@@ -770,6 +901,12 @@ impl StreamingDecoder {
                         })?;
 
                     let content_length = with_network_retry("HTTP full-download HEAD", || {
+                        if cancel_token
+                            .as_ref()
+                            .is_some_and(DecodeCancelToken::is_cancelled)
+                        {
+                            return Err(NetworkError::Other("Decode cancelled".to_string()));
+                        }
                         let mut head_req = client.head(path_str.as_ref());
                         if let Some(creds) = credentials {
                             head_req = head_req.basic_auth(&creds.username, Some(&creds.password));
@@ -784,7 +921,7 @@ impl StreamingDecoder {
                             .and_then(|v| v.to_str().ok())
                             .and_then(|s| s.parse().ok()))
                     })
-                    .map_err(DecoderError::Network)?;
+                    .map_err(network_error_to_decoder_error)?;
 
                     // Check if file is too large
                     if let Some(len) = content_length {
@@ -807,6 +944,12 @@ impl StreamingDecoder {
                     }
 
                     let response = with_network_retry("HTTP full-download GET", || {
+                        if cancel_token
+                            .as_ref()
+                            .is_some_and(DecodeCancelToken::is_cancelled)
+                        {
+                            return Err(NetworkError::Other("Decode cancelled".to_string()));
+                        }
                         let mut req = client.get(path_str.as_ref());
                         if let Some(creds) = credentials {
                             req = req.basic_auth(&creds.username, Some(&creds.password));
@@ -817,7 +960,7 @@ impl StreamingDecoder {
                         }
                         Ok(response)
                     })
-                    .map_err(DecoderError::Network)?;
+                    .map_err(network_error_to_decoder_error)?;
 
                     // Known-size responses can be copied into a single pre-allocated
                     // buffer, avoiding a second full-size allocation during fallback.
@@ -830,6 +973,12 @@ impl StreamingDecoder {
                         let mut stream = response;
 
                         while pos < download_size {
+                            if cancel_token
+                                .as_ref()
+                                .is_some_and(DecodeCancelToken::is_cancelled)
+                            {
+                                return Err(DecoderError::Canceled);
+                            }
                             let remaining = &mut buffer[pos..];
                             let n = stream
                                 .read(remaining)
@@ -859,13 +1008,36 @@ impl StreamingDecoder {
                         Cursor::new(buffer)
                     } else {
                         // Unknown size: use bytes() and convert efficiently
-                        let bytes = response
-                            .bytes()
-                            .map_err(|e| DecoderError::Network(NetworkError::from(e)))?;
+                        let mut stream = response;
+                        let mut buffer = Vec::new();
+                        let mut chunk = [0_u8; 64 * 1024];
+                        loop {
+                            if cancel_token
+                                .as_ref()
+                                .is_some_and(DecodeCancelToken::is_cancelled)
+                            {
+                                return Err(DecoderError::Canceled);
+                            }
+                            let n = stream
+                                .read(&mut chunk)
+                                .map_err(|e| DecoderError::Network(NetworkError::from_io(e)))?;
+                            if n == 0 {
+                                break;
+                            }
+                            buffer.extend_from_slice(&chunk[..n]);
+                            if buffer.len() > max_download_bytes {
+                                let actual_mb = bytes_to_mib(buffer.len());
+                                return Err(DecoderError::Network(NetworkError::Other(format!(
+                                    "Downloaded file exceeds memory limit: {} MB (limit: {} MB)",
+                                    actual_mb,
+                                    bytes_to_mib(max_download_bytes)
+                                ))));
+                            }
+                        }
 
                         // Check actual download size
-                        if bytes.len() > max_download_bytes {
-                            let actual_mb = bytes_to_mib(bytes.len());
+                        if buffer.len() > max_download_bytes {
+                            let actual_mb = bytes_to_mib(buffer.len());
                             return Err(DecoderError::Network(NetworkError::Other(format!(
                                 "Downloaded file exceeds memory limit: {} MB (limit: {} MB)",
                                 actual_mb,
@@ -873,9 +1045,7 @@ impl StreamingDecoder {
                             ))));
                         }
 
-                        // `Bytes::to_vec` performs a direct slice copy instead of
-                        // per-byte collection.
-                        Cursor::new(bytes.to_vec())
+                        Cursor::new(buffer)
                     };
 
                     let mss = MediaSourceStream::new(Box::new(cursor), Default::default());
@@ -973,6 +1143,7 @@ impl StreamingDecoder {
             sample_buf: None,
             samples_output: 0,
             finished: false,
+            cancel_token,
         })
     }
 
@@ -985,8 +1156,22 @@ impl StreamingDecoder {
         if self.finished {
             return Ok(None);
         }
+        if self
+            .cancel_token
+            .as_ref()
+            .is_some_and(DecodeCancelToken::is_cancelled)
+        {
+            return Err(DecoderError::Canceled);
+        }
 
         loop {
+            if self
+                .cancel_token
+                .as_ref()
+                .is_some_and(DecodeCancelToken::is_cancelled)
+            {
+                return Err(DecoderError::Canceled);
+            }
             let packet = match self.format_reader.next_packet() {
                 Ok(p) => p,
                 Err(symphonia::core::errors::Error::IoError(e))
@@ -994,6 +1179,11 @@ impl StreamingDecoder {
                 {
                     self.finished = true;
                     return Ok(None); // EOF
+                }
+                Err(symphonia::core::errors::Error::IoError(e))
+                    if e.kind() == std::io::ErrorKind::Interrupted =>
+                {
+                    return Err(DecoderError::Canceled);
                 }
                 Err(e) => return Err(DecoderError::Decoder(e.to_string())),
             };
@@ -1011,12 +1201,19 @@ impl StreamingDecoder {
             let spec = *decoded.spec();
             let duration = decoded.capacity();
 
-            if self.sample_buf.is_none() || self.sample_buf.as_ref().unwrap().capacity() < duration
+            if self
+                .sample_buf
+                .as_ref()
+                .is_none_or(|buffer| buffer.capacity() < duration)
             {
                 self.sample_buf = Some(SampleBuffer::new(duration as u64, spec));
             }
 
-            let sample_buf = self.sample_buf.as_mut().unwrap();
+            let Some(sample_buf) = self.sample_buf.as_mut() else {
+                return Err(DecoderError::Decoder(
+                    "Failed to allocate decoder sample buffer".to_string(),
+                ));
+            };
             sample_buf.copy_interleaved_ref(decoded);
 
             let mut samples: Vec<f64> = sample_buf.samples().to_vec();

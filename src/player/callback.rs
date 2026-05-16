@@ -619,6 +619,11 @@ pub fn audio_callback_lockfree(
 
     // Fill remaining with silence
     if samples_written < output_len {
+        shared.audio_underrun_count.fetch_add(1, Ordering::Relaxed);
+        shared.audio_underrun_silence_frames.fetch_add(
+            ((output_len - samples_written) / channels) as u64,
+            Ordering::Relaxed,
+        );
         for i in samples_written..output_len {
             data[i] = 0.0;
         }

@@ -793,16 +793,18 @@ impl LoudnessNormalizer {
             .set_smoothing(config.smoothing_time_ms, self.sample_rate);
 
         if let Some(loudness) = self.track_loudness {
-            self.track_gain = Some(self.config.target_lufs - loudness);
-            self.atomic_state.set_target_gain(self.track_gain.unwrap());
+            let track_gain = self.config.target_lufs - loudness;
+            self.track_gain = Some(track_gain);
+            self.atomic_state.set_target_gain(track_gain);
         }
     }
 
     pub fn set_target_lufs(&mut self, target_lufs: f64) {
         self.config.target_lufs = target_lufs;
         if let Some(loudness) = self.track_loudness {
-            self.track_gain = Some(target_lufs - loudness);
-            self.atomic_state.set_target_gain(self.track_gain.unwrap());
+            let track_gain = target_lufs - loudness;
+            self.track_gain = Some(track_gain);
+            self.atomic_state.set_target_gain(track_gain);
         }
     }
 
