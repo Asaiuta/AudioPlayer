@@ -7,6 +7,7 @@ import {
   type NcmTrackSupplement
 } from "../features/online/ncmPlayback";
 import { likeSong } from "../shared/api/ncm/user";
+import { ncmSongPageUrl } from "../shared/api/ncm/urls";
 import type { ApiClient } from "../shared/api/client";
 import type { PlayerState } from "../shared/api/types";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
@@ -58,8 +59,6 @@ const sameSupplementRequest = (
   previous: SupplementRequest | null,
   next: SupplementRequest | null
 ) => previous?.key === next?.key;
-
-const ncmSongPageUrl = (songId: number): string => `https://music.163.com/#/song?id=${songId}`;
 
 /**
  * Owns NCM-side track metadata that hangs off the currently-playing track:
@@ -346,7 +345,8 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
         if (!cancelled) {
           setLikedSongIds(new Set(idList));
         }
-      } catch {
+      } catch (error) {
+        console.warn("[useNcmTrackEnrichment] failed to load liked song ids", error);
         if (!cancelled) {
           setLikedSongIds(new Set<number>());
         }
@@ -378,8 +378,8 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
         }
         return next;
       });
-    } catch {
-      // Best effort.
+    } catch (error) {
+      console.warn("[useNcmTrackEnrichment] like toggle failed", { songId, wanted: !wasLiked, error });
     }
   };
 

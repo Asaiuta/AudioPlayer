@@ -43,6 +43,7 @@ function AppContent() {
         <AppShell
           sidebar={
             <Sidebar
+              api={api}
               activePage={controller.activePage()}
               onChange={controller.handleActivePageChange}
               selectedPlaylistId={controller.selectedPlaylistId()}

@@ -1,5 +1,6 @@
 import { Show, createEffect, createMemo, createSignal, onMount } from "solid-js";
 import { createApiClient } from "../../shared/api/client";
+import { ncmSongPageUrl } from "../../shared/api/ncm/urls";
 import type { PlaybackHistoryEntry } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
 import type { TranslationKey } from "../../shared/i18n";
@@ -34,8 +35,6 @@ type HistorySongItem = MediaListItem & {
   ncm_source_page_url: string | null;
   eventAtEpochSecs: number;
 };
-
-const ncmSongPageUrl = (songId: number): string => `https://music.163.com/#/song?id=${songId}`;
 
 const displayNameFromSourcePath = (sourcePath: string): string => {
   const normalized = sourcePath

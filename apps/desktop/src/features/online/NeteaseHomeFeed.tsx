@@ -4,6 +4,7 @@ import { DailySongsCard, type DailySongsCardCover } from "../../components/Daily
 import { HorizontalCardRow } from "../../components/HorizontalCardRow";
 import { IconAlbum, IconArtist, IconPause, IconPlay, IconPlaylist, IconSkipNext, IconThumbDown } from "../../components/icons";
 import { createApiClient, type NcmHomeFeed } from "../../shared/api/client";
+import { ncmMvPageUrl, ncmProgramPageUrl } from "../../shared/api/ncm/urls";
 import { useTranslation } from "../../shared/i18n";
 import { cacheFetch } from "../../shared/state/cacheFetch";
 import { useUISettings, type CoverHiddenKey, type HomeSectionKey } from "../../shared/state/useUISettings";
@@ -246,7 +247,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     coverVisible={showCover("home")}
                     playCount={item.playCount}
                     description={item.description}
-                    onClick={() => window.open(`https://music.163.com/#/mv?id=${item.id}`, "_blank")}
+                    onClick={() => window.open(ncmMvPageUrl(item.id), "_blank")}
                   />
                 )}
               </For>
@@ -266,7 +267,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     coverVisible={showCover("home")}
                     playCount={item.playCount}
                     description={item.description}
-                    onClick={() => window.open(`https://music.163.com/#/program?id=${item.id}`, "_blank")}
+                    onClick={() => window.open(ncmProgramPageUrl(item.id), "_blank")}
                   />
                 )}
               </For>
@@ -365,7 +366,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                   <button
                     type="button"
                     class="ncm-home-feed-fm-card-control"
-                    aria-label="不喜欢"
+                    aria-label={t("ncm.fm.aria.dislike")}
                     onClick={(event) => {
                       event.stopPropagation();
                       props.onDislikePersonalFm?.(personalFmSongId());

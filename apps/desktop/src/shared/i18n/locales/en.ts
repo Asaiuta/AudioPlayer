@@ -503,6 +503,7 @@ export const en = {
   "ncm.fm.feedback.started": "Personal FM started — {count} tracks queued",
   "ncm.fm.feedback.empty": "Personal FM returned no tracks — try again later.",
   "ncm.fm.feedback.disliked": "Marked as not interested.",
+  "ncm.fm.aria.dislike": "Not interested",
   "ncm.hero.keyword.discover.1": "indie playlist",
   "ncm.hero.keyword.discover.2": "electronic set",
   "ncm.hero.keyword.discover.3": "ambient mix",

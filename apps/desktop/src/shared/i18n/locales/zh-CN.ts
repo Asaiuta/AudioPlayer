@@ -505,6 +505,7 @@ export const zhCN: TranslationDict = {
   "ncm.fm.feedback.started": "私人 FM 已开始 · 已加入 {count} 首",
   "ncm.fm.feedback.empty": "私人 FM 暂未返回曲目，请稍后再试。",
   "ncm.fm.feedback.disliked": "已标记为不感兴趣。",
+  "ncm.fm.aria.dislike": "不喜欢",
   "ncm.empty.searchPrompt": "输入关键词以加载歌曲或歌单。",
   "ncm.hero.keyword.discover.1": "独立歌单",
   "ncm.hero.keyword.discover.2": "电子现场",

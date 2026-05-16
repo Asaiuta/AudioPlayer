@@ -6,3 +6,4 @@ export * from "./search";
 export * from "./song";
 export * from "./comment";
 export * from "./user";
+export * from "./urls";

@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Component, JSX } from "solid-js";
 import type { ActivePage } from "../shared/ui/navigation";
-import { createApiClient } from "../shared/api/client";
+import type { ApiClient } from "../shared/api/client";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useUISettings, type SidebarHiddenItemKey } from "../shared/state/useUISettings";
 import { useTranslation } from "../shared/i18n";
@@ -30,8 +30,6 @@ import {
 } from "./icons";
 
 type IconComponent = Component<JSX.SvgSVGAttributes<SVGSVGElement>>;
-
-const api = createApiClient();
 
 interface NavItem {
   key: ActivePage;
@@ -163,6 +161,7 @@ const isNarrowViewport = (): boolean => {
 };
 
 interface SidebarProps {
+  api: ApiClient;
   activePage: ActivePage;
   onChange: (page: ActivePage) => void;
   selectedPlaylistId?: number | null;
@@ -202,12 +201,12 @@ export function Sidebar(props: SidebarProps) {
 
   const loadUserPlaylists = async (userId: number) => {
     return Promise.all([
-      api.listNcmUserPlaylists({
+      props.api.listNcmUserPlaylists({
         uid: userId,
         limit: 100,
         mode: "created-playlists"
       }),
-      api.listNcmUserPlaylists({
+      props.api.listNcmUserPlaylists({
         uid: userId,
         limit: 100,
         mode: "collected-playlists"
@@ -257,7 +256,6 @@ export function Sidebar(props: SidebarProps) {
   const className = () => `sidebar${collapsed() ? " is-collapsed" : ""}`;
   const toggleAria = () =>
     collapsedPersisted() ? t("sidebar.aria.expand") : t("sidebar.aria.collapse");
-  const ToggleIcon = () => (collapsedPersisted() ? IconExpand : IconCollapse);
   const isItemHidden = (item: NavItem): boolean =>
     uiSettings.sidebarHiddenItems[SIDEBAR_SETTING_KEY_BY_PAGE[item.key]];
   const visibleSections = createMemo<ReadonlyArray<NavSection>>(() =>
@@ -438,10 +436,7 @@ export function Sidebar(props: SidebarProps) {
         title={toggleAria()}
         disabled={forceCollapsedNarrow()}
       >
-        {(() => {
-          const Icon = ToggleIcon();
-          return <Icon />;
-        })()}
+        {collapsedPersisted() ? <IconExpand /> : <IconCollapse />}
       </button>
       <CreatePlaylistModal
         open={createPlaylistOpen()}

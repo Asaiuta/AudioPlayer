@@ -12,6 +12,7 @@ import {
 } from "../../shared/api/ncm/radio";
 import { useTranslation } from "../../shared/i18n";
 import { useUISettings } from "../../shared/state/useUISettings";
+import { ncmDjRadioPageUrl } from "../../shared/api/ncm/urls";
 import {
   type RadioCategory,
   type RadioCategorySection,
@@ -35,7 +36,7 @@ const safeLoad = async <T,>(load: () => Promise<T>, fallback: T): Promise<T> => 
 };
 
 const openRadioSource = (id: number) => {
-  window.open(`https://music.163.com/#/djradio?id=${id}`, "_blank");
+  window.open(ncmDjRadioPageUrl(id), "_blank");
 };
 
 function RadioCardGrid(props: { items: FeedCardItem[]; hiddenCover: boolean; emptyText: string }) {

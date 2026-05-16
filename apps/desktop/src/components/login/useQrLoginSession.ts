@@ -4,7 +4,8 @@ import { toString as toQrSvgString } from "qrcode/lib/browser.js";
 import {
   checkLoginQr,
   createLoginQr,
-  getLoginQrKey
+  getLoginQrKey,
+  ncmQrLoginUrl
 } from "../../shared/api/ncm";
 
 export type QrSessionPhase = "waiting" | "scanned" | "confirmed";
@@ -32,7 +33,6 @@ export interface UseQrLoginSessionOptions {
 }
 
 const QR_POLL_INTERVAL_MS = 1000;
-const NETEASE_QR_LOGIN_URL = "https://music.163.com/login?codekey=";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -47,7 +47,7 @@ const readErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
 export const buildNeteaseQrLoginUrl = (key: string): string =>
-  `${NETEASE_QR_LOGIN_URL}${encodeURIComponent(key)}`;
+  ncmQrLoginUrl(encodeURIComponent(key));
 
 export const createQrImageDataUrl = (value: string): Promise<string> =>
   toQrSvgString(value, {
