@@ -13,7 +13,8 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::runtime::{Builder as TokioRuntimeBuilder, Runtime as TokioRuntime};
@@ -46,6 +47,9 @@ pub struct AppState {
     pub analysis: AnalysisState,
     /// Playback-specific domain state.
     pub playback: PlaybackDomainState,
+    /// Runtime directories and files, retained for local diagnostics without
+    /// exposing their absolute paths.
+    pub runtime_paths: RuntimePaths,
 }
 
 /// Local control-plane state shared by auth, WebSocket upgrade, and shutdown.
@@ -68,6 +72,8 @@ pub struct AnalysisState {
     pub analysis_runtime: Arc<AnalysisRuntime>,
     /// Concurrency guard for analysis jobs to avoid starving playback/control plane
     pub analysis_semaphore: Arc<Semaphore>,
+    /// Configured analysis concurrency limit.
+    pub analysis_max_concurrency: usize,
     /// Background scan task records
     pub scan_tasks: Mutex<HashMap<u64, ScanTaskRecord>>,
     /// Task id counter
@@ -76,8 +82,20 @@ pub struct AnalysisState {
     pub scan_task_max_entries: usize,
     /// TTL for finished scan task records in seconds
     pub scan_task_ttl_secs: u64,
+    /// Max runtime cache footprint in bytes before cleanup prunes oldest cache files.
+    pub cache_max_bytes: u64,
+    /// Milliseconds from server entry to ready signal.
+    pub startup_ready_ms: AtomicU64,
     /// Max time for one analysis job before timeout
     pub analysis_task_timeout_secs: u64,
+    /// Last observed WebDAV browse latency in milliseconds.
+    pub webdav_last_latency_ms: AtomicU64,
+    /// Highest observed WebDAV browse latency in milliseconds for this process.
+    pub webdav_max_latency_ms: AtomicU64,
+    /// Count of WebDAV browse attempts in this process.
+    pub webdav_request_count: AtomicU64,
+    /// Count of WebDAV browse failures in this process.
+    pub webdav_error_count: AtomicU64,
 }
 
 /// Playback-domain state that is shared by handlers and the playback supervisor.
@@ -144,6 +162,7 @@ pub struct ScanTaskRecord {
     pub error: Option<String>,
 }
 
+mod diagnostics;
 mod effects;
 mod lyrics;
 mod netease;
@@ -189,21 +208,14 @@ where
 /// - Returns Ok(validated_path) or Err(error_message)
 pub(crate) fn validate_path(path: &str) -> Result<String, String> {
     // Allow HTTP(S) URLs - they have their own security (TLS, authentication)
-    if path.starts_with("http://") || path.starts_with("https://") {
-        // Basic URL validation - check for obvious injection attempts
+    if looks_like_http_url(path) {
         if path.contains("..") || path.contains('\\') {
             return Err("Invalid URL: path traversal characters not allowed".into());
         }
-        // SSRF protection: reject private/link-local IP ranges
-        if let Some(host) = extract_host(path) {
-            if is_private_host(&host) {
-                return Err(format!(
-                    "URL host '{}' is not allowed (private/internal address)",
-                    host
-                ));
-            }
-        }
-        return Ok(path.to_string());
+        let url = reqwest::Url::parse(path)
+            .map_err(|e| format!("Invalid URL '{}': {}", path, e))?;
+        validate_remote_media_url(&url)?;
+        return Ok(url.to_string());
     }
 
     // Local file path validation
@@ -277,10 +289,90 @@ pub(crate) fn validate_path(path: &str) -> Result<String, String> {
     }
 }
 
+fn looks_like_http_url(path: &str) -> bool {
+    path.get(..7)
+        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"))
+        || path
+            .get(..8)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+}
+
+fn validate_remote_media_url(url: &reqwest::Url) -> Result<(), String> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err("Invalid URL: only http and https schemes are allowed".into());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("Invalid URL: embedded credentials are not allowed".into());
+    }
+    if url.as_str().contains('\\') || url.path().contains("..") {
+        return Err("Invalid URL: path traversal characters not allowed".into());
+    }
+
+    let host = url
+        .host_str()
+        .ok_or_else(|| "Invalid URL: missing host".to_string())?;
+    if is_private_host(host) {
+        return Err(format!(
+            "URL host '{}' is not allowed (private/internal address)",
+            host
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::validate_path;
     use std::fs;
+
+    #[test]
+    fn validate_path_allows_public_https_urls() {
+        let validated = validate_path("https://example.com/music/song.flac?token=abc").unwrap();
+        assert_eq!(validated, "https://example.com/music/song.flac?token=abc");
+    }
+
+    #[test]
+    fn validate_path_rejects_internal_url_hosts() {
+        for url in [
+            "http://localhost/song.flac",
+            "http://LOCALHOST./song.flac",
+            "http://127.0.0.1/song.flac",
+            "http://10.0.0.8/song.flac",
+            "http://172.16.4.2/song.flac",
+            "http://192.168.1.2/song.flac",
+            "http://169.254.1.2/song.flac",
+            "http://[::1]/song.flac",
+            "http://[fe80::1]/song.flac",
+            "http://[fc00::1]/song.flac",
+            "http://[::ffff:127.0.0.1]/song.flac",
+        ] {
+            assert!(validate_path(url).is_err(), "expected '{}' to be rejected", url);
+        }
+    }
+
+    #[test]
+    fn validate_path_rejects_ambiguous_numeric_url_hosts() {
+        for url in [
+            "http://2130706433/song.flac",
+            "http://0177.0.0.1/song.flac",
+            "http://0x7f000001/song.flac",
+            "http://0x7f.0x00.0x00.0x01/song.flac",
+        ] {
+            assert!(validate_path(url).is_err(), "expected '{}' to be rejected", url);
+        }
+    }
+
+    #[test]
+    fn validate_path_rejects_url_traversal_and_credentials() {
+        for url in [
+            "https://example.com/../secret.flac",
+            "https://example.com/music\\secret.flac",
+            "https://user:password@example.com/song.flac",
+        ] {
+            assert!(validate_path(url).is_err(), "expected '{}' to be rejected", url);
+        }
+    }
 
     #[test]
     #[cfg(windows)]
@@ -328,30 +420,70 @@ mod tests {
     }
 }
 
-/// Extract host from a URL string
-fn extract_host(url: &str) -> Option<String> {
-    // Skip "http://" or "https://"
-    let after_scheme = url.split("//").nth(1)?;
-    let host_port = after_scheme.split('/').next()?;
-    // Remove port if present
-    Some(host_port.split(':').next()?.to_string())
-}
-
 /// Check if a host is a private/internal address (SSRF protection)
 fn is_private_host(host: &str) -> bool {
-    if host == "localhost" {
+    let host = host
+        .trim_matches('.')
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .to_ascii_lowercase();
+    if host == "localhost" || host.ends_with(".localhost") {
         return true;
     }
-    // Parse dotted-decimal IPv4
-    let parts: Vec<u8> = host.split('.').filter_map(|p| p.parse().ok()).collect();
-    if parts.len() == 4 {
-        return matches!(parts[0],
-            10 | 127          // 10.x.x.x, loopback
-        ) || (parts[0] == 172 && (16..=31).contains(&parts[1])) // 172.16-31.x.x
-          || (parts[0] == 192 && parts[1] == 168)               // 192.168.x.x
-          || (parts[0] == 169 && parts[1] == 254); // 169.254.x.x link-local
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return is_private_ip(ip);
     }
-    false
+
+    is_ambiguous_numeric_host(&host)
+}
+
+fn is_private_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(ip) => is_private_ipv4(ip),
+        IpAddr::V6(ip) => is_private_ipv6(ip),
+    }
+}
+
+fn is_private_ipv4(ip: Ipv4Addr) -> bool {
+    ip.is_private()
+        || ip.is_loopback()
+        || ip.is_link_local()
+        || ip.is_unspecified()
+        || ip.is_broadcast()
+        || ip.is_multicast()
+}
+
+fn is_private_ipv6(ip: Ipv6Addr) -> bool {
+    ip.is_loopback()
+        || ip.is_unspecified()
+        || ip.is_unique_local()
+        || ip.is_unicast_link_local()
+        || ip.is_multicast()
+        || ip.to_ipv4_mapped().is_some_and(is_private_ipv4)
+}
+
+fn is_ambiguous_numeric_host(host: &str) -> bool {
+    if host.is_empty() {
+        return false;
+    }
+    if host.chars().all(|ch| ch.is_ascii_digit() || ch == '.') {
+        return true;
+    }
+    if host
+        .strip_prefix("0x")
+        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_hexdigit()))
+    {
+        return true;
+    }
+    host.contains('.')
+        && host.split('.').all(|part| {
+            !part.is_empty()
+                && (part.chars().all(|ch| ch.is_ascii_digit())
+                    || part.strip_prefix("0x").is_some_and(|rest| {
+                        !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_hexdigit())
+                    }))
+        })
 }
 
 // ============ Request/Response Types ============
@@ -960,6 +1092,24 @@ fn restore_domain_state(state: &Arc<AppState>) {
     }
 }
 
+pub(crate) fn record_webdav_probe(data: &AppState, latency: Duration, success: bool) {
+    let latency_ms = latency.as_millis().min(u128::from(u64::MAX)) as u64;
+    data.analysis
+        .webdav_last_latency_ms
+        .store(latency_ms, Ordering::Relaxed);
+    data.analysis
+        .webdav_max_latency_ms
+        .fetch_max(latency_ms, Ordering::Relaxed);
+    data.analysis
+        .webdav_request_count
+        .fetch_add(1, Ordering::Relaxed);
+    if !success {
+        data.analysis
+            .webdav_error_count
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
 // ============ Route Handlers ============
 
 /// CORS preflight handler for OPTIONS requests
@@ -989,6 +1139,7 @@ pub async fn run_server(
     settings_manager: SharedSettingsManager,
     runtime_paths: RuntimePaths,
 ) -> std::io::Result<()> {
+    let startup_started_at = Instant::now();
     let api_token = std::env::var(ENV_AUDIO_API_TOKEN).unwrap_or_default();
     if api_token.trim().is_empty() {
         return Err(std::io::Error::new(
@@ -1088,16 +1239,24 @@ pub async fn run_server(
             loudness_db: Mutex::new(loudness_db),
             analysis_runtime: Arc::new(AnalysisRuntime::new(analysis_runtime)),
             analysis_semaphore: Arc::new(Semaphore::new(analysis_parallelism)),
+            analysis_max_concurrency: analysis_parallelism,
             scan_tasks: Mutex::new(HashMap::new()),
             scan_task_counter: AtomicU64::new(0),
             scan_task_max_entries: config.server.scan_task_max_entries,
             scan_task_ttl_secs: config.server.scan_task_ttl_secs,
+            cache_max_bytes: config.server.cache_max_bytes,
+            startup_ready_ms: AtomicU64::new(0),
             analysis_task_timeout_secs: config.server.analysis_task_timeout_secs,
+            webdav_last_latency_ms: AtomicU64::new(0),
+            webdav_max_latency_ms: AtomicU64::new(0),
+            webdav_request_count: AtomicU64::new(0),
+            webdav_error_count: AtomicU64::new(0),
         },
         playback: PlaybackDomainState {
             active_session_id: Mutex::new(None),
             ncm_scrobble: Mutex::new(NcmScrobbleState::default()),
         },
+        runtime_paths: runtime_paths.clone(),
     });
 
     restore_domain_state(&state);
@@ -1109,6 +1268,13 @@ pub async fn run_server(
         "Bearer auth enabled (token length={}, env={})",
         api_token.len(),
         ENV_AUDIO_API_TOKEN
+    );
+    state.analysis.startup_ready_ms.store(
+        startup_started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64,
+        Ordering::Relaxed,
     );
 
     // Print ready signal for parent process
@@ -1156,6 +1322,7 @@ pub async fn run_server(
             .configure(effects::configure_routes)
             .configure(settings_handlers::configure_routes)
             .configure(webdav_handlers::configure_routes)
+            .configure(diagnostics::configure_routes)
             .configure(netease::configure_routes)
             .configure(ws_handlers::configure_routes)
     })

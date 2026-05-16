@@ -4,6 +4,9 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+pub const ENV_AUDIO_CACHE_MAX_BYTES: &str = "AUDIO_CACHE_MAX_BYTES";
+pub const DEFAULT_CACHE_MAX_BYTES: u64 = 10 * 1024 * 1024 * 1024;
+
 // M-4 fix: Import SaturationType from processor module (single source of truth).
 // Previously defined identically in both config.rs and saturation.rs.
 pub use crate::processor::SaturationType;
@@ -231,6 +234,7 @@ pub struct RuntimeServerConfig {
     pub analysis_task_timeout_secs: u64,
     pub scan_task_max_entries: usize,
     pub scan_task_ttl_secs: u64,
+    pub cache_max_bytes: u64,
     pub allowed_origins: Vec<String>,
     pub webdav_fallback: Option<WebDavFallbackConfig>,
 }
@@ -719,6 +723,7 @@ impl RuntimeServerConfig {
         let analysis_task_timeout_secs = read_env_u64("ANALYSIS_TASK_TIMEOUT_SECS", 180).max(1);
         let scan_task_max_entries = read_env_usize("SCAN_TASK_MAX_ENTRIES", 512).max(1);
         let scan_task_ttl_secs = read_env_u64("SCAN_TASK_TTL_SECS", 600).max(1);
+        let cache_max_bytes = read_env_u64(ENV_AUDIO_CACHE_MAX_BYTES, DEFAULT_CACHE_MAX_BYTES);
         let allowed_origins = configured_allowed_origins_from_env();
         let webdav_fallback = read_webdav_fallback_from_env();
 
@@ -728,6 +733,7 @@ impl RuntimeServerConfig {
             analysis_task_timeout_secs,
             scan_task_max_entries,
             scan_task_ttl_secs,
+            cache_max_bytes,
             allowed_origins,
             webdav_fallback,
         }

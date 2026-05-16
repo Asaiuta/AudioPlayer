@@ -35,6 +35,7 @@ impl SidecarState {
 struct ApiToken(String);
 
 const ENV_AUDIO_ALLOWED_ORIGINS: &str = "AUDIO_ALLOWED_ORIGINS";
+const ENV_AUDIO_APP_ROOT_PID: &str = "AUDIO_APP_ROOT_PID";
 const SIDECAR_PERMISSION_DENIED_RETRY_INTERVAL: Duration = Duration::from_millis(250);
 const SIDECAR_PERMISSION_DENIED_RETRY_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -312,6 +313,7 @@ fn spawn_sidecar(app: &tauri::AppHandle, token: &str) -> Result<Child, String> {
     command
       .arg("--port")
       .arg(port.to_string())
+      .env(ENV_AUDIO_APP_ROOT_PID, std::process::id().to_string())
       .env(ENV_AUDIO_APP_DATA_DIR, &runtime.app_data_dir)
       .env(ENV_APP_DATA_LEGACY, &runtime.app_data_dir)
       .env(ENV_AUDIO_CACHE_DIR, &runtime.cache_dir)

@@ -6,6 +6,7 @@
 pub mod app_database;
 pub mod config;
 pub mod decoder;
+pub mod diagnostics;
 pub mod metadata;
 pub mod migration;
 pub mod pipeline;

@@ -290,9 +290,8 @@ mod tests {
             .iter()
             .flat_map(|(_, methods)| methods.iter().copied())
             .collect();
-        let handler_methods: HashSet<&str> = proxy::proxy_handler_method_names()
-            .into_iter()
-            .collect();
+        let handler_methods: HashSet<&str> =
+            proxy::proxy_handler_method_names().into_iter().collect();
 
         assert_eq!(
             registry_methods, handler_methods,

@@ -345,6 +345,9 @@ async fn websocket(
                             if session.text(msg.to_string()).await.is_err() {
                                 break;
                             }
+                            shared_state
+                                .ws_position_event_count
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         }
                     } else {
                         position_ticks = 0;
@@ -361,6 +364,9 @@ async fn websocket(
                     if session.text(msg.to_string()).await.is_err() {
                         break;
                     }
+                    shared_state
+                        .ws_spectrum_event_count
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }
         }

@@ -16,6 +16,8 @@ pub enum WebDavError {
     Xml(String),
     #[error("Invalid base URL")]
     InvalidBaseUrl,
+    #[error("Invalid path: {0}")]
+    InvalidPath(String),
 }
 
 /// WebDAV server configuration
@@ -78,10 +80,6 @@ impl WebDavConfig {
     ///
     /// Special case: path "/" means "browse base_url itself", returns base_url.
     pub fn resolve_url(&self, path: &str) -> String {
-        if path.starts_with("http://") || path.starts_with("https://") {
-            return path.to_string();
-        }
-
         let base = self.normalized_base_url();
 
         // Special case: "/" means browse the base_url directory itself
@@ -130,6 +128,7 @@ impl WebDavConfig {
         if !self.is_configured() {
             return Err(WebDavError::InvalidBaseUrl);
         }
+        validate_browse_path(path)?;
 
         let normalized_base = self.normalized_base_url();
         let url = self.resolve_url(path);
@@ -146,8 +145,10 @@ impl WebDavConfig {
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
             .map_err(|e| WebDavError::Http(format!("Failed to create HTTP client: {}", e)))?;
+        let propfind = reqwest::Method::from_bytes(b"PROPFIND")
+            .map_err(|e| WebDavError::Http(format!("Invalid WebDAV method: {}", e)))?;
         let mut req = client
-            .request(reqwest::Method::from_bytes(b"PROPFIND").unwrap(), &url)
+            .request(propfind, &url)
             .header("Depth", "1")
             .header("Content-Type", "application/xml")
             .body(
@@ -188,6 +189,34 @@ impl WebDavConfig {
             _ => None,
         }
     }
+}
+
+fn validate_browse_path(path: &str) -> Result<(), WebDavError> {
+    let trimmed = path.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("http://") || lower.starts_with("https://") || lower.contains("://") {
+        return Err(WebDavError::InvalidPath(
+            "absolute URLs are not allowed for WebDAV browse paths".to_string(),
+        ));
+    }
+    if trimmed.contains('\\') || trimmed.split('/').any(is_parent_path_segment) {
+        return Err(WebDavError::InvalidPath(
+            "path traversal characters are not allowed".to_string(),
+        ));
+    }
+    if trimmed.chars().any(char::is_control) {
+        return Err(WebDavError::InvalidPath(
+            "control characters are not allowed".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_parent_path_segment(segment: &str) -> bool {
+    if segment == ".." {
+        return true;
+    }
+    segment.to_ascii_lowercase().replace("%2e", ".") == ".."
 }
 
 /// Parse a WebDAV multi-status XML response into DavEntry list.
@@ -405,4 +434,39 @@ fn build_full_url(base_url: &str, href: &str) -> String {
         format!("/{}", href)
     };
     format!("{}{}", base, href)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_browse_path, WebDavConfig};
+
+    #[test]
+    fn validate_browse_path_rejects_absolute_urls_and_traversal() {
+        assert!(validate_browse_path("/music").is_ok());
+        assert!(validate_browse_path("music/jazz").is_ok());
+        assert!(validate_browse_path("https://evil.example/dav").is_err());
+        assert!(validate_browse_path("ftp://evil.example/dav").is_err());
+        assert!(validate_browse_path("/music/../secret").is_err());
+        assert!(validate_browse_path("/music/%2e%2e/secret").is_err());
+        assert!(validate_browse_path(r"\windows").is_err());
+    }
+
+    #[test]
+    fn resolve_url_keeps_browse_paths_under_configured_base() {
+        let config = WebDavConfig {
+            base_url: "https://nas.example.test/dav".to_string(),
+            username: None,
+            password: None,
+        };
+
+        assert_eq!(config.resolve_url("/"), "https://nas.example.test/dav");
+        assert_eq!(
+            config.resolve_url("/music/song.flac"),
+            "https://nas.example.test/dav/music/song.flac"
+        );
+        assert_eq!(
+            config.resolve_url("https://evil.example/song.flac"),
+            "https://nas.example.test/dav/https://evil.example/song.flac"
+        );
+    }
 }

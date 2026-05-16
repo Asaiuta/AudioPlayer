@@ -67,7 +67,10 @@ pub(super) async fn handle_request(
             json_error(
                 actix_web::http::StatusCode::INTERNAL_SERVER_ERROR,
                 500,
-                &format!("NCM proxy route is registered without a handler: {}", method),
+                &format!(
+                    "NCM proxy route is registered without a handler: {}",
+                    method
+                ),
             )
         }
         Err(DispatchError::Ncm(err)) => {
@@ -80,7 +83,10 @@ pub(super) async fn handle_request(
 #[derive(Debug)]
 enum DispatchError {
     UnsupportedRoute,
-    RegistryDrift { method: String, group: ProxyRouteGroup },
+    RegistryDrift {
+        method: String,
+        group: ProxyRouteGroup,
+    },
     Ncm(NcmError),
 }
 
