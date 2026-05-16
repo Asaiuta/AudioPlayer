@@ -46,10 +46,12 @@ export function useQueueController(
       setQueueEntries(entries);
       try {
         setQueueAdjacent(await api.getQueueAdjacent());
-      } catch {
+      } catch (error) {
+        console.warn("[useQueueController] getQueueAdjacent failed", error);
         setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
       }
-    } catch {
+    } catch (error) {
+      console.warn("[useQueueController] getPersistentQueue failed", error);
       setQueueEntries([]);
       setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
     }
@@ -58,7 +60,8 @@ export function useQueueController(
   const refreshQueueAdjacent = async () => {
     try {
       setQueueAdjacent(await api.getQueueAdjacent());
-    } catch {
+    } catch (error) {
+      console.warn("[useQueueController] getQueueAdjacent failed", error);
       setQueueAdjacent({ previousEntryId: null, nextEntryId: null });
     }
   };

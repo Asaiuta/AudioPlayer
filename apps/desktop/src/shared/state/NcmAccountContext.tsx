@@ -177,7 +177,8 @@ export function NcmAccountProvider(props: { children: JSX.Element }) {
         clearLegacyPersistedState();
       }
       applyAccountState(state);
-    } catch {
+    } catch (error) {
+      console.warn("[NcmAccountContext] hydrate failed; clearing account state", error);
       applyAccountState({ accounts: [], activeUserId: null });
     } finally {
       setHydrated(true);
@@ -211,8 +212,8 @@ export function NcmAccountProvider(props: { children: JSX.Element }) {
       try {
         const state = await accountApi.dailySigninActiveNcmAccount();
         applyAccountState(state);
-      } catch {
-        // Best effort; backend owns the real session and can retry on next launch.
+      } catch (error) {
+        console.warn("[NcmAccountContext] daily signin failed", { userId: targetId, error });
       } finally {
         inFlightSignins.delete(targetId);
       }

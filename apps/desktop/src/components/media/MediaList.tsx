@@ -203,8 +203,8 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
       if (item.source_path && typeof navigator !== "undefined" && navigator.clipboard) {
         await navigator.clipboard.writeText(item.source_path);
       }
-    } catch {
-      // Best-effort clipboard write; callback users can surface failure.
+    } catch (error) {
+      console.warn("[MediaList] copy source_path failed", error);
     }
     props.onContextAction?.("copy-path", item);
   };

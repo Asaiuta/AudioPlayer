@@ -193,8 +193,8 @@ export function PlayerBar(props: PlayerBarProps) {
     }
     try {
       await navigator.clipboard.writeText(trimmed);
-    } catch {
-      // Best effort only, matching existing lightweight clipboard flows.
+    } catch (error) {
+      console.warn("[PlayerBar] clipboard writeText failed", error);
     }
   };
   const handleCopyTitle = () => {
