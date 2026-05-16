@@ -43,7 +43,7 @@ fn parse_library_sort_order(value: Option<&str>) -> LibrarySortOrder {
     }
 }
 
-fn load_replaced_queue_at_position(
+pub(super) fn load_replaced_queue_at_position(
     data: &web::Data<Arc<AppState>>,
     paths: &[String],
     start_index: usize,
@@ -75,12 +75,51 @@ fn library_queue_start_index(
     }
 }
 
+fn media_queue_start_index(
+    rows: &[MediaQueueRow],
+    start_media_id: Option<&str>,
+    missing_start_message: &str,
+) -> Result<usize, LibraryQueueFailure> {
+    match start_media_id {
+        Some(media_id) => rows
+            .iter()
+            .position(|(row_media_id, _)| row_media_id == media_id)
+            .ok_or_else(|| LibraryQueueFailure::NotFound(missing_start_message.to_string())),
+        None => Ok(0),
+    }
+}
+
 fn validate_library_queue_paths(paths: &[String]) -> Result<Vec<String>, String> {
     let mut validated = Vec::with_capacity(paths.len());
     for path in paths {
         validated.push(validate_path(path)?);
     }
     Ok(validated)
+}
+
+pub(super) fn play_media_queue_rows(
+    data: &web::Data<Arc<AppState>>,
+    rows: &[MediaQueueRow],
+    start_media_id: Option<&str>,
+    empty_message: &str,
+    missing_start_message: &str,
+) -> Result<LibraryQueuePlayback, LibraryQueueFailure> {
+    if rows.is_empty() {
+        return Err(LibraryQueueFailure::NotFound(empty_message.to_string()));
+    }
+    let start_index = media_queue_start_index(rows, start_media_id, missing_start_message)?;
+    let paths = rows
+        .iter()
+        .map(|(_, source_path)| source_path.clone())
+        .collect::<Vec<_>>();
+    let validated_paths =
+        validate_library_queue_paths(&paths).map_err(LibraryQueueFailure::BadRequest)?;
+    let state = load_replaced_queue_at_position(data, &validated_paths, start_index)
+        .map_err(LibraryQueueFailure::Internal)?;
+    Ok(LibraryQueuePlayback {
+        state,
+        queued_count: validated_paths.len(),
+    })
 }
 
 pub(super) fn play_library_queue_rows(
@@ -118,7 +157,7 @@ pub(super) fn library_queue_playback_response(playback: LibraryQueuePlayback) ->
 
 #[cfg(test)]
 mod tests {
-    use super::library_queue_start_index;
+    use super::{library_queue_start_index, media_queue_start_index};
     use crate::server::playback::types::LibraryQueueFailure;
 
     #[test]
@@ -153,6 +192,30 @@ mod tests {
 
         match error {
             LibraryQueueFailure::NotFound(message) => assert_eq!(message, "missing track"),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn media_queue_start_index_finds_requested_media_id() {
+        let rows = vec![
+            ("media-a".to_string(), "D:/music/a.flac".to_string()),
+            ("media-b".to_string(), "D:/music/b.flac".to_string()),
+        ];
+
+        let start_index = media_queue_start_index(&rows, Some("media-b"), "missing").unwrap();
+
+        assert_eq!(start_index, 1);
+    }
+
+    #[test]
+    fn media_queue_start_index_rejects_missing_requested_media_id() {
+        let rows = vec![("media-a".to_string(), "D:/music/a.flac".to_string())];
+
+        let error = media_queue_start_index(&rows, Some("media-b"), "missing media").unwrap_err();
+
+        match error {
+            LibraryQueueFailure::NotFound(message) => assert_eq!(message, "missing media"),
             other => panic!("expected NotFound, got {other:?}"),
         }
     }

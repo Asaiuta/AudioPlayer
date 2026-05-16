@@ -66,6 +66,8 @@ export type LibraryDataControllerApi = Pick<
   | "playFromQueue"
   | "removeMediaFromLocalPlaylist"
   | "replaceQueue"
+  | "replaceQueueFromLibraryQuery"
+  | "replaceQueueFromLocalPlaylist"
   | "replaceQueueFromTrackKeys"
   | "scanLibraryRoot"
 >;
@@ -139,6 +141,9 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     setFeedback({ tone, message });
   };
 
+  let disposed = false;
+  let scanPollGeneration = 0;
+
   const workerClient = new LibraryWorkerClient({
     onReady: (total) => {
       setWorkerReady(true);
@@ -156,8 +161,17 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   });
 
   onCleanup(() => {
+    disposed = true;
+    scanPollGeneration += 1;
     workerClient.dispose();
   });
+
+  const nextScanPollToken = () => {
+    scanPollGeneration += 1;
+    return scanPollGeneration;
+  };
+
+  const isScanPollActive = (token: number) => !disposed && token === scanPollGeneration;
 
   const currentWorkerViewInput = () =>
     createLibraryWorkerViewInput(
@@ -170,6 +184,14 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     if (!workerReady()) return;
     workerClient.requestView(currentWorkerViewInput(), virtualRange());
   };
+
+  const currentLibraryQueryInput = (startTrackKey?: number | null) => ({
+    search: debouncedQueries().join(" "),
+    folderPath: selectedFolder() === ALL_FOLDERS_VALUE ? null : selectedFolder(),
+    sortField: sort().field,
+    sortOrder: sort().order,
+    startTrackKey: startTrackKey ?? null
+  });
 
   const requestWorkerTrackKeys = async (startTrackKey?: number): Promise<number[]> => {
     if (!workerReady()) {
@@ -233,6 +255,24 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     return contextTrackKeys.includes(item.trackKey)
       ? contextTrackKeys
       : [item.trackKey, ...contextTrackKeys];
+  };
+
+  const replaceQueueFromCurrentLibraryQuery = async (item: LibraryListItem) => {
+    if (item.trackKey === undefined) {
+      throw new Error(t("common.error.requestFailed"));
+    }
+    await api.replaceQueueFromLibraryQuery(currentLibraryQueryInput(item.trackKey));
+  };
+
+  const replaceQueueFromSelectedPlaylist = async (item: LibraryListItem) => {
+    const playlistId = selectedPlaylistId();
+    if (!playlistId || !item.media_id) {
+      throw new Error(t("common.error.requestFailed"));
+    }
+    await api.replaceQueueFromLocalPlaylist({
+      playlistId,
+      startMediaId: item.media_id
+    });
   };
 
   const updateVirtualRange = (range: { start: number; end: number }) => {
@@ -307,9 +347,11 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     setScanProgress(scanProgressFromTask(task));
   };
 
-  const pollScanTask = async (taskId: number) => {
+  const pollScanTask = async (taskId: number, token: number) => {
     for (let attempt = 0; attempt < LIBRARY_SCAN_POLL_MAX_ATTEMPTS; attempt += 1) {
+      if (!isScanPollActive(token)) return null;
       const task = await api.getLibraryScanTask(taskId);
+      if (!isScanPollActive(token)) return null;
       applyScanTask(task);
       if (task.status === "success" || task.status === "error") {
         return task;
@@ -396,18 +438,22 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
       setKeyedFeedback("error", "library.feedback.emptyPath");
       return;
     }
+    const scanPollToken = nextScanPollToken();
     setIsScanning(true);
     setRawFeedback("neutral", t("library.feedback.scanning", { path }));
     try {
       const result = await api.scanLibraryRoot(path, display ? display : undefined);
+      if (!isScanPollActive(scanPollToken)) return;
       setScanProgress(scanProgressFromStart(result));
-      const task = await pollScanTask(result.task_id);
+      const task = await pollScanTask(result.task_id, scanPollToken);
+      if (task === null) return;
       if (task.status === "error") {
         throw new Error(task.error ?? t("common.error.requestFailed"));
       }
 
       const finalCounts = scanCompletionCounts(task, result);
       await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
+      if (!isScanPollActive(scanPollToken)) return;
       setRawFeedback(
         "success",
         t("library.feedback.scanComplete", {
@@ -417,14 +463,18 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
         })
       );
     } catch (error) {
+      if (!isScanPollActive(scanPollToken)) return;
       setRawFeedback("error", readErrorMessage(error));
     } finally {
-      setScanProgress(null);
-      setIsScanning(false);
+      if (isScanPollActive(scanPollToken)) {
+        setScanProgress(null);
+        setIsScanning(false);
+      }
     }
   };
 
   const handleRescan = async (root: LibraryRoot) => {
+    const scanPollToken = nextScanPollToken();
     setIsScanning(true);
     setRawFeedback("neutral", t("library.feedback.rescanning", { name: root.display_name }));
     try {
@@ -433,13 +483,16 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
         root.display_name,
         root.source_key ?? undefined
       );
+      if (!isScanPollActive(scanPollToken)) return;
       setScanProgress(scanProgressFromStart(result));
-      const task = await pollScanTask(result.task_id);
+      const task = await pollScanTask(result.task_id, scanPollToken);
+      if (task === null) return;
       if (task.status === "error") {
         throw new Error(task.error ?? t("common.error.requestFailed"));
       }
       const finalCounts = scanCompletionCounts(task, result);
       await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
+      if (!isScanPollActive(scanPollToken)) return;
       setRawFeedback(
         "success",
         t("library.feedback.rescanComplete", {
@@ -449,10 +502,13 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
         })
       );
     } catch (error) {
+      if (!isScanPollActive(scanPollToken)) return;
       setRawFeedback("error", readErrorMessage(error));
     } finally {
-      setScanProgress(null);
-      setIsScanning(false);
+      if (isScanPollActive(scanPollToken)) {
+        setScanProgress(null);
+        setIsScanning(false);
+      }
     }
   };
 
@@ -470,7 +526,11 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const playItem = async (item: LibraryListItem, contextItems: readonly LibraryListItem[] = filteredItems()) => {
     setKeyedFeedback("neutral", "library.feedback.initial");
     try {
-      if (item.trackKey !== undefined) {
+      if (activeTab() === "songs" || activeTab() === "folders") {
+        await replaceQueueFromCurrentLibraryQuery(item);
+      } else if (activeTab() === "playlists") {
+        await replaceQueueFromSelectedPlaylist(item);
+      } else if (item.trackKey !== undefined) {
         const trackKeys = await trackKeysForPlaybackContext(item, contextItems);
         await api.replaceQueueFromTrackKeys({
           trackKeys,
@@ -502,11 +562,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const playCurrentSongView = async () => {
     setKeyedFeedback("neutral", "library.feedback.initial");
     try {
-      const trackKeys = await requestWorkerTrackKeys();
-      await api.replaceQueueFromTrackKeys({
-        trackKeys,
-        startTrackKey: null
-      });
+      await api.replaceQueueFromLibraryQuery(currentLibraryQueryInput(null));
       setKeyedFeedback("neutral", "library.feedback.initial");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));

@@ -54,6 +54,7 @@ export type {
   LibraryQueuePlaybackResult,
   LibraryQueueQueryInput,
   LibraryQueueTrackKeysInput,
+  LocalPlaylistQueueInput,
   LocalPlaylistCreateInput,
   LocalPlaylistUpdateInput
 } from "./library";

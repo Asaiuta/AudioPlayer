@@ -141,7 +141,8 @@ pub(super) async fn replace_queue_from_track_keys(
     if body.track_keys.is_empty() {
         return bad_request_response("track_keys cannot be empty");
     }
-    let rows = match data.app_db.source_paths_for_track_keys(&body.track_keys) {
+    let track_keys = track_keys_with_start(&body.track_keys, body.start_track_key);
+    let rows = match data.app_db.source_paths_for_track_keys(&track_keys) {
         Ok(rows) => rows,
         Err(e) => return internal_server_error_response(e),
     };
@@ -155,6 +156,20 @@ pub(super) async fn replace_queue_from_track_keys(
         Ok(playback) => library_queue_playback_response(playback),
         Err(error) => error.into_response(),
     }
+}
+
+fn track_keys_with_start(track_keys: &[i64], start_track_key: Option<i64>) -> Vec<i64> {
+    let Some(start_track_key) = start_track_key else {
+        return track_keys.to_vec();
+    };
+    if track_keys.contains(&start_track_key) {
+        return track_keys.to_vec();
+    }
+
+    let mut keys = Vec::with_capacity(track_keys.len() + 1);
+    keys.push(start_track_key);
+    keys.extend_from_slice(track_keys);
+    keys
 }
 
 pub(super) async fn enqueue_queue_from_track_keys(
@@ -182,6 +197,32 @@ pub(super) async fn enqueue_queue_from_track_keys(
             "queue": entries
         })),
         Err(e) => internal_server_error_response(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::track_keys_with_start;
+
+    #[test]
+    fn track_keys_with_start_keeps_submitted_order_when_start_exists() {
+        let keys = track_keys_with_start(&[10, 20, 30], Some(20));
+
+        assert_eq!(keys, vec![10, 20, 30]);
+    }
+
+    #[test]
+    fn track_keys_with_start_prepends_missing_start_track() {
+        let keys = track_keys_with_start(&[10, 20, 30], Some(40));
+
+        assert_eq!(keys, vec![40, 10, 20, 30]);
+    }
+
+    #[test]
+    fn track_keys_with_start_leaves_keys_without_start_track() {
+        let keys = track_keys_with_start(&[10, 20, 30], None);
+
+        assert_eq!(keys, vec![10, 20, 30]);
     }
 }
 
@@ -272,6 +313,31 @@ pub(super) async fn get_local_playlist(
         })),
         Ok(None) => not_found_response("Local playlist not found"),
         Err(e) => internal_server_error_response(e),
+    }
+}
+
+pub(super) async fn replace_queue_from_local_playlist(
+    data: web::Data<Arc<AppState>>,
+    path: web::Path<LocalPlaylistPath>,
+    body: web::Json<LocalPlaylistQueueRequest>,
+) -> HttpResponse {
+    let rows = match data
+        .app_db
+        .source_paths_for_local_playlist(&path.playlist_id)
+    {
+        Ok(Some(rows)) => rows,
+        Ok(None) => return not_found_response("Local playlist not found"),
+        Err(e) => return internal_server_error_response(e),
+    };
+    match play_media_queue_rows(
+        &data,
+        &rows,
+        body.start_media_id.as_deref(),
+        "No tracks in the local playlist",
+        "Start track is not in the local playlist",
+    ) {
+        Ok(playback) => library_queue_playback_response(playback),
+        Err(error) => error.into_response(),
     }
 }
 

@@ -425,9 +425,12 @@ pub(super) fn scan_webdav_library(
     let mut stack = vec![root_path.to_string()];
 
     while let Some(path) = stack.pop() {
-        let entries = webdav_cfg
-            .list(&path)
-            .map_err(|e| format!("Failed to browse WebDAV path '{}': {}", path, e))?;
+        let browse_started_at = std::time::Instant::now();
+        let entries = webdav_cfg.list(&path).map_err(|e| {
+            record_webdav_probe(data.as_ref().as_ref(), browse_started_at.elapsed(), false);
+            format!("Failed to browse WebDAV path '{}': {}", path, e)
+        })?;
+        record_webdav_probe(data.as_ref().as_ref(), browse_started_at.elapsed(), true);
 
         for entry in entries {
             if entry.is_dir {

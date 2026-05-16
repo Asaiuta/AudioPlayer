@@ -722,6 +722,84 @@ fn local_playlists_prepend_remove_and_cascade_deleted_media() {
 }
 
 #[test]
+fn local_playlist_batch_add_filters_invalid_ids_across_lookup_chunks() {
+    let db = AppDatabase::in_memory().unwrap();
+    let media_ids = (0..505)
+        .map(|index| {
+            db.record_media_stub(&format!("D:/music/batch-{}.flac", index))
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let playlist = db.create_local_playlist("Batch", None).unwrap();
+
+    assert_eq!(
+        db.add_media_to_local_playlist(&playlist.playlist_id, &[media_ids[0].clone()])
+            .unwrap(),
+        1
+    );
+
+    let mut requested = media_ids.clone();
+    requested.push(media_ids[1].clone());
+    requested.push("missing-media-id".to_string());
+    requested.push("   ".to_string());
+
+    assert_eq!(
+        db.add_media_to_local_playlist(&playlist.playlist_id, &requested)
+            .unwrap(),
+        504
+    );
+
+    let detail = db
+        .get_local_playlist(&playlist.playlist_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.playlist.track_count, 505);
+    assert_eq!(
+        detail
+            .items
+            .iter()
+            .map(|item| item.media_id.as_str())
+            .collect::<Vec<_>>(),
+        media_ids[1..]
+            .iter()
+            .map(String::as_str)
+            .chain(std::iter::once(media_ids[0].as_str()))
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn local_playlist_queue_paths_preserve_playlist_order() {
+    let db = AppDatabase::in_memory().unwrap();
+    let media_a = db.record_media_stub("D:/music/a.flac").unwrap();
+    let media_b = db.record_media_stub("D:/music/b.flac").unwrap();
+    let media_c = db.record_media_stub("D:/music/c.flac").unwrap();
+    let playlist = db.create_local_playlist("Road", Some("drive")).unwrap();
+
+    db.add_media_to_local_playlist(&playlist.playlist_id, &[media_a.clone(), media_b.clone()])
+        .unwrap();
+    db.add_media_to_local_playlist(&playlist.playlist_id, &[media_c.clone()])
+        .unwrap();
+
+    let rows = db
+        .source_paths_for_local_playlist(&playlist.playlist_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        rows,
+        vec![
+            (media_c, "D:/music/c.flac".to_string()),
+            (media_a, "D:/music/a.flac".to_string()),
+            (media_b, "D:/music/b.flac".to_string())
+        ]
+    );
+    assert!(db
+        .source_paths_for_local_playlist("missing-playlist")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
 fn shuffle_order_changes_and_unshuffle_restores_natural_order() {
     let db = AppDatabase::in_memory().unwrap();
     db.append_queue_entries(

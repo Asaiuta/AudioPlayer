@@ -1,11 +1,13 @@
 use rand::Rng;
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use std::collections::HashSet;
 
 use super::{
     media_item_from_row, now_epoch_secs_i64, AppDatabase, LocalPlaylistDetailRecord,
     LocalPlaylistRecord,
 };
+
+const MEDIA_ID_LOOKUP_CHUNK_SIZE: usize = 500;
 
 fn local_playlist_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalPlaylistRecord> {
     Ok(LocalPlaylistRecord {
@@ -19,6 +21,78 @@ fn local_playlist_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<LocalPla
         created_at_epoch_secs: row.get::<_, i64>(7)? as u64,
         updated_at_epoch_secs: row.get::<_, i64>(8)? as u64,
     })
+}
+
+fn existing_media_ids_tx(
+    tx: &rusqlite::Transaction<'_>,
+    media_ids: &[String],
+) -> Result<HashSet<String>, String> {
+    let mut existing = HashSet::with_capacity(media_ids.len());
+    for chunk in media_ids.chunks(MEDIA_ID_LOOKUP_CHUNK_SIZE) {
+        if chunk.is_empty() {
+            continue;
+        }
+        let placeholders = std::iter::repeat("?")
+            .take(chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT media_id FROM media_items WHERE media_id IN ({})",
+            placeholders
+        );
+        let mut stmt = tx
+            .prepare(&sql)
+            .map_err(|e| format!("Failed to prepare media item existence lookup: {}", e))?;
+        let rows = stmt
+            .query_map(params_from_iter(chunk.iter()), |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| format!("Failed to query media item existence lookup: {}", e))?;
+        for row in rows {
+            existing.insert(
+                row.map_err(|e| format!("Failed to decode media item existence lookup: {}", e))?,
+            );
+        }
+    }
+    Ok(existing)
+}
+
+fn existing_local_playlist_media_ids_tx(
+    tx: &rusqlite::Transaction<'_>,
+    playlist_id: &str,
+    media_ids: &[String],
+) -> Result<HashSet<String>, String> {
+    let mut existing = HashSet::with_capacity(media_ids.len());
+    for chunk in media_ids.chunks(MEDIA_ID_LOOKUP_CHUNK_SIZE) {
+        if chunk.is_empty() {
+            continue;
+        }
+        let placeholders = std::iter::repeat("?")
+            .take(chunk.len())
+            .collect::<Vec<_>>()
+            .join(",");
+        let sql = format!(
+            "SELECT media_id FROM local_playlist_items WHERE playlist_id = ? AND media_id IN ({})",
+            placeholders
+        );
+        let mut stmt = tx
+            .prepare(&sql)
+            .map_err(|e| format!("Failed to prepare local playlist membership query: {}", e))?;
+        let rows = stmt
+            .query_map(
+                params_from_iter(
+                    std::iter::once(playlist_id).chain(chunk.iter().map(String::as_str)),
+                ),
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|e| format!("Failed to query local playlist membership: {}", e))?;
+        for row in rows {
+            existing.insert(
+                row.map_err(|e| format!("Failed to decode local playlist membership: {}", e))?,
+            );
+        }
+    }
+    Ok(existing)
 }
 
 fn read_local_playlist_by_id(
@@ -281,6 +355,41 @@ impl AppDatabase {
         Ok(Some(LocalPlaylistDetailRecord { playlist, items }))
     }
 
+    pub fn source_paths_for_local_playlist(
+        &self,
+        playlist_id: &str,
+    ) -> Result<Option<Vec<(String, String)>>, String> {
+        let conn = self.conn.lock().map_err(|e| e.to_string())?;
+        let exists = read_local_playlist_by_id(&conn, playlist_id)?.is_some();
+        if !exists {
+            return Ok(None);
+        }
+
+        let mut stmt = conn
+            .prepare(
+                r#"
+                SELECT media_items.media_id, media_items.source_path
+                FROM local_playlist_items
+                JOIN media_items ON media_items.media_id = local_playlist_items.media_id
+                WHERE local_playlist_items.playlist_id = ?1
+                ORDER BY local_playlist_items.position_index ASC,
+                         local_playlist_items.added_at DESC,
+                         local_playlist_items.media_id ASC
+                "#,
+            )
+            .map_err(|e| format!("Failed to prepare local playlist queue query: {}", e))?;
+        let rows = stmt
+            .query_map(params![playlist_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| format!("Failed to query local playlist queue: {}", e))?;
+        let paths = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode local playlist queue: {}", e))?;
+
+        Ok(Some(paths))
+    }
+
     pub fn add_media_to_local_playlist(
         &self,
         playlist_id: &str,
@@ -302,37 +411,27 @@ impl AppDatabase {
             return Err(format!("Local playlist '{}' not found", playlist_id));
         }
 
-        let existing = {
-            let mut stmt = tx
-                .prepare("SELECT media_id FROM local_playlist_items WHERE playlist_id = ?1")
-                .map_err(|e| format!("Failed to prepare local playlist membership query: {}", e))?;
-            let rows = stmt
-                .query_map(params![playlist_id], |row| row.get::<_, String>(0))
-                .map_err(|e| format!("Failed to query local playlist membership: {}", e))?;
-            rows.collect::<Result<HashSet<_>, _>>()
-                .map_err(|e| format!("Failed to decode local playlist membership: {}", e))?
-        };
-
         let mut seen = HashSet::new();
-        let mut additions = Vec::new();
+        let mut candidates = Vec::new();
         for media_id in media_ids {
             let trimmed = media_id.trim();
-            if trimmed.is_empty() || existing.contains(trimmed) || !seen.insert(trimmed.to_string())
-            {
+            if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
                 continue;
             }
-            let media_exists = tx
-                .query_row(
-                    "SELECT 1 FROM media_items WHERE media_id = ?1",
-                    params![trimmed],
-                    |row| row.get::<_, i64>(0),
-                )
-                .optional()
-                .map_err(|e| format!("Failed to inspect media item '{}': {}", trimmed, e))?;
-            if media_exists.is_some() {
-                additions.push(trimmed.to_string());
-            }
+            candidates.push(trimmed.to_string());
         }
+
+        let existing_playlist_media =
+            existing_local_playlist_media_ids_tx(&tx, playlist_id, &candidates)?;
+        let new_candidates = candidates
+            .into_iter()
+            .filter(|media_id| !existing_playlist_media.contains(media_id))
+            .collect::<Vec<_>>();
+        let existing_media = existing_media_ids_tx(&tx, &new_candidates)?;
+        let additions = new_candidates
+            .into_iter()
+            .filter(|media_id| existing_media.contains(media_id))
+            .collect::<Vec<_>>();
 
         if additions.is_empty() {
             tx.commit().map_err(|e| {

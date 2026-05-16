@@ -76,7 +76,13 @@ pub(super) struct LibraryQueueTrackKeysRequest {
     pub(super) start_track_key: Option<i64>,
 }
 
+#[derive(Deserialize)]
+pub(super) struct LocalPlaylistQueueRequest {
+    pub(super) start_media_id: Option<String>,
+}
+
 pub(super) type LibraryQueueRow = (i64, String);
+pub(super) type MediaQueueRow = (String, String);
 
 pub(super) struct LibraryQueuePlayback {
     pub(super) state: StateResponse,

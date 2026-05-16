@@ -26,6 +26,11 @@ export interface LibraryQueueTrackKeysInput {
   startTrackKey?: number | null;
 }
 
+export interface LocalPlaylistQueueInput {
+  playlistId: string;
+  startMediaId?: string | null;
+}
+
 export interface LibraryQueuePlaybackResult {
   state: PlayerState;
   queuedCount: number;
@@ -60,6 +65,7 @@ export interface LibraryApiClient {
   getLibraryTrackDetail: (trackKey: number) => Promise<LibraryTrackDetail>;
   replaceQueueFromLibraryQuery: (input: LibraryQueueQueryInput) => Promise<LibraryQueuePlaybackResult>;
   replaceQueueFromTrackKeys: (input: LibraryQueueTrackKeysInput) => Promise<LibraryQueuePlaybackResult>;
+  replaceQueueFromLocalPlaylist: (input: LocalPlaylistQueueInput) => Promise<LibraryQueuePlaybackResult>;
   enqueueQueueFromTrackKeys: (input: LibraryQueueTrackKeysInput) => Promise<QueueEntry[]>;
   deleteMediaItems: (mediaIds: string[]) => Promise<number>;
   listLocalPlaylists: () => Promise<LocalPlaylist[]>;
@@ -385,6 +391,15 @@ export const createLibraryApiClient = (transport: LibraryApiTransport): LibraryA
         postJson({
           track_keys: input.trackKeys,
           start_track_key: input.startTrackKey ?? null
+        })
+      )
+    ),
+  replaceQueueFromLocalPlaylist: async (input) =>
+    parseLibraryQueuePlaybackResponse(
+      await transport.requestJson(
+        `/domain/local_playlists/${encodeURIComponent(input.playlistId)}/queue`,
+        postJson({
+          start_media_id: input.startMediaId ?? null
         })
       )
     ),
