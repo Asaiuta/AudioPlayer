@@ -14,17 +14,21 @@ import type {
   RequestState,
   ShuffleMode
 } from "../shared/api/types";
-import { STORAGE_KEYS, useUISettings } from "../shared/state/useUISettings";
+import {
+  STORAGE_KEYS,
+  UI_SETTINGS_CHANGED_EVENT,
+  useUISettings
+} from "../shared/state/useUISettings";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
 import { applyDynamicAccent, extractAccent } from "../shared/styles/dynamicAccent";
 import type { ApiClient } from "../shared/api/client";
 import { readErrorMessage } from "./controllerHelpers";
 import { useNavigationController } from "./useNavigationController";
 import { useNcmTrackEnrichment } from "./useNcmTrackEnrichment";
+import type { WsStatus } from "./playbackSocketContracts";
 import {
   usePlaybackController,
-  type PlaybackController,
-  type WsStatus
+  type PlaybackController
 } from "./usePlaybackController";
 import { useQueueController } from "./useQueueController";
 
@@ -147,7 +151,7 @@ export function useAppController(api: ApiClient): AppController {
     playback.setCommandError(null);
     try {
       localStorage.setItem(STORAGE_KEYS.ncmSongLevel, level);
-      window.dispatchEvent(new Event("ui-settings-changed"));
+      window.dispatchEvent(new Event(UI_SETTINGS_CHANGED_EVENT));
     } catch {
       // The stream switch can still proceed if persistence is unavailable.
     }

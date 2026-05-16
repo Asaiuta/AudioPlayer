@@ -3,6 +3,25 @@ import { invalidateApiToken, resolveApiToken, resolveWsUrl } from "./env";
 import { parseWsEvent } from "./wsTypes";
 import type { WsEvent } from "./wsTypes";
 
+const MAX_PROTOCOL_WARNINGS_PER_CONNECTION = 5;
+const MESSAGE_PREVIEW_LENGTH = 200;
+const RECONNECT_INITIAL_DELAY_MS = 400;
+const RECONNECT_MAX_DELAY_MS = 5_000;
+
+export type EngineSocketProtocolErrorReason =
+  | "non_text_message"
+  | "invalid_json"
+  | "invalid_event";
+
+export interface EngineSocketProtocolError {
+  reason: EngineSocketProtocolErrorReason;
+  preview: string;
+}
+
+type EngineSocketMessageResult =
+  | { event: WsEvent; error?: never }
+  | { event?: never; error: EngineSocketProtocolError };
+
 export interface EngineSocketOptions {
   url?: string;
   onEvent: (event: WsEvent) => void;
@@ -10,7 +29,57 @@ export interface EngineSocketOptions {
   onClose?: () => void;
   onError?: (event: Event) => void;
   onReconnect?: (attempt: number, delayMs: number) => void;
+  onProtocolError?: (error: EngineSocketProtocolError) => void;
 }
+
+const previewMessage = (data: unknown): string => {
+  if (typeof data === "string") {
+    return data.slice(0, MESSAGE_PREVIEW_LENGTH);
+  }
+  return Object.prototype.toString.call(data);
+};
+
+export const parseEngineSocketMessage = (data: unknown): EngineSocketMessageResult => {
+  if (typeof data !== "string") {
+    return {
+      error: {
+        reason: "non_text_message",
+        preview: previewMessage(data)
+      }
+    };
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(data) as unknown;
+  } catch {
+    return {
+      error: {
+        reason: "invalid_json",
+        preview: previewMessage(data)
+      }
+    };
+  }
+
+  const event = parseWsEvent(raw);
+  if (!event) {
+    return {
+      error: {
+        reason: "invalid_event",
+        preview: previewMessage(data)
+      }
+    };
+  }
+
+  return { event };
+};
+
+const reportProtocolError = (
+  error: EngineSocketProtocolError,
+  onProtocolError?: (error: EngineSocketProtocolError) => void
+): void => {
+  onProtocolError?.(error);
+};
 
 export const useEngineSocket = ({
   url = resolveWsUrl(),
@@ -18,12 +87,14 @@ export const useEngineSocket = ({
   onOpen,
   onClose,
   onError,
-  onReconnect
+  onReconnect,
+  onProtocolError
 }: EngineSocketOptions): void => {
   let disposed = false;
   let socket: WebSocket | null = null;
   let retryTimer: number | null = null;
   let reconnectAttempt = 0;
+  let protocolWarningCount = 0;
 
   const clearRetry = () => {
     if (retryTimer !== null) {
@@ -38,7 +109,10 @@ export const useEngineSocket = ({
     }
 
     reconnectAttempt += 1;
-    const delayMs = Math.min(5_000, 400 * 2 ** Math.max(0, reconnectAttempt - 1));
+    const delayMs = Math.min(
+      RECONNECT_MAX_DELAY_MS,
+      RECONNECT_INITIAL_DELAY_MS * 2 ** Math.max(0, reconnectAttempt - 1)
+    );
     onReconnect?.(reconnectAttempt, delayMs);
     retryTimer = window.setTimeout(() => {
       retryTimer = null;
@@ -63,6 +137,7 @@ export const useEngineSocket = ({
 
     socket.addEventListener("open", () => {
       reconnectAttempt = 0;
+      protocolWarningCount = 0;
       clearRetry();
       onOpen?.();
     });
@@ -85,19 +160,17 @@ export const useEngineSocket = ({
     });
 
     socket.addEventListener("message", (message) => {
-      if (typeof message.data !== "string") {
+      const result = parseEngineSocketMessage(message.data);
+      if (result.event) {
+        onEvent(result.event);
         return;
       }
 
-      try {
-        const raw = JSON.parse(message.data) as unknown;
-        const parsed = parseWsEvent(raw);
-        if (parsed) {
-          onEvent(parsed);
-        }
-      } catch {
-        return;
+      if (protocolWarningCount < MAX_PROTOCOL_WARNINGS_PER_CONNECTION) {
+        protocolWarningCount += 1;
+        console.warn("[audio] ignored invalid websocket message", result.error);
       }
+      reportProtocolError(result.error, onProtocolError);
     });
   };
 

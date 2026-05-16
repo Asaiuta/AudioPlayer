@@ -8,6 +8,8 @@ import type {
 } from "../shared/api/types";
 import type { ApiClient } from "../shared/api/client";
 import { readErrorMessage, sameMediaPath } from "./controllerHelpers";
+import { DEFAULT_COVER_ART_URL, resolveArtworkUrl } from "../shared/ui/artwork";
+import type { WsStatus } from "./playbackSocketContracts";
 import {
   mergePlayerState,
   patchMergedPlayerState,
@@ -15,8 +17,6 @@ import {
 } from "./playbackState";
 import { usePlaybackCommands } from "./usePlaybackCommands";
 import { usePlaybackSocket } from "./usePlaybackSocket";
-
-export type WsStatus = "connected" | "connecting" | "disconnected";
 
 const TRACK_STATE_SETTLE_TIMEOUT_MS = 2500;
 const TRACK_STATE_POLL_INTERVAL_MS = 120;
@@ -149,8 +149,14 @@ export function usePlaybackController(deps: PlaybackControllerDeps): PlaybackCon
   const currentMediaId = createMemo(() => player()?.media_id ?? null);
   const hasCoverArt = createMemo(() => Boolean(player()?.has_cover_art));
   const coverUrl = createMemo(() => {
-    const mediaId = currentMediaId();
-    return mediaId && hasCoverArt() ? api.getCoverArtUrl(mediaId) : null;
+    const current = player();
+    return resolveArtworkUrl({
+      externalArtworkUrl: current?.external_artwork_url,
+      mediaId: current?.media_id,
+      hasCoverArt: current?.has_cover_art,
+      urls: api,
+      fallbackUrl: DEFAULT_COVER_ART_URL
+    })
   });
   const repeatMode = createMemo<RepeatMode>(() => player()?.repeat_mode ?? "off");
   const shuffleMode = createMemo<ShuffleMode>(() => player()?.shuffle_mode ?? "off");
@@ -178,7 +184,10 @@ export function usePlaybackController(deps: PlaybackControllerDeps): PlaybackCon
     shouldSuppressRemotePosition: commands.shouldSuppressRemotePosition,
     scheduleRefresh,
     refreshQueueForCurrentSurface,
-    notifyPlaybackHistoryChanged
+    notifyPlaybackHistoryChanged,
+    reportSocketProtocolError: (reason, preview) => {
+      console.warn("[audio] socket protocol error", { reason, preview });
+    }
   });
 
   createEffect(() => {

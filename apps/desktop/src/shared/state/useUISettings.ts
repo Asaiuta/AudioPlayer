@@ -1,5 +1,27 @@
-import { createStore } from "solid-js/store";
+import { createStore, reconcile } from "solid-js/store";
 import { onCleanup, onMount } from "solid-js";
+
+export const UI_SETTINGS_CHANGED_EVENT = "ui-settings-changed";
+
+export interface UISettingsStorage {
+  getItem: (key: string) => string | null;
+}
+
+export interface UISettingsEventTarget {
+  addEventListener: (type: string, listener: EventListener) => void;
+  removeEventListener: (type: string, listener: EventListener) => void;
+}
+
+export interface UISettingsRuntime {
+  storage: UISettingsStorage;
+  events: UISettingsEventTarget;
+  reportReadError?: (key: string, reason: string) => void;
+}
+
+export interface UISettingsStore {
+  settings: UISettings;
+  sync: () => void;
+}
 
 export type HomeSectionKey = "dailyPicks" | "playlists" | "radar" | "artists" | "mvs" | "podcasts" | "albums";
 
@@ -363,30 +385,48 @@ const DEFAULTS: UISettings = {
   lyricsBlendMode: "screen"
 };
 
-function readBool(key: string, fallback: boolean): boolean {
+const browserUISettingsRuntime = (): UISettingsRuntime => ({
+  storage: localStorage,
+  events: window,
+  reportReadError: (key, reason) => {
+    console.warn("[settings] failed to read setting", { key, reason });
+  }
+});
+
+function readBool(runtime: UISettingsRuntime, key: string, fallback: boolean): boolean {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = runtime.storage.getItem(key);
     if (raw === null) return fallback;
     return raw === "true";
   } catch {
+    reportReadError(runtime, key, "storage_unavailable");
     return fallback;
   }
 }
 
-function readNumber(key: string, fallback: number): number {
+function reportReadError(
+  runtime: UISettingsRuntime,
+  key: string,
+  reason: string
+): void {
+  runtime.reportReadError?.(key, reason);
+}
+
+function readNumber(runtime: UISettingsRuntime, key: string, fallback: number): number {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = runtime.storage.getItem(key);
     if (raw === null) return fallback;
     const n = Number(raw);
     return Number.isFinite(n) ? n : fallback;
   } catch {
+    reportReadError(runtime, key, "storage_unavailable");
     return fallback;
   }
 }
 
-function readHomeSections(): HomeSectionConfig[] {
+function readHomeSections(runtime: UISettingsRuntime): HomeSectionConfig[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEYS.homeSections);
+    const raw = runtime.storage.getItem(STORAGE_KEYS.homeSections);
     if (raw) {
       const parsed: unknown = JSON.parse(raw);
       if (Array.isArray(parsed)) {
@@ -402,18 +442,20 @@ function readHomeSections(): HomeSectionConfig[] {
         );
         if (sections.length > 0) return sections;
       }
+      reportReadError(runtime, STORAGE_KEYS.homeSections, "invalid_value");
     }
   } catch {
-    // corrupted — fall through
+    reportReadError(runtime, STORAGE_KEYS.homeSections, "invalid_json");
   }
   return DEFAULT_HOME_SECTIONS;
 }
 
-function readString(key: string, fallback: string): string {
+function readString(runtime: UISettingsRuntime, key: string, fallback: string): string {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = runtime.storage.getItem(key);
     return raw ?? fallback;
   } catch {
+    reportReadError(runtime, key, "storage_unavailable");
     return fallback;
   }
 }
@@ -422,12 +464,19 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function readBoolRecord<T extends Record<string, boolean>>(key: string, fallback: T): T {
+function readBoolRecord<T extends Record<string, boolean>>(
+  runtime: UISettingsRuntime,
+  key: string,
+  fallback: T
+): T {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = runtime.storage.getItem(key);
     if (!raw) return { ...fallback };
     const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) return { ...fallback };
+    if (!isRecord(parsed)) {
+      reportReadError(runtime, key, "invalid_json");
+      return { ...fallback };
+    }
 
     const next = { ...fallback };
     (Object.keys(fallback) as Array<keyof T>).forEach((field) => {
@@ -438,6 +487,7 @@ function readBoolRecord<T extends Record<string, boolean>>(key: string, fallback
     });
     return next;
   } catch {
+    reportReadError(runtime, key, "invalid_json");
     return { ...fallback };
   }
 }
@@ -466,75 +516,118 @@ const VALID_LYRICS_POSITIONS = new Set<LyricsPosition>(["flex-start", "center", 
 
 const VALID_LYRICS_BLEND_MODES = new Set<LyricsBlendMode>(["screen", "plus-lighter"]);
 
-function readRouteAnimation(): RouteAnimation {
-  const raw = readString(STORAGE_KEYS.routeAnimation, DEFAULTS.routeAnimation);
-  return VALID_ROUTE_ANIMATIONS.has(raw as RouteAnimation) ? (raw as RouteAnimation) : DEFAULTS.routeAnimation;
+function readRouteAnimation(runtime: UISettingsRuntime): RouteAnimation {
+  const raw = readString(runtime, STORAGE_KEYS.routeAnimation, DEFAULTS.routeAnimation);
+  if (VALID_ROUTE_ANIMATIONS.has(raw as RouteAnimation)) {
+    return raw as RouteAnimation;
+  }
+  reportReadError(runtime, STORAGE_KEYS.routeAnimation, "invalid_value");
+  return DEFAULTS.routeAnimation;
 }
 
-function readCommentMode(): FullPlayerCommentMode {
-  const raw = readString(STORAGE_KEYS.fullPlayerCommentMode, DEFAULTS.fullPlayerCommentMode);
-  return VALID_COMMENT_MODES.has(raw as FullPlayerCommentMode)
-    ? (raw as FullPlayerCommentMode)
-    : DEFAULTS.fullPlayerCommentMode;
+function readCommentMode(runtime: UISettingsRuntime): FullPlayerCommentMode {
+  const raw = readString(
+    runtime,
+    STORAGE_KEYS.fullPlayerCommentMode,
+    DEFAULTS.fullPlayerCommentMode
+  );
+  if (VALID_COMMENT_MODES.has(raw as FullPlayerCommentMode)) {
+    return raw as FullPlayerCommentMode;
+  }
+  reportReadError(runtime, STORAGE_KEYS.fullPlayerCommentMode, "invalid_value");
+  return DEFAULTS.fullPlayerCommentMode;
 }
 
-function readCoverMode(): FullPlayerCoverMode {
-  const raw = readString(STORAGE_KEYS.fullPlayerCoverMode, DEFAULTS.fullPlayerCoverMode);
-  return VALID_COVER_MODES.has(raw as FullPlayerCoverMode)
-    ? (raw as FullPlayerCoverMode)
-    : DEFAULTS.fullPlayerCoverMode;
+function readCoverMode(runtime: UISettingsRuntime): FullPlayerCoverMode {
+  const raw = readString(runtime, STORAGE_KEYS.fullPlayerCoverMode, DEFAULTS.fullPlayerCoverMode);
+  if (VALID_COVER_MODES.has(raw as FullPlayerCoverMode)) {
+    return raw as FullPlayerCoverMode;
+  }
+  reportReadError(runtime, STORAGE_KEYS.fullPlayerCoverMode, "invalid_value");
+  return DEFAULTS.fullPlayerCoverMode;
 }
 
-function readPlayerType(): PlayerType {
-  const raw = readString(STORAGE_KEYS.playerType, "");
+function readPlayerType(runtime: UISettingsRuntime): PlayerType {
+  const raw = readString(runtime, STORAGE_KEYS.playerType, "");
   if (VALID_PLAYER_TYPES.has(raw as PlayerType)) return raw as PlayerType;
-  return readCoverMode() === "record" ? "record" : DEFAULTS.playerType;
+  if (raw.trim().length > 0) {
+    reportReadError(runtime, STORAGE_KEYS.playerType, "invalid_value");
+  }
+  return readCoverMode(runtime) === "record" ? "record" : DEFAULTS.playerType;
 }
 
-function readPlayerBackgroundType(): PlayerBackgroundType {
-  const raw = readString(STORAGE_KEYS.playerBackgroundType, DEFAULTS.playerBackgroundType);
-  return VALID_PLAYER_BACKGROUND_TYPES.has(raw as PlayerBackgroundType)
-    ? (raw as PlayerBackgroundType)
-    : DEFAULTS.playerBackgroundType;
+function readPlayerBackgroundType(runtime: UISettingsRuntime): PlayerBackgroundType {
+  const raw = readString(
+    runtime,
+    STORAGE_KEYS.playerBackgroundType,
+    DEFAULTS.playerBackgroundType
+  );
+  if (VALID_PLAYER_BACKGROUND_TYPES.has(raw as PlayerBackgroundType)) {
+    return raw as PlayerBackgroundType;
+  }
+  reportReadError(runtime, STORAGE_KEYS.playerBackgroundType, "invalid_value");
+  return DEFAULTS.playerBackgroundType;
 }
 
-function readPlayerExpandAnimation(): PlayerExpandAnimation {
-  const raw = readString(STORAGE_KEYS.playerExpandAnimation, DEFAULTS.playerExpandAnimation);
-  return VALID_PLAYER_EXPAND_ANIMATIONS.has(raw as PlayerExpandAnimation)
-    ? (raw as PlayerExpandAnimation)
-    : DEFAULTS.playerExpandAnimation;
+function readPlayerExpandAnimation(runtime: UISettingsRuntime): PlayerExpandAnimation {
+  const raw = readString(
+    runtime,
+    STORAGE_KEYS.playerExpandAnimation,
+    DEFAULTS.playerExpandAnimation
+  );
+  if (VALID_PLAYER_EXPAND_ANIMATIONS.has(raw as PlayerExpandAnimation)) {
+    return raw as PlayerExpandAnimation;
+  }
+  reportReadError(runtime, STORAGE_KEYS.playerExpandAnimation, "invalid_value");
+  return DEFAULTS.playerExpandAnimation;
 }
 
-function readClampedNumber(key: string, fallback: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, readNumber(key, fallback)));
+function readClampedNumber(
+  runtime: UISettingsRuntime,
+  key: string,
+  fallback: number,
+  min: number,
+  max: number
+): number {
+  return Math.min(max, Math.max(min, readNumber(runtime, key, fallback)));
 }
 
-function readTimeFormat(): PlayerTimeFormat {
-  const raw = readString(STORAGE_KEYS.timeFormat, DEFAULTS.timeFormat);
-  return VALID_TIME_FORMATS.has(raw as PlayerTimeFormat)
-    ? (raw as PlayerTimeFormat)
-    : DEFAULTS.timeFormat;
+function readTimeFormat(runtime: UISettingsRuntime): PlayerTimeFormat {
+  const raw = readString(runtime, STORAGE_KEYS.timeFormat, DEFAULTS.timeFormat);
+  if (VALID_TIME_FORMATS.has(raw as PlayerTimeFormat)) {
+    return raw as PlayerTimeFormat;
+  }
+  reportReadError(runtime, STORAGE_KEYS.timeFormat, "invalid_value");
+  return DEFAULTS.timeFormat;
 }
 
-function readLyricsPosition(): LyricsPosition {
-  const raw = readString(STORAGE_KEYS.lyricsPosition, DEFAULTS.lyricsPosition);
-  return VALID_LYRICS_POSITIONS.has(raw as LyricsPosition)
-    ? (raw as LyricsPosition)
-    : DEFAULTS.lyricsPosition;
+function readLyricsPosition(runtime: UISettingsRuntime): LyricsPosition {
+  const raw = readString(runtime, STORAGE_KEYS.lyricsPosition, DEFAULTS.lyricsPosition);
+  if (VALID_LYRICS_POSITIONS.has(raw as LyricsPosition)) {
+    return raw as LyricsPosition;
+  }
+  reportReadError(runtime, STORAGE_KEYS.lyricsPosition, "invalid_value");
+  return DEFAULTS.lyricsPosition;
 }
 
-function readLyricsBlendMode(): LyricsBlendMode {
-  const raw = readString(STORAGE_KEYS.lyricsBlendMode, DEFAULTS.lyricsBlendMode);
-  return VALID_LYRICS_BLEND_MODES.has(raw as LyricsBlendMode)
-    ? (raw as LyricsBlendMode)
-    : DEFAULTS.lyricsBlendMode;
+function readLyricsBlendMode(runtime: UISettingsRuntime): LyricsBlendMode {
+  const raw = readString(runtime, STORAGE_KEYS.lyricsBlendMode, DEFAULTS.lyricsBlendMode);
+  if (VALID_LYRICS_BLEND_MODES.has(raw as LyricsBlendMode)) {
+    return raw as LyricsBlendMode;
+  }
+  reportReadError(runtime, STORAGE_KEYS.lyricsBlendMode, "invalid_value");
+  return DEFAULTS.lyricsBlendMode;
 }
 
-function readSettings(): UISettings {
+export function readUISettingsSnapshot(
+  runtime: UISettingsRuntime = browserUISettingsRuntime()
+): UISettings {
+  const storage = runtime.storage;
   const layoutRaw = (() => {
     try {
-      return localStorage.getItem(STORAGE_KEYS.fullPlayerLayout);
+      return storage.getItem(STORAGE_KEYS.fullPlayerLayout);
     } catch {
+      reportReadError(runtime, STORAGE_KEYS.fullPlayerLayout, "storage_unavailable");
       return null;
     }
   })();
@@ -542,198 +635,285 @@ function readSettings(): UISettings {
   const fullPlayerLayout =
     layoutRaw === "lyrics" || layoutRaw === "balanced"
       ? layoutRaw
-      : DEFAULTS.fullPlayerLayout;
+      : (() => {
+          if (layoutRaw !== null) {
+            reportReadError(runtime, STORAGE_KEYS.fullPlayerLayout, "invalid_value");
+          }
+          return DEFAULTS.fullPlayerLayout;
+        })();
 
-  const themeRaw = readString(STORAGE_KEYS.themeMode, DEFAULTS.themeMode);
+  const themeRaw = readString(runtime, STORAGE_KEYS.themeMode, DEFAULTS.themeMode);
   const themeMode: ThemeMode =
     themeRaw === "light" || themeRaw === "auto" ? themeRaw : "dark";
 
-  const levelRaw = readString(STORAGE_KEYS.ncmSongLevel, DEFAULTS.ncmSongLevel);
+  const levelRaw = readString(runtime, STORAGE_KEYS.ncmSongLevel, DEFAULTS.ncmSongLevel);
   const ncmSongLevel = VALID_SONG_LEVELS.has(levelRaw) ? levelRaw : DEFAULTS.ncmSongLevel;
 
   return {
-    bgEnabled: readBool(STORAGE_KEYS.bgEnabled, DEFAULTS.bgEnabled),
-    bgBlur: readNumber(STORAGE_KEYS.bgBlur, DEFAULTS.bgBlur),
-    bgMask: readNumber(STORAGE_KEYS.bgMask, DEFAULTS.bgMask),
-    customChrome: readBool(STORAGE_KEYS.customChrome, DEFAULTS.customChrome),
+    bgEnabled: readBool(runtime, STORAGE_KEYS.bgEnabled, DEFAULTS.bgEnabled),
+    bgBlur: readNumber(runtime, STORAGE_KEYS.bgBlur, DEFAULTS.bgBlur),
+    bgMask: readNumber(runtime, STORAGE_KEYS.bgMask, DEFAULTS.bgMask),
+    customChrome: readBool(runtime, STORAGE_KEYS.customChrome, DEFAULTS.customChrome),
     fullPlayerLayout,
     fullPlayerAutoFocusLyrics: readBool(
+      runtime,
       STORAGE_KEYS.fullPlayerAutoFocusLyrics,
       DEFAULTS.fullPlayerAutoFocusLyrics
     ),
-    fullPlayerCommentMode: readCommentMode(),
-    fullPlayerCoverMode: readCoverMode(),
-    playerType: readPlayerType(),
+    fullPlayerCommentMode: readCommentMode(runtime),
+    fullPlayerCoverMode: readCoverMode(runtime),
+    playerType: readPlayerType(runtime),
     playerStyleRatio: readClampedNumber(
+      runtime,
       STORAGE_KEYS.playerStyleRatio,
       DEFAULTS.playerStyleRatio,
       30,
       70
     ),
     playerFullscreenGradient: readClampedNumber(
+      runtime,
       STORAGE_KEYS.playerFullscreenGradient,
       DEFAULTS.playerFullscreenGradient,
       0,
       100
     ),
-    playerBackgroundType: readPlayerBackgroundType(),
+    playerBackgroundType: readPlayerBackgroundType(runtime),
     playerBackgroundFps: readClampedNumber(
+      runtime,
       STORAGE_KEYS.playerBackgroundFps,
       DEFAULTS.playerBackgroundFps,
       24,
       256
     ),
     playerBackgroundFlowSpeed: readClampedNumber(
+      runtime,
       STORAGE_KEYS.playerBackgroundFlowSpeed,
       DEFAULTS.playerBackgroundFlowSpeed,
       0.1,
       10
     ),
     playerBackgroundRenderScale: readClampedNumber(
+      runtime,
       STORAGE_KEYS.playerBackgroundRenderScale,
       DEFAULTS.playerBackgroundRenderScale,
       0.1,
       3
     ),
     playerBackgroundPause: readBool(
+      runtime,
       STORAGE_KEYS.playerBackgroundPause,
       DEFAULTS.playerBackgroundPause
     ),
     playerBackgroundLowFreqVolume: readBool(
+      runtime,
       STORAGE_KEYS.playerBackgroundLowFreqVolume,
       DEFAULTS.playerBackgroundLowFreqVolume
     ),
-    playerExpandAnimation: readPlayerExpandAnimation(),
+    playerExpandAnimation: readPlayerExpandAnimation(runtime),
     playerFollowCoverColor: readBool(
+      runtime,
       STORAGE_KEYS.playerFollowCoverColor,
       DEFAULTS.playerFollowCoverColor
     ),
     hiddenCovers: readBoolRecord(
+      runtime,
       STORAGE_KEYS.hiddenCovers,
       DEFAULTS.hiddenCovers
     ),
     sidebarHiddenItems: readBoolRecord(
+      runtime,
       STORAGE_KEYS.sidebarHiddenItems,
       DEFAULTS.sidebarHiddenItems
     ),
     playlistPageElements: readBoolRecord(
+      runtime,
       STORAGE_KEYS.playlistPageElements,
       DEFAULTS.playlistPageElements
     ),
     contextMenuOptions: readBoolRecord(
+      runtime,
       STORAGE_KEYS.contextMenuOptions,
       DEFAULTS.contextMenuOptions
     ),
-    menuShowCover: readBool(STORAGE_KEYS.menuShowCover, DEFAULTS.menuShowCover),
+    menuShowCover: readBool(runtime, STORAGE_KEYS.menuShowCover, DEFAULTS.menuShowCover),
     fullPlayerShowAddToPlaylist: readBool(
+      runtime,
       STORAGE_KEYS.fullPlayerShowAddToPlaylist,
       DEFAULTS.fullPlayerShowAddToPlaylist
     ),
     fullPlayerShowCommentCount: readBool(
+      runtime,
       STORAGE_KEYS.fullPlayerShowCommentCount,
       DEFAULTS.fullPlayerShowCommentCount
     ),
-    fullPlayerShowComments: readBool(STORAGE_KEYS.fullPlayerShowComments, DEFAULTS.fullPlayerShowComments),
+    fullPlayerShowComments: readBool(
+      runtime,
+      STORAGE_KEYS.fullPlayerShowComments,
+      DEFAULTS.fullPlayerShowComments
+    ),
     fullPlayerShowDesktopLyric: readBool(
+      runtime,
       STORAGE_KEYS.fullPlayerShowDesktopLyric,
       DEFAULTS.fullPlayerShowDesktopLyric
     ),
-    fullPlayerShowDownload: readBool(STORAGE_KEYS.fullPlayerShowDownload, DEFAULTS.fullPlayerShowDownload),
-    fullPlayerShowLike: readBool(STORAGE_KEYS.fullPlayerShowLike, DEFAULTS.fullPlayerShowLike),
+    fullPlayerShowDownload: readBool(
+      runtime,
+      STORAGE_KEYS.fullPlayerShowDownload,
+      DEFAULTS.fullPlayerShowDownload
+    ),
+    fullPlayerShowLike: readBool(
+      runtime,
+      STORAGE_KEYS.fullPlayerShowLike,
+      DEFAULTS.fullPlayerShowLike
+    ),
     fullPlayerShowMoreSettings: readBool(
+      runtime,
       STORAGE_KEYS.fullPlayerShowMoreSettings,
       DEFAULTS.fullPlayerShowMoreSettings
     ),
-    autoHidePlayerMeta: readBool(STORAGE_KEYS.autoHidePlayerMeta, DEFAULTS.autoHidePlayerMeta),
-    showPlayMeta: readBool(STORAGE_KEYS.showPlayMeta, DEFAULTS.showPlayMeta),
-    countDownShow: readBool(STORAGE_KEYS.countDownShow, DEFAULTS.countDownShow),
-    showSpectrums: readBool(STORAGE_KEYS.showSpectrums, DEFAULTS.showSpectrums),
-    homeSections: readHomeSections(),
+    autoHidePlayerMeta: readBool(
+      runtime,
+      STORAGE_KEYS.autoHidePlayerMeta,
+      DEFAULTS.autoHidePlayerMeta
+    ),
+    showPlayMeta: readBool(runtime, STORAGE_KEYS.showPlayMeta, DEFAULTS.showPlayMeta),
+    countDownShow: readBool(runtime, STORAGE_KEYS.countDownShow, DEFAULTS.countDownShow),
+    showSpectrums: readBool(runtime, STORAGE_KEYS.showSpectrums, DEFAULTS.showSpectrums),
+    homeSections: readHomeSections(runtime),
     themeMode,
     ncmSongLevel,
-    autoPlay: readBool(STORAGE_KEYS.autoPlay, DEFAULTS.autoPlay),
-    volumeFade: readBool(STORAGE_KEYS.volumeFade, DEFAULTS.volumeFade),
-    volumeFadeTime: readNumber(STORAGE_KEYS.volumeFadeTime, DEFAULTS.volumeFadeTime),
-    memoryLastSeek: readBool(STORAGE_KEYS.memoryLastSeek, DEFAULTS.memoryLastSeek),
-    progressTooltipShow: readBool(STORAGE_KEYS.progressTooltipShow, DEFAULTS.progressTooltipShow),
-    progressLyricShow: readBool(STORAGE_KEYS.progressLyricShow, DEFAULTS.progressLyricShow),
-    progressAdjustLyric: readBool(STORAGE_KEYS.progressAdjustLyric, DEFAULTS.progressAdjustLyric),
-    lyricFontSize: readNumber(STORAGE_KEYS.lyricFontSize, DEFAULTS.lyricFontSize),
-    lyricFontWeight: readNumber(STORAGE_KEYS.lyricFontWeight, DEFAULTS.lyricFontWeight),
-    showLyricTranslation: readBool(STORAGE_KEYS.showLyricTranslation, DEFAULTS.showLyricTranslation),
-    showLyricRomanization: readBool(STORAGE_KEYS.showLyricRomanization, DEFAULTS.showLyricRomanization),
-    showWordLyrics: readBool(STORAGE_KEYS.showWordLyrics, DEFAULTS.showWordLyrics),
-    lyricsBlur: readBool(STORAGE_KEYS.lyricsBlur, DEFAULTS.lyricsBlur),
-    lyricsScrollOffset: readNumber(STORAGE_KEYS.lyricsScrollOffset, DEFAULTS.lyricsScrollOffset),
-    routeAnimation: readRouteAnimation(),
-    showPlaylistCount: readBool(STORAGE_KEYS.showPlaylistCount, DEFAULTS.showPlaylistCount),
-    barLyricShow: readBool(STORAGE_KEYS.barLyricShow, DEFAULTS.barLyricShow),
-    showSongQuality: readBool(STORAGE_KEYS.showSongQuality, DEFAULTS.showSongQuality),
+    autoPlay: readBool(runtime, STORAGE_KEYS.autoPlay, DEFAULTS.autoPlay),
+    volumeFade: readBool(runtime, STORAGE_KEYS.volumeFade, DEFAULTS.volumeFade),
+    volumeFadeTime: readNumber(runtime, STORAGE_KEYS.volumeFadeTime, DEFAULTS.volumeFadeTime),
+    memoryLastSeek: readBool(runtime, STORAGE_KEYS.memoryLastSeek, DEFAULTS.memoryLastSeek),
+    progressTooltipShow: readBool(
+      runtime,
+      STORAGE_KEYS.progressTooltipShow,
+      DEFAULTS.progressTooltipShow
+    ),
+    progressLyricShow: readBool(
+      runtime,
+      STORAGE_KEYS.progressLyricShow,
+      DEFAULTS.progressLyricShow
+    ),
+    progressAdjustLyric: readBool(
+      runtime,
+      STORAGE_KEYS.progressAdjustLyric,
+      DEFAULTS.progressAdjustLyric
+    ),
+    lyricFontSize: readNumber(runtime, STORAGE_KEYS.lyricFontSize, DEFAULTS.lyricFontSize),
+    lyricFontWeight: readNumber(runtime, STORAGE_KEYS.lyricFontWeight, DEFAULTS.lyricFontWeight),
+    showLyricTranslation: readBool(
+      runtime,
+      STORAGE_KEYS.showLyricTranslation,
+      DEFAULTS.showLyricTranslation
+    ),
+    showLyricRomanization: readBool(
+      runtime,
+      STORAGE_KEYS.showLyricRomanization,
+      DEFAULTS.showLyricRomanization
+    ),
+    showWordLyrics: readBool(runtime, STORAGE_KEYS.showWordLyrics, DEFAULTS.showWordLyrics),
+    lyricsBlur: readBool(runtime, STORAGE_KEYS.lyricsBlur, DEFAULTS.lyricsBlur),
+    lyricsScrollOffset: readNumber(
+      runtime,
+      STORAGE_KEYS.lyricsScrollOffset,
+      DEFAULTS.lyricsScrollOffset
+    ),
+    routeAnimation: readRouteAnimation(runtime),
+    showPlaylistCount: readBool(
+      runtime,
+      STORAGE_KEYS.showPlaylistCount,
+      DEFAULTS.showPlaylistCount
+    ),
+    barLyricShow: readBool(runtime, STORAGE_KEYS.barLyricShow, DEFAULTS.barLyricShow),
+    showSongQuality: readBool(runtime, STORAGE_KEYS.showSongQuality, DEFAULTS.showSongQuality),
     showSongPrivilegeTag: readBool(
+      runtime,
       STORAGE_KEYS.showSongPrivilegeTag,
       DEFAULTS.showSongPrivilegeTag
     ),
     showSongExplicitTag: readBool(
+      runtime,
       STORAGE_KEYS.showSongExplicitTag,
       DEFAULTS.showSongExplicitTag
     ),
     showSongOriginalTag: readBool(
+      runtime,
       STORAGE_KEYS.showSongOriginalTag,
       DEFAULTS.showSongOriginalTag
     ),
-    showSongAlbum: readBool(STORAGE_KEYS.showSongAlbum, DEFAULTS.showSongAlbum),
-    showSongDuration: readBool(STORAGE_KEYS.showSongDuration, DEFAULTS.showSongDuration),
+    showSongAlbum: readBool(runtime, STORAGE_KEYS.showSongAlbum, DEFAULTS.showSongAlbum),
+    showSongDuration: readBool(runtime, STORAGE_KEYS.showSongDuration, DEFAULTS.showSongDuration),
     showSongOperations: readBool(
+      runtime,
       STORAGE_KEYS.showSongOperations,
       DEFAULTS.showSongOperations
     ),
-    showSongArtist: readBool(STORAGE_KEYS.showSongArtist, DEFAULTS.showSongArtist),
+    showSongArtist: readBool(runtime, STORAGE_KEYS.showSongArtist, DEFAULTS.showSongArtist),
     hideBracketedContent: readBool(
+      runtime,
       STORAGE_KEYS.hideBracketedContent,
       DEFAULTS.hideBracketedContent
     ),
-    showPlayerQuality: readBool(STORAGE_KEYS.showPlayerQuality, DEFAULTS.showPlayerQuality),
-    timeFormat: readTimeFormat(),
+    showPlayerQuality: readBool(
+      runtime,
+      STORAGE_KEYS.showPlayerQuality,
+      DEFAULTS.showPlayerQuality
+    ),
+    timeFormat: readTimeFormat(runtime),
     lyricTranslationFontSize: readNumber(
+      runtime,
       STORAGE_KEYS.lyricTranslationFontSize,
       DEFAULTS.lyricTranslationFontSize
     ),
     lyricRomanizationFontSize: readNumber(
+      runtime,
       STORAGE_KEYS.lyricRomanizationFontSize,
       DEFAULTS.lyricRomanizationFontSize
     ),
     swapLyricTranslationRomanization: readBool(
+      runtime,
       STORAGE_KEYS.swapLyricTranslationRomanization,
       DEFAULTS.swapLyricTranslationRomanization
     ),
-    lyricsPosition: readLyricsPosition(),
+    lyricsPosition: readLyricsPosition(runtime),
     lyricHorizontalOffset: readNumber(
+      runtime,
       STORAGE_KEYS.lyricHorizontalOffset,
       DEFAULTS.lyricHorizontalOffset
     ),
-    lyricAlignRight: readBool(STORAGE_KEYS.lyricAlignRight, DEFAULTS.lyricAlignRight),
-    lyricsBlendMode: readLyricsBlendMode()
+    lyricAlignRight: readBool(runtime, STORAGE_KEYS.lyricAlignRight, DEFAULTS.lyricAlignRight),
+    lyricsBlendMode: readLyricsBlendMode(runtime)
+  };
+}
+
+export function createUISettingsStore(runtime: UISettingsRuntime): UISettingsStore {
+  const [settings, setSettings] = createStore<UISettings>(readUISettingsSnapshot(runtime));
+
+  return {
+    settings,
+    sync: () => {
+      setSettings(reconcile(readUISettingsSnapshot(runtime)));
+    }
   };
 }
 
 /**
- * Reads UI settings from localStorage and listens for changes
+ * Reads UI settings from the supplied runtime and listens for changes
  * dispatched by the settings sections.
  */
-export function useUISettings(): UISettings {
-  const [settings, setSettings] = createStore<UISettings>(readSettings());
-
-  const handleChange = () => {
-    setSettings(readSettings());
-  };
+export function useUISettings(runtime: UISettingsRuntime = browserUISettingsRuntime()): UISettings {
+  const store = createUISettingsStore(runtime);
+  const handleChange = () => store.sync();
 
   onMount(() => {
-    window.addEventListener("ui-settings-changed", handleChange);
+    runtime.events.addEventListener(UI_SETTINGS_CHANGED_EVENT, handleChange);
   });
 
   onCleanup(() => {
-    window.removeEventListener("ui-settings-changed", handleChange);
+    runtime.events.removeEventListener(UI_SETTINGS_CHANGED_EVENT, handleChange);
   });
 
-  return settings;
+  return store.settings;
 }

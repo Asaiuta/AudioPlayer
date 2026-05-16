@@ -1,27 +1,7 @@
-import type { Setter } from "solid-js";
-import type { RequestState, PlayerState } from "../shared/api/types";
 import { useEngineSocket } from "../shared/api/useEngineSocket";
 import type { WsEvent } from "../shared/api/wsTypes";
-import type { WsStatus } from "./usePlaybackController";
-
-interface PlaybackSocketDeps {
-  state: () => RequestState<PlayerState>;
-  patchPlayerState: (
-    patch:
-      | Partial<PlayerState>
-      | ((current: PlayerState) => Partial<PlayerState> | PlayerState | null)
-  ) => void;
-  applyPlayerState: (next: PlayerState) => void;
-  setSpectrum: Setter<number[]>;
-  setLoadingProgress: Setter<number | null>;
-  setWsStatus: Setter<WsStatus>;
-  setPreloadRequested: Setter<boolean>;
-  setLivePosition: Setter<number | null>;
-  shouldSuppressRemotePosition: () => boolean;
-  scheduleRefresh: (expectedPath?: string | null) => void;
-  refreshQueueForCurrentSurface: () => void;
-  notifyPlaybackHistoryChanged: () => void;
-}
+import type { EngineSocketProtocolError } from "../shared/api/useEngineSocket";
+import type { PlaybackSocketDeps } from "./playbackSocketContracts";
 
 export const applyPlaybackSocketEvent = (event: WsEvent, deps: PlaybackSocketDeps) => {
   switch (event.type) {
@@ -147,6 +127,10 @@ export const applyPlaybackSocketEvent = (event: WsEvent, deps: PlaybackSocketDep
 };
 
 export const usePlaybackSocket = (deps: PlaybackSocketDeps) => {
+  const handleProtocolError = (error: EngineSocketProtocolError) => {
+    deps.reportSocketProtocolError?.(error.reason, error.preview);
+  };
+
   useEngineSocket({
     onOpen: () => {
       deps.setWsStatus("connected");
@@ -156,6 +140,7 @@ export const usePlaybackSocket = (deps: PlaybackSocketDeps) => {
     onClose: () => deps.setWsStatus("disconnected"),
     onError: () => deps.setWsStatus("disconnected"),
     onReconnect: () => deps.setWsStatus("connecting"),
-    onEvent: (event) => applyPlaybackSocketEvent(event, deps)
+    onEvent: (event) => applyPlaybackSocketEvent(event, deps),
+    onProtocolError: handleProtocolError
   });
 };

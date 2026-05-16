@@ -1,5 +1,7 @@
 // Shared localStorage helpers for settings sections (UI-side).
 // Backend-bound audio engine settings persist via the API and live in AudioEngineSection directly.
+import type { Accessor, Setter } from "solid-js";
+import { UI_SETTINGS_CHANGED_EVENT } from "../../shared/state/useUISettings";
 
 export function readBool(key: string, fallback: boolean): boolean {
   try {
@@ -30,11 +32,44 @@ export function readString(key: string, fallback: string): string {
   }
 }
 
-export function persist(key: string, value: boolean | number | string) {
+export function persist(key: string, value: boolean | number | string): boolean {
   try {
     localStorage.setItem(key, String(value));
+    window.dispatchEvent(new Event(UI_SETTINGS_CHANGED_EVENT));
+    return true;
   } catch {
-    /* ignore */
+    return false;
   }
-  window.dispatchEvent(new Event("ui-settings-changed"));
+}
+
+export function commitPersistedSetting<T extends boolean | number | string>(
+  key: string,
+  value: T,
+  currentValue: Accessor<T>,
+  setValue: Setter<T>
+): boolean {
+  const previous = currentValue();
+  setValue(() => value);
+  if (persist(key, value)) {
+    return true;
+  }
+  setValue(() => previous);
+  console.warn("[settings] failed to persist setting", { key });
+  return false;
+}
+
+export function commitPersistedRecordSetting<T extends Record<string, boolean>>(
+  key: string,
+  value: T,
+  currentValue: Accessor<T>,
+  setValue: Setter<T>
+): boolean {
+  const previous = currentValue();
+  setValue(() => value);
+  if (persist(key, JSON.stringify(value))) {
+    return true;
+  }
+  setValue(() => previous);
+  console.warn("[settings] failed to persist setting", { key });
+  return false;
 }
