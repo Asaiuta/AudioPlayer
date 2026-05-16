@@ -6,6 +6,7 @@ import {
   type HomeSectionConfig,
   type HomeSectionKey
 } from "../../shared/state/useUISettings";
+import { persist as persistSetting } from "./storage";
 
 const SECTION_LABELS: Record<HomeSectionKey, string> = {
   dailyPicks: "ncm.home.section.dailyPicks",
@@ -56,14 +57,8 @@ function readSections(): HomeSectionConfig[] {
   return DEFAULT_HOME_SECTIONS;
 }
 
-function persist(sections: HomeSectionConfig[]) {
-  try {
-    localStorage.setItem(STORAGE_KEYS.homeSections, JSON.stringify(sections));
-  } catch {
-    // ignore
-  }
-  window.dispatchEvent(new Event("ui-settings-changed"));
-}
+const persistSections = (sections: HomeSectionConfig[]): boolean =>
+  persistSetting(STORAGE_KEYS.homeSections, JSON.stringify(sections));
 
 export function HomeSectionManager() {
   const { t } = useTranslation();
@@ -76,7 +71,7 @@ export function HomeSectionManager() {
       s.key === key ? { ...s, visible: !s.visible } : s
     );
     setSections(next);
-    persist(next);
+    persistSections(next);
   };
 
   const moveUp = (key: HomeSectionKey) => {
@@ -91,7 +86,7 @@ export function HomeSectionManager() {
       return s;
     });
     setSections(next);
-    persist(next);
+    persistSections(next);
   };
 
   const moveDown = (key: HomeSectionKey) => {
@@ -106,7 +101,7 @@ export function HomeSectionManager() {
       return s;
     });
     setSections(next);
-    persist(next);
+    persistSections(next);
   };
 
   return (

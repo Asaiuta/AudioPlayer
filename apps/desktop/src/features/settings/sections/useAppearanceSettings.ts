@@ -19,7 +19,14 @@ import {
   DEFAULT_SIDEBAR_HIDDEN_ITEMS,
   STORAGE_KEYS
 } from "../../../shared/state/useUISettings";
-import { persist, readBool, readNumber, readString } from "../storage";
+import {
+  commitPersistedRecordSetting,
+  commitPersistedSetting,
+  persist,
+  readBool,
+  readNumber,
+  readString
+} from "../storage";
 import { COVER_DISPLAY_ITEMS } from "./appearanceConfig";
 
 function resolveTheme(mode: ThemeMode): "dark" | "light" {
@@ -117,23 +124,6 @@ function readTimeFormat(): PlayerTimeFormat {
   return raw === "remaining-total" || raw === "current-remaining"
     ? (raw as PlayerTimeFormat)
     : "current-total";
-}
-
-function persistBoolSetting(key: string, next: boolean, setValue: Setter<boolean>) {
-  setValue(next);
-  persist(key, next);
-}
-
-function persistBoolRecordSetting<T extends Record<string, boolean>, K extends keyof T>(
-  storageKey: string,
-  record: T,
-  field: K,
-  next: boolean,
-  setValue: Setter<T>
-) {
-  const nextRecord = { ...record, [field]: next };
-  setValue(() => nextRecord as T);
-  persist(storageKey, JSON.stringify(nextRecord));
 }
 
 export function useAppearanceSettings() {
@@ -272,82 +262,118 @@ export function useAppearanceSettings() {
   );
 
   const handleThemeChange = (mode: ThemeMode) => {
-    setThemeMode(mode);
-    persist(STORAGE_KEYS.themeMode, mode);
-    applyTheme(mode);
+    if (commitPersistedSetting(STORAGE_KEYS.themeMode, mode, themeMode, setThemeMode)) {
+      applyTheme(mode);
+    } else {
+      applyTheme(themeMode());
+    }
   };
   const handleRouteAnimation = (value: RouteAnimation) => {
-    setRouteAnimation(value);
-    persist(STORAGE_KEYS.routeAnimation, value);
+    commitPersistedSetting(STORAGE_KEYS.routeAnimation, value, routeAnimation, setRouteAnimation);
   };
   const handleBgToggle = () =>
-    persistBoolSetting(STORAGE_KEYS.bgEnabled, !bgEnabled(), setBgEnabled);
+    commitPersistedSetting(STORAGE_KEYS.bgEnabled, !bgEnabled(), bgEnabled, setBgEnabled);
   const handleBgBlur = (value: number) => {
-    setBgBlur(value);
-    persist(STORAGE_KEYS.bgBlur, value);
+    commitPersistedSetting(STORAGE_KEYS.bgBlur, value, bgBlur, setBgBlur);
   };
   const handleBgMask = (value: number) => {
-    setBgMask(value);
-    persist(STORAGE_KEYS.bgMask, value);
+    commitPersistedSetting(STORAGE_KEYS.bgMask, value, bgMask, setBgMask);
   };
   const handleCustomChrome = () =>
-    persistBoolSetting(STORAGE_KEYS.customChrome, !customChrome(), setCustomChrome);
+    commitPersistedSetting(
+      STORAGE_KEYS.customChrome,
+      !customChrome(),
+      customChrome,
+      setCustomChrome
+    );
   const handleFullPlayerLayout = (value: "balanced" | "lyrics") => {
-    setFullPlayerLayout(value);
-    persist(STORAGE_KEYS.fullPlayerLayout, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.fullPlayerLayout,
+      value,
+      fullPlayerLayout,
+      setFullPlayerLayout
+    );
   };
   const handleFullPlayerAutoFocusLyrics = () =>
-    persistBoolSetting(
+    commitPersistedSetting(
       STORAGE_KEYS.fullPlayerAutoFocusLyrics,
       !fullPlayerAutoFocusLyrics(),
+      fullPlayerAutoFocusLyrics,
       setFullPlayerAutoFocusLyrics
     );
   const handleFullPlayerCommentMode = (value: FullPlayerCommentMode) => {
-    setFullPlayerCommentMode(value);
-    persist(STORAGE_KEYS.fullPlayerCommentMode, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.fullPlayerCommentMode,
+      value,
+      fullPlayerCommentMode,
+      setFullPlayerCommentMode
+    );
   };
   const handlePlayerType = (value: PlayerType) => {
-    setPlayerType(value);
-    persist(STORAGE_KEYS.playerType, value);
-    persist(STORAGE_KEYS.fullPlayerCoverMode, value === "record" ? "record" : "normal");
+    if (commitPersistedSetting(STORAGE_KEYS.playerType, value, playerType, setPlayerType)) {
+      persist(STORAGE_KEYS.fullPlayerCoverMode, value === "record" ? "record" : "normal");
+    }
   };
   const handlePlayerStyleRatio = (value: number) => {
-    setPlayerStyleRatio(value);
-    persist(STORAGE_KEYS.playerStyleRatio, value);
+    commitPersistedSetting(STORAGE_KEYS.playerStyleRatio, value, playerStyleRatio, setPlayerStyleRatio);
   };
   const handlePlayerFullscreenGradient = (value: number) => {
-    setPlayerFullscreenGradient(value);
-    persist(STORAGE_KEYS.playerFullscreenGradient, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.playerFullscreenGradient,
+      value,
+      playerFullscreenGradient,
+      setPlayerFullscreenGradient
+    );
   };
   const handlePlayerBackgroundType = (value: PlayerBackgroundType) => {
-    setPlayerBackgroundType(value);
-    persist(STORAGE_KEYS.playerBackgroundType, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.playerBackgroundType,
+      value,
+      playerBackgroundType,
+      setPlayerBackgroundType
+    );
   };
   const handlePlayerBackgroundFps = (value: number) => {
-    setPlayerBackgroundFps(value);
-    persist(STORAGE_KEYS.playerBackgroundFps, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.playerBackgroundFps,
+      value,
+      playerBackgroundFps,
+      setPlayerBackgroundFps
+    );
   };
   const handlePlayerBackgroundFlowSpeed = (value: number) => {
-    setPlayerBackgroundFlowSpeed(value);
-    persist(STORAGE_KEYS.playerBackgroundFlowSpeed, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.playerBackgroundFlowSpeed,
+      value,
+      playerBackgroundFlowSpeed,
+      setPlayerBackgroundFlowSpeed
+    );
   };
   const handlePlayerBackgroundRenderScale = (value: number) => {
-    setPlayerBackgroundRenderScale(value);
-    persist(STORAGE_KEYS.playerBackgroundRenderScale, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.playerBackgroundRenderScale,
+      value,
+      playerBackgroundRenderScale,
+      setPlayerBackgroundRenderScale
+    );
   };
   const handlePlayerExpandAnimation = (value: PlayerExpandAnimation) => {
-    setPlayerExpandAnimation(value);
-    persist(STORAGE_KEYS.playerExpandAnimation, value);
+    commitPersistedSetting(
+      STORAGE_KEYS.playerExpandAnimation,
+      value,
+      playerExpandAnimation,
+      setPlayerExpandAnimation
+    );
   };
   const handlePlayerFollowCoverColor = () =>
-    persistBoolSetting(
+    commitPersistedSetting(
       STORAGE_KEYS.playerFollowCoverColor,
       !playerFollowCoverColor(),
+      playerFollowCoverColor,
       setPlayerFollowCoverColor
     );
   const handleTimeFormat = (value: PlayerTimeFormat) => {
-    setTimeFormat(value);
-    persist(STORAGE_KEYS.timeFormat, value);
+    commitPersistedSetting(STORAGE_KEYS.timeFormat, value, timeFormat, setTimeFormat);
   };
   const handleToggleAllCovers = () => {
     const nextHidden = !allCoversHidden();
@@ -355,12 +381,11 @@ export function useAppearanceSettings() {
     COVER_DISPLAY_ITEMS.forEach((item) => {
       nextRecord[item.key] = nextHidden;
     });
-    setHiddenCovers(nextRecord);
-    persist(STORAGE_KEYS.hiddenCovers, JSON.stringify(nextRecord));
+    commitPersistedRecordSetting(STORAGE_KEYS.hiddenCovers, nextRecord, hiddenCovers, setHiddenCovers);
   };
 
   const toggleBool = (key: string, value: Accessor<boolean>, setValue: Setter<boolean>) => {
-    persistBoolSetting(key, !value(), setValue);
+    commitPersistedSetting(key, !value(), value, setValue);
   };
 
   const updateBoolRecord = <T extends Record<string, boolean>, K extends keyof T>(
@@ -370,7 +395,9 @@ export function useAppearanceSettings() {
     next: boolean,
     setValue: Setter<T>
   ) => {
-    persistBoolRecordSetting(storageKey, record(), field, next, setValue);
+    const current = record();
+    const nextRecord = { ...current, [field]: next };
+    commitPersistedRecordSetting(storageKey, nextRecord, record, setValue);
   };
 
   return {

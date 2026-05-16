@@ -10,7 +10,7 @@ import {
 } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
 import { SelectInput, type SelectOption } from "../components/SelectInput";
-import { persist, readBool, readNumber, readString } from "../storage";
+import { commitPersistedSetting, readBool, readNumber, readString } from "../storage";
 
 const api = createApiClient();
 
@@ -75,8 +75,7 @@ export function PlaybackSection(props: PlaybackSectionProps) {
 
   const handleAutoPlay = () => {
     const next = !autoPlay();
-    setAutoPlay(next);
-    persist(STORAGE_KEYS.autoPlay, next);
+    commitPersistedSetting(STORAGE_KEYS.autoPlay, next, autoPlay, setAutoPlay);
   };
   const handleUseNextPrefetch = () => {
     const previous = useNextPrefetch();
@@ -88,36 +87,44 @@ export function PlaybackSection(props: PlaybackSectionProps) {
   };
   const handleVolumeFade = () => {
     const next = !volumeFade();
-    setVolumeFade(next);
-    persist(STORAGE_KEYS.volumeFade, next);
+    commitPersistedSetting(STORAGE_KEYS.volumeFade, next, volumeFade, setVolumeFade);
   };
   const handleVolumeFadeTime = (v: number) => {
-    setVolumeFadeTime(v);
-    persist(STORAGE_KEYS.volumeFadeTime, v);
+    commitPersistedSetting(STORAGE_KEYS.volumeFadeTime, v, volumeFadeTime, setVolumeFadeTime);
   };
   const handleMemoryLastSeek = () => {
     const next = !memoryLastSeek();
-    setMemoryLastSeek(next);
-    persist(STORAGE_KEYS.memoryLastSeek, next);
+    commitPersistedSetting(STORAGE_KEYS.memoryLastSeek, next, memoryLastSeek, setMemoryLastSeek);
   };
   const handleProgressTooltipShow = () => {
     const next = !progressTooltipShow();
-    setProgressTooltipShow(next);
-    persist(STORAGE_KEYS.progressTooltipShow, next);
+    commitPersistedSetting(
+      STORAGE_KEYS.progressTooltipShow,
+      next,
+      progressTooltipShow,
+      setProgressTooltipShow
+    );
   };
   const handleProgressLyricShow = () => {
     const next = !progressLyricShow();
-    setProgressLyricShow(next);
-    persist(STORAGE_KEYS.progressLyricShow, next);
+    commitPersistedSetting(
+      STORAGE_KEYS.progressLyricShow,
+      next,
+      progressLyricShow,
+      setProgressLyricShow
+    );
   };
   const handleProgressAdjustLyric = () => {
     const next = !progressAdjustLyric();
-    setProgressAdjustLyric(next);
-    persist(STORAGE_KEYS.progressAdjustLyric, next);
+    commitPersistedSetting(
+      STORAGE_KEYS.progressAdjustLyric,
+      next,
+      progressAdjustLyric,
+      setProgressAdjustLyric
+    );
   };
   const handleNcmSongLevel = (level: string) => {
-    setNcmSongLevel(level);
-    persist(STORAGE_KEYS.ncmSongLevel, level);
+    commitPersistedSetting(STORAGE_KEYS.ncmSongLevel, level, ncmSongLevel, setNcmSongLevel);
   };
 
   return (
