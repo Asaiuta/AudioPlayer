@@ -124,18 +124,35 @@ const SIDEBAR_SETTING_KEY_BY_PAGE: Record<ActivePage, SidebarHiddenItemKey> = {
   "collected-playlists": "collectedPlaylists"
 };
 
+const readSidebarStorage = (key: string): string | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(key);
+  } catch (error) {
+    console.warn("[Sidebar] failed to read persisted layout", error);
+    return null;
+  }
+};
+
+const writeSidebarStorage = (key: string, value: string): void => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch (error) {
+    console.warn("[Sidebar] failed to persist layout", error);
+  }
+};
+
 const readPersistedCollapse = (): boolean => {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(STORAGE_KEY) === "1";
+  return readSidebarStorage(STORAGE_KEY) === "1";
 };
 
 const readPersistedCollapsedSections = (): Set<string> => {
-  if (typeof window === "undefined") return new Set();
   try {
-    const raw = window.localStorage.getItem(SECTIONS_STORAGE_KEY);
+    const raw = readSidebarStorage(SECTIONS_STORAGE_KEY);
     if (raw) return new Set(JSON.parse(raw) as string[]);
   } catch {
-    // ignore malformed storage
+    console.warn("[Sidebar] failed to parse persisted sections");
   }
   return new Set();
 };
@@ -169,13 +186,11 @@ export function Sidebar(props: SidebarProps) {
     error instanceof Error ? error.message : t("common.error.requestFailed");
 
   createEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(STORAGE_KEY, collapsedPersisted() ? "1" : "0");
+    writeSidebarStorage(STORAGE_KEY, collapsedPersisted() ? "1" : "0");
   });
 
   createEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(SECTIONS_STORAGE_KEY, JSON.stringify([...collapsedSections()]));
+    writeSidebarStorage(SECTIONS_STORAGE_KEY, JSON.stringify([...collapsedSections()]));
   });
 
   onMount(() => {

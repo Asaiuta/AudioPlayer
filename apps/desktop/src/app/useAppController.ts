@@ -15,8 +15,8 @@ import type {
   ShuffleMode
 } from "../shared/api/types";
 import {
+  persistUISetting,
   STORAGE_KEYS,
-  UI_SETTINGS_CHANGED_EVENT,
   useUISettings
 } from "../shared/state/useUISettings";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
@@ -149,12 +149,7 @@ export function useAppController(api: ApiClient): AppController {
     const resumePosition = current?.current_time ?? 0;
     const wasPlaying = Boolean(current?.is_playing);
     playback.setCommandError(null);
-    try {
-      localStorage.setItem(STORAGE_KEYS.ncmSongLevel, level);
-      window.dispatchEvent(new Event(UI_SETTINGS_CHANGED_EVENT));
-    } catch {
-      // The stream switch can still proceed if persistence is unavailable.
-    }
+    persistUISetting(STORAGE_KEYS.ncmSongLevel, level);
 
     try {
       const result = await api.playNcmTrack({

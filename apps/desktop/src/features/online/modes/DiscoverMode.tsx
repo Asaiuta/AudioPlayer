@@ -229,7 +229,10 @@ export function DiscoverMode(props: DiscoverModeProps) {
       setCatTypes(categories.categories);
       setCatEntries(categories.entries);
       setHqCatNames(new Set(categories.hqNames));
-    } catch {}
+    } catch (error) {
+      console.warn("[DiscoverMode] failed to fetch playlist categories", error);
+      props.setFeedback("error", readErrorMessage(error));
+    }
   });
 
   createEffect(

@@ -5,6 +5,7 @@ export const UI_SETTINGS_CHANGED_EVENT = "ui-settings-changed";
 
 export interface UISettingsStorage {
   getItem: (key: string) => string | null;
+  setItem?: (key: string, value: string) => void;
 }
 
 export interface UISettingsEventTarget {
@@ -15,7 +16,9 @@ export interface UISettingsEventTarget {
 export interface UISettingsRuntime {
   storage: UISettingsStorage;
   events: UISettingsEventTarget;
+  notifyChange?: () => void;
   reportReadError?: (key: string, reason: string) => void;
+  reportWriteError?: (key: string, reason: string) => void;
 }
 
 export interface UISettingsStore {
@@ -388,8 +391,12 @@ const DEFAULTS: UISettings = {
 const browserUISettingsRuntime = (): UISettingsRuntime => ({
   storage: localStorage,
   events: window,
+  notifyChange: () => window.dispatchEvent(new Event(UI_SETTINGS_CHANGED_EVENT)),
   reportReadError: (key, reason) => {
     console.warn("[settings] failed to read setting", { key, reason });
+  },
+  reportWriteError: (key, reason) => {
+    console.warn("[settings] failed to persist setting", { key, reason });
   }
 });
 
@@ -410,6 +417,33 @@ function reportReadError(
   reason: string
 ): void {
   runtime.reportReadError?.(key, reason);
+}
+
+function reportWriteError(
+  runtime: UISettingsRuntime,
+  key: string,
+  reason: string
+): void {
+  runtime.reportWriteError?.(key, reason);
+}
+
+export function persistUISetting(
+  key: string,
+  value: string,
+  runtime: UISettingsRuntime = browserUISettingsRuntime()
+): boolean {
+  try {
+    if (!runtime.storage.setItem) {
+      reportWriteError(runtime, key, "storage_readonly");
+      return false;
+    }
+    runtime.storage.setItem(key, value);
+    runtime.notifyChange?.();
+    return true;
+  } catch {
+    reportWriteError(runtime, key, "storage_unavailable");
+    return false;
+  }
 }
 
 function readNumber(runtime: UISettingsRuntime, key: string, fallback: number): number {

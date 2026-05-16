@@ -73,7 +73,7 @@ export const getStageStyle = (
   }
   const coverRatio = clampPlayerStyleRatio(settings.playerStyleRatio);
   return {
-    "grid-template-columns": `minmax(320px, ${coverRatio}fr) minmax(420px, ${100 - coverRatio}fr)`
+    "grid-template-columns": `minmax(340px, ${coverRatio}fr) minmax(560px, ${100 - coverRatio}fr)`
   };
 };
 
