@@ -1,7 +1,7 @@
 import { createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
 import { createApiClient, type ApiClient } from "../../shared/api/client";
-import type { LibraryRoot, LibraryScanTask, LocalPlaylist, MediaItem } from "../../shared/api/types";
+import type { LibraryRoot, LocalPlaylist, MediaItem } from "../../shared/api/types";
 import type { TranslationKey } from "../../shared/i18n";
 import {
   ALL_FOLDERS_VALUE,
@@ -33,18 +33,17 @@ import {
 } from "./libraryViewModel";
 import {
   type ScanProgress,
-  scanCompletionCounts,
-  scanProgressFromStart,
   scanProgressFromTask
 } from "./libraryScanState";
+import { createLibraryScanPoller } from "./libraryScanPoller";
+import { createLibraryFeedbackController } from "./libraryFeedback";
+import { createLibraryScanActions } from "./libraryScanActions";
 import { nextSortForField, nextSortForOrder } from "./librarySortModel";
 import { uniqueMediaIds } from "./librarySelectionModel";
 import { enqueueLibraryItem, enqueueLibraryItems } from "./libraryQueueActions";
 
 const DEFAULT_LIBRARY_RANGE = { start: 0, end: 80 };
 const LEGACY_LIBRARY_TABS: readonly LibraryTab[] = ["artists", "albums", "folders"];
-const LIBRARY_SCAN_POLL_MAX_ATTEMPTS = 240;
-const LIBRARY_SCAN_POLL_INTERVAL_MS = 500;
 
 export type LibraryDataControllerApi = Pick<
   ApiClient,
@@ -71,11 +70,6 @@ export type LibraryDataControllerApi = Pick<
   | "replaceQueueFromTrackKeys"
   | "scanLibraryRoot"
 >;
-
-interface Feedback {
-  tone: "neutral" | "success" | "error";
-  message: string;
-}
 
 interface UseLibraryDataControllerOptions {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
@@ -117,32 +111,20 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const [isFetching, setIsFetching] = createSignal(false);
   const [isScanning, setIsScanning] = createSignal(false);
   const [scanProgress, setScanProgress] = createSignal<ScanProgress | null>(null);
-  const [feedbackKey, setFeedbackKey] = createSignal<TranslationKey | null>("library.feedback.initial");
-  const [feedback, setFeedback] = createSignal<Feedback>({
-    tone: "neutral",
-    message: t("library.feedback.initial")
+  const {
+    feedback,
+    readErrorMessage,
+    setKeyedFeedback,
+    setRawFeedback
+  } = createLibraryFeedbackController({
+    t,
+    initialKey: "library.feedback.initial"
   });
-
-  const readErrorMessage = (error: unknown) =>
-    error instanceof Error ? error.message : t("common.error.requestFailed");
 
   const detailResolver = new LibraryTrackDetailResolver(async (trackKey) => {
     const detail = await api.getLibraryTrackDetail(trackKey);
     return detail.item;
   });
-
-  const setKeyedFeedback = (tone: Feedback["tone"], key: TranslationKey) => {
-    setFeedbackKey(key);
-    setFeedback({ tone, message: t(key) });
-  };
-
-  const setRawFeedback = (tone: Feedback["tone"], message: string) => {
-    setFeedbackKey(null);
-    setFeedback({ tone, message });
-  };
-
-  let disposed = false;
-  let scanPollGeneration = 0;
 
   const workerClient = new LibraryWorkerClient({
     onReady: (total) => {
@@ -160,18 +142,16 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     }
   });
 
-  onCleanup(() => {
-    disposed = true;
-    scanPollGeneration += 1;
-    workerClient.dispose();
+  const scanPoller = createLibraryScanPoller({
+    getTask: (taskId) => api.getLibraryScanTask(taskId),
+    applyTask: (task) => setScanProgress(scanProgressFromTask(task)),
+    scanTimeoutMessage: () => t("library.feedback.scanTimeout")
   });
 
-  const nextScanPollToken = () => {
-    scanPollGeneration += 1;
-    return scanPollGeneration;
-  };
-
-  const isScanPollActive = (token: number) => !disposed && token === scanPollGeneration;
+  onCleanup(() => {
+    scanPoller.dispose();
+    workerClient.dispose();
+  });
 
   const currentWorkerViewInput = () =>
     createLibraryWorkerViewInput(
@@ -343,24 +323,6 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     }
   };
 
-  const applyScanTask = (task: LibraryScanTask) => {
-    setScanProgress(scanProgressFromTask(task));
-  };
-
-  const pollScanTask = async (taskId: number, token: number) => {
-    for (let attempt = 0; attempt < LIBRARY_SCAN_POLL_MAX_ATTEMPTS; attempt += 1) {
-      if (!isScanPollActive(token)) return null;
-      const task = await api.getLibraryScanTask(taskId);
-      if (!isScanPollActive(token)) return null;
-      applyScanTask(task);
-      if (task.status === "success" || task.status === "error") {
-        return task;
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, LIBRARY_SCAN_POLL_INTERVAL_MS));
-    }
-    throw new Error(t("library.feedback.scanTimeout"));
-  };
-
   onMount(() => {
     void refreshRoots();
     void refreshItems();
@@ -433,84 +395,19 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     return Number((totalBytes / (1024 * 1024 * 1024)).toFixed(2));
   });
 
-  const handleScan = async (path: string, display: string) => {
-    if (!path) {
-      setKeyedFeedback("error", "library.feedback.emptyPath");
-      return;
-    }
-    const scanPollToken = nextScanPollToken();
-    setIsScanning(true);
-    setRawFeedback("neutral", t("library.feedback.scanning", { path }));
-    try {
-      const result = await api.scanLibraryRoot(path, display ? display : undefined);
-      if (!isScanPollActive(scanPollToken)) return;
-      setScanProgress(scanProgressFromStart(result));
-      const task = await pollScanTask(result.task_id, scanPollToken);
-      if (task === null) return;
-      if (task.status === "error") {
-        throw new Error(task.error ?? t("common.error.requestFailed"));
-      }
-
-      const finalCounts = scanCompletionCounts(task, result);
+  const { handleScan, handleRescan } = createLibraryScanActions({
+    api,
+    t,
+    poller: scanPoller,
+    readErrorMessage,
+    setKeyedFeedback,
+    setRawFeedback,
+    setIsScanning,
+    setScanProgress,
+    refreshAfterScan: async () => {
       await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
-      if (!isScanPollActive(scanPollToken)) return;
-      setRawFeedback(
-        "success",
-        t("library.feedback.scanComplete", {
-          scanned: finalCounts.scanned,
-          indexed: finalCounts.indexed,
-          removed: finalCounts.removed
-        })
-      );
-    } catch (error) {
-      if (!isScanPollActive(scanPollToken)) return;
-      setRawFeedback("error", readErrorMessage(error));
-    } finally {
-      if (isScanPollActive(scanPollToken)) {
-        setScanProgress(null);
-        setIsScanning(false);
-      }
     }
-  };
-
-  const handleRescan = async (root: LibraryRoot) => {
-    const scanPollToken = nextScanPollToken();
-    setIsScanning(true);
-    setRawFeedback("neutral", t("library.feedback.rescanning", { name: root.display_name }));
-    try {
-      const result = await api.scanLibraryRoot(
-        root.source_path,
-        root.display_name,
-        root.source_key ?? undefined
-      );
-      if (!isScanPollActive(scanPollToken)) return;
-      setScanProgress(scanProgressFromStart(result));
-      const task = await pollScanTask(result.task_id, scanPollToken);
-      if (task === null) return;
-      if (task.status === "error") {
-        throw new Error(task.error ?? t("common.error.requestFailed"));
-      }
-      const finalCounts = scanCompletionCounts(task, result);
-      await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
-      if (!isScanPollActive(scanPollToken)) return;
-      setRawFeedback(
-        "success",
-        t("library.feedback.rescanComplete", {
-          scanned: finalCounts.scanned,
-          indexed: finalCounts.indexed,
-          removed: finalCounts.removed
-        })
-      );
-    } catch (error) {
-      if (!isScanPollActive(scanPollToken)) return;
-      setRawFeedback("error", readErrorMessage(error));
-    } finally {
-      if (isScanPollActive(scanPollToken)) {
-        setScanProgress(null);
-        setIsScanning(false);
-      }
-    }
-  };
+  });
 
   const deleteLibraryRoot = async (root: LibraryRoot) => {
     try {
@@ -727,21 +624,6 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     if (Number.isNaN(date.getTime())) return t("library.timestamp.never");
     return date.toLocaleString();
   };
-
-  createEffect(() => {
-    const key = feedbackKey();
-    if (key) {
-      setFeedback((current) => ({ ...current, message: t(key) }));
-    }
-  });
-
-  createEffect(() => {
-    activeTab();
-    selectedFolder();
-    selectedPlaylistId();
-    localQuery();
-    globalQuery();
-  });
 
   return {
     roots,
