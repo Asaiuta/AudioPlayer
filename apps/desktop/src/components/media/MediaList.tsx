@@ -6,18 +6,23 @@ import { useUISettings } from "../../shared/state/useUISettings";
 import { useDismissibleOverlay } from "../../shared/ui/useDismissibleOverlay";
 import {
   IconChevronDown,
-  IconChevronUp,
   IconCopy,
   IconDelete,
-  IconLocation,
-  IconPause,
   IconPlay,
   IconPlaylist,
   IconQueueAdd
 } from "../icons";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import { MediaListFloatTools } from "./MediaListFloatTools";
+import { MediaListRow } from "./MediaListRow";
+import { MediaSortPopover } from "./MediaSortPopover";
+import { stripBracketedContent } from "./mediaListFormatting";
 import { isMediaListItemCurrent } from "../../shared/media/mediaIdentity";
 export { isMediaListItemCurrent, mediaKeyForPath } from "../../shared/media/mediaIdentity";
+export {
+  displayNameFromSourcePath,
+  formatMediaDuration
+} from "./mediaListFormatting";
 
 export type MediaContextAction = "play" | "enqueue" | "copy-path" | "add-to-playlist" | "delete";
 export type MediaSortField =
@@ -83,42 +88,6 @@ interface MediaListProps<T extends MediaListItem> {
   onSortChange?: (field: MediaSortField) => void;
   onSortOrderChange?: (order: MediaSortOrder) => void;
 }
-
-export const formatMediaDuration = (secs: number | null): string => {
-  if (secs === null || !Number.isFinite(secs)) return "—";
-  const total = Math.max(0, Math.floor(secs));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
-
-const formatSize = (bytes: number | null | undefined): string => {
-  if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return "—";
-  const KB = 1024;
-  const MB = KB * 1024;
-  const GB = MB * 1024;
-  if (bytes >= GB) return `${(bytes / GB).toFixed(2)} GB`;
-  if (bytes >= MB) return `${(bytes / MB).toFixed(1)} MB`;
-  if (bytes >= KB) return `${(bytes / KB).toFixed(0)} KB`;
-  return `${bytes} B`;
-};
-
-export const displayNameFromSourcePath = (sourcePath: string): string => {
-  const normalized = sourcePath
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/");
-  const trimmed = normalized.replace(/\/+$/, "");
-  return trimmed.split("/").filter(Boolean).pop() ?? sourcePath;
-};
-
-const stripBracketedContent = (value: string): string => {
-  const stripped = value
-    .replace(/\s*[\(（［\[{【].*?[\)）\]］}】]\s*/g, " ")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-  return stripped || value;
-};
 
 const VIRTUALIZE_THRESHOLD = 120;
 const VIRTUAL_ROW_HEIGHT = 90;
@@ -499,132 +468,27 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
                   songId: props.currentSongId
                 });
               const isSelected = () => selectedId() === item.id;
-              const title = () => item.title ?? displayNameFromSourcePath(item.source_path ?? item.id);
-              const displayTitle = () => displaySongText(title());
-              const credits = () =>
-                item.artist ? displaySongText(item.artist) : t("library.item.creditsEmpty");
-              const artworkInitial = () => (title().trim().slice(0, 1) || "#").toUpperCase();
-              const className = () =>
-                [
-                  "media-row",
-                  isCurrent() ? "is-current" : "",
-                  isSelected() ? "is-selected" : ""
-                ]
-                  .filter(Boolean)
-                  .join(" ");
 
               return (
-                <li
-                  class={className()}
-                  role="row"
-                  onClick={() => setSelectedId(item.id)}
-                  onDblClick={() => props.onPlay(item)}
-                  onContextMenu={(event) => handleRowContextMenu(event, item.id)}
-                >
-                  <span class="media-cell media-cell-index" role="cell">
-                    <Show
-                      when={isCurrent()}
-                      fallback={<span class="media-row-index">{absoluteIndex() + 1}</span>}
-                    >
-                      <span class="media-current-mark" aria-label={t("media.eq.aria")} role="img">♪</span>
-                    </Show>
-                    <button
-                      type="button"
-                      class="media-index-action media-index-action-play"
-                      aria-label={t("library.item.play")}
-                      title={t("library.item.play")}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        props.onPlay(item);
-                      }}
-                    >
-                      <IconPlay />
-                    </button>
-                    <button
-                      type="button"
-                      class="media-index-action media-index-action-status"
-                      aria-label={t("library.item.play")}
-                      title={t("library.item.play")}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        props.onPlay(item);
-                      }}
-                    >
-                      <Show when={props.isPlayingNow} fallback={<IconPlay />}>
-                        <IconPause />
-                      </Show>
-                    </button>
-                  </span>
-                  <span class="media-cell media-cell-title" role="cell">
-                    <span class="media-row-title-wrap">
-                      <Show when={showArtwork()}>
-                        <Show when={item.artworkUrl}>
-                          <span class="media-row-artwork" aria-hidden="true">
-                            <img src={item.artworkUrl ?? ""} alt="" />
-                          </span>
-                        </Show>
-                        <Show when={!item.artworkUrl}>
-                          <span class="media-row-artwork media-row-artwork-fallback" aria-hidden="true">
-                            {artworkInitial()}
-                          </span>
-                        </Show>
-                      </Show>
-                      <span class="media-row-copy">
-                        <span class="media-row-title" title={item.source_path ?? title()}>
-                          <span class="media-row-title-text">{displayTitle()}</span>
-                          <Show when={uiSettings.showSongQuality && item.qualityLabel}>
-                            {(quality) => <span class="media-row-tag">{quality()}</span>}
-                          </Show>
-                          <Show when={uiSettings.showSongPrivilegeTag && item.privilegeTag}>
-                            {(tag) => <span class="media-row-tag media-row-tag-muted">{tag()}</span>}
-                          </Show>
-                          <Show when={uiSettings.showSongExplicitTag && item.explicit}>
-                            <span class="media-row-tag media-row-tag-muted">E</span>
-                          </Show>
-                          <Show when={uiSettings.showSongOriginalTag && item.originalTag}>
-                            {(tag) => <span class="media-row-tag media-row-tag-muted">{tag()}</span>}
-                          </Show>
-                        </span>
-                        <Show when={uiSettings.showSongArtist}>
-                          <span class="media-row-credits">
-                            {credits() || t("library.item.creditsEmpty")}
-                          </span>
-                        </Show>
-                      </span>
-                    </span>
-                  </span>
-                  <Show when={uiSettings.showSongAlbum}>
-                    <span class="media-cell media-cell-album" role="cell">
-                      {item.album ? displaySongText(item.album) : "—"}
-                    </span>
-                  </Show>
-                  <Show when={uiSettings.showSongOperations}>
-                    <span class="media-cell media-cell-actions" role="cell">
-                      <button
-                        type="button"
-                        class="row-action"
-                        aria-label={t("library.item.enqueue")}
-                        title={t("library.item.enqueue")}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          props.onEnqueue(item);
-                        }}
-                      >
-                        <IconQueueAdd />
-                      </button>
-                    </span>
-                  </Show>
-                  <Show when={uiSettings.showSongDuration}>
-                    <span class="media-cell media-cell-duration" role="cell">
-                      {formatMediaDuration(item.duration_secs)}
-                    </span>
-                  </Show>
-                  <Show when={!props.hideSize}>
-                    <span class="media-cell media-cell-size" role="cell">
-                      {formatSize(item.size_bytes ?? null)}
-                    </span>
-                  </Show>
-                </li>
+                <MediaListRow
+                  item={item}
+                  absoluteIndex={absoluteIndex()}
+                  isCurrent={isCurrent()}
+                  isSelected={isSelected()}
+                  isPlayingNow={props.isPlayingNow}
+                  showArtwork={showArtwork()}
+                  hideSize={props.hideSize}
+                  uiSettings={uiSettings}
+                  emptyCreditsLabel={t("library.item.creditsEmpty")}
+                  eqAriaLabel={t("media.eq.aria")}
+                  playLabel={t("library.item.play")}
+                  enqueueLabel={t("library.item.enqueue")}
+                  displaySongText={displaySongText}
+                  onSelect={setSelectedId}
+                  onPlay={props.onPlay}
+                  onEnqueue={props.onEnqueue}
+                  onContextMenu={handleRowContextMenu}
+                />
               );
             }}
           </For>
@@ -632,29 +496,14 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
           </div>
         </div>
         <Show when={totalItems() > 0}>
-          <div class="media-list-float-tools">
-            <Show when={canLocateCurrent()}>
-              <button
-                type="button"
-                class="media-list-float-button"
-                onClick={scrollToCurrent}
-                aria-label={t("media.scroll.current")}
-                title={t("media.scroll.current")}
-              >
-                <IconLocation />
-              </button>
-            </Show>
-            <button
-              type="button"
-              class="media-list-float-button"
-              classList={{ "is-hidden": scrollTop() <= 100 }}
-              onClick={() => viewportRef?.scrollTo({ top: 0, behavior: "smooth" })}
-              aria-label={t("media.scroll.top")}
-              title={t("media.scroll.top")}
-            >
-              <IconChevronUp />
-            </button>
-          </div>
+          <MediaListFloatTools
+            canLocateCurrent={canLocateCurrent()}
+            scrollTop={scrollTop()}
+            currentLabel={t("media.scroll.current")}
+            topLabel={t("media.scroll.top")}
+            onScrollToCurrent={scrollToCurrent}
+            onScrollToTop={() => viewportRef?.scrollTo({ top: 0, behavior: "smooth" })}
+          />
         </Show>
         <ContextMenu
           open={menu().open}
@@ -666,47 +515,23 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
         />
         <Show when={sortMenu().open && typeof document !== "undefined"}>
           <Portal mount={document.body}>
-            <div
-              ref={sortMenuRef}
-              class="media-sort-popover"
-              style={{ top: `${sortMenu().y}px`, left: `${sortMenu().x}px` }}
-              role="dialog"
-              aria-label={t("media.sort.dialog")}
-            >
-              <div class="media-sort-group">
-                <div class="media-sort-label">{t("media.sort.field")}</div>
-                <For each={sortFields()}>
-                  {(field) => (
-                    <label class="media-sort-radio">
-                      <input
-                        type="radio"
-                        name="media-sort-field"
-                        checked={(props.sort?.field ?? "default") === field}
-                        onChange={() => handleSortFieldChange(field)}
-                      />
-                      <span>{sortLabel(field)}</span>
-                    </label>
-                  )}
-                </For>
-              </div>
-              <div class="media-sort-divider" aria-hidden="true" />
-              <div class="media-sort-group">
-                <div class="media-sort-label">{t("media.sort.order")}</div>
-                <For each={sortOrders()}>
-                  {(order) => (
-                    <label class="media-sort-radio">
-                      <input
-                        type="radio"
-                        name="media-sort-order"
-                        checked={(props.sort?.order ?? "default") === order}
-                        onChange={() => handleSortOrderChange(order)}
-                      />
-                      <span>{sortOrderLabel(order)}</span>
-                    </label>
-                  )}
-                </For>
-              </div>
-            </div>
+            <MediaSortPopover
+              ref={(element) => {
+                sortMenuRef = element;
+              }}
+              x={sortMenu().x}
+              y={sortMenu().y}
+              sort={props.sort}
+              dialogLabel={t("media.sort.dialog")}
+              fieldLabel={t("media.sort.field")}
+              orderLabel={t("media.sort.order")}
+              fields={sortFields()}
+              orders={sortOrders()}
+              sortLabel={sortLabel}
+              sortOrderLabel={sortOrderLabel}
+              onFieldChange={handleSortFieldChange}
+              onOrderChange={handleSortOrderChange}
+            />
           </Portal>
         </Show>
       </div>
