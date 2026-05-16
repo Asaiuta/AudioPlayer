@@ -456,8 +456,11 @@ impl AppDatabase {
             })
             .map_err(|e| format!("Failed to query scan snapshot: {}", e))?;
 
-        let mut map = HashMap::new();
-        for row in rows.flatten() {
+        let records = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to decode scan snapshot: {}", e))?;
+        let mut map = HashMap::with_capacity(records.len());
+        for row in records {
             map.insert(row.0, row.1);
         }
         Ok(map)

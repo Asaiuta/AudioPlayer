@@ -4,6 +4,7 @@ use super::analysis::{
 use super::*;
 use actix_web::web;
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -24,6 +25,12 @@ struct ParsedTrack {
     channels: Option<usize>,
     mtime: f64,
     size: u64,
+}
+
+struct LocalScanWriteSummary {
+    indexed_paths: Vec<String>,
+    indexed_count: u64,
+    write_failures: Vec<String>,
 }
 
 fn external_cover_for_media(path: &Path) -> Option<(Vec<u8>, String)> {
@@ -118,7 +125,10 @@ pub(super) fn scan_local_library(
         });
     }
 
-    let snapshot = data.app_db.load_scan_snapshot().unwrap_or_default();
+    let snapshot = data
+        .app_db
+        .load_scan_snapshot()
+        .map_err(|e| format!("Failed to load local library scan snapshot: {}", e))?;
     let (tx, rx) = std::sync::mpsc::sync_channel::<ParsedTrack>(64);
     let indexed_paths = Arc::new(std::sync::Mutex::new(Vec::new()));
     let indexed_count = Arc::new(AtomicU64::new(0));
@@ -218,24 +228,45 @@ pub(super) fn scan_local_library(
             }
         }
 
-        let _ = tx.send(ParsedTrack {
-            canonical_path: canonical,
-            metadata,
-            duration_secs,
-            sample_rate,
-            channels,
-            mtime,
-            size,
-        });
+        if tx
+            .send(ParsedTrack {
+                canonical_path: canonical,
+                metadata,
+                duration_secs,
+                sample_rate,
+                channels,
+                mtime,
+                size,
+            })
+            .is_err()
+        {
+            log::warn!(
+                "Local library scan writer stopped before receiving '{}'",
+                path.display()
+            );
+        }
     });
 
-    writer_handle
-        .join()
-        .map_err(|_| "DB writer thread panicked".to_string())?;
+    let write_summary = writer_handle.join().map_err(|payload| {
+        let msg = payload
+            .downcast_ref::<&'static str>()
+            .copied()
+            .map(str::to_string)
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "(non-string panic payload)".to_string());
+        format!("DB writer thread panicked: {}", msg)
+    })?;
+    if !write_summary.write_failures.is_empty() {
+        return Err(format!(
+            "Failed to index {} local media item(s): {}",
+            write_summary.write_failures.len(),
+            write_summary.write_failures.join("; ")
+        ));
+    }
 
     let final_scanned = scanned.load(Ordering::Relaxed);
-    let final_indexed = indexed_count.load(Ordering::Relaxed);
-    let final_indexed_paths = clone_indexed_paths(&indexed_paths);
+    let final_indexed = write_summary.indexed_count;
+    let final_indexed_paths = write_summary.indexed_paths;
 
     let removed = data
         .app_db
@@ -278,15 +309,36 @@ pub(super) fn scan_local_library(
 fn collect_supported_local_media_paths(root_path: &str) -> Result<Vec<std::path::PathBuf>, String> {
     let mut file_paths = Vec::new();
     let mut stack = vec![std::path::PathBuf::from(root_path)];
+    let mut visited_dirs = HashSet::new();
     while let Some(dir) = stack.pop() {
+        let canonical_dir = dir.canonicalize().map_err(|e| {
+            format!(
+                "Failed to canonicalize directory '{}': {}",
+                dir.display(),
+                e
+            )
+        })?;
+        if !visited_dirs.insert(canonical_dir.clone()) {
+            continue;
+        }
         let entries = std::fs::read_dir(&dir)
             .map_err(|e| format!("Failed to read directory '{}': {}", dir.display(), e))?;
         for entry in entries {
             let entry = entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let path = entry.path();
-            if path.is_dir() {
+            let file_type = entry
+                .file_type()
+                .map_err(|e| format!("Failed to read file type for '{}': {}", path.display(), e))?;
+            if file_type.is_symlink() {
+                log::warn!(
+                    "Skipping symlink during local library scan: '{}'",
+                    path.display()
+                );
+                continue;
+            }
+            if file_type.is_dir() {
                 stack.push(path);
-            } else if is_supported_media_path(&path) {
+            } else if file_type.is_file() && is_supported_media_path(&path) {
                 file_paths.push(path);
             }
         }
@@ -303,13 +355,14 @@ fn spawn_local_scan_writer(
     started_at: u64,
     root_id: i64,
     root_path: &str,
-) -> std::thread::JoinHandle<()> {
+) -> std::thread::JoinHandle<LocalScanWriteSummary> {
     let db = Arc::clone(&data.app_db);
     let writer_data = data.clone();
     let writer_root_path = root_path.to_string();
     std::thread::spawn(move || {
         let mut batch: Vec<ParsedTrack> = Vec::with_capacity(50);
         let mut total_written: u64 = 0;
+        let mut write_failures = Vec::new();
 
         loop {
             match rx.recv() {
@@ -325,7 +378,12 @@ fn spawn_local_scan_writer(
                 Err(_) => break,
             }
 
-            write_parsed_track_batch(&db, &indexed_paths, &indexed_count, &batch);
+            write_failures.extend(write_parsed_track_batch(
+                &db,
+                &indexed_paths,
+                &indexed_count,
+                &batch,
+            ));
             total_written += batch.len() as u64;
             batch.clear();
 
@@ -345,7 +403,17 @@ fn spawn_local_scan_writer(
             );
         }
 
-        write_parsed_track_batch(&db, &indexed_paths, &indexed_count, &batch);
+        write_failures.extend(write_parsed_track_batch(
+            &db,
+            &indexed_paths,
+            &indexed_count,
+            &batch,
+        ));
+        LocalScanWriteSummary {
+            indexed_paths: clone_indexed_paths(&indexed_paths),
+            indexed_count: indexed_count.load(Ordering::Relaxed),
+            write_failures,
+        }
     })
 }
 
@@ -354,7 +422,8 @@ fn write_parsed_track_batch(
     indexed_paths: &IndexedPaths,
     indexed_count: &Arc<AtomicU64>,
     batch: &[ParsedTrack],
-) {
+) -> Vec<String> {
+    let mut failures = Vec::new();
     for track in batch {
         match db.record_media_metadata_with_scan_info(
             &track.canonical_path,
@@ -369,9 +438,14 @@ fn write_parsed_track_batch(
                 push_indexed_path(indexed_paths, track.canonical_path.clone());
                 indexed_count.fetch_add(1, Ordering::Relaxed);
             }
-            Err(e) => log::warn!("Failed to index '{}': {}", track.canonical_path, e),
+            Err(e) => {
+                let message = format!("{} ({})", track.canonical_path, e);
+                log::warn!("Failed to index '{}': {}", track.canonical_path, e);
+                failures.push(message);
+            }
         }
     }
+    failures
 }
 
 fn with_indexed_paths<T>(
@@ -422,6 +496,7 @@ pub(super) fn scan_webdav_library(
     let credentials = webdav_cfg.http_credentials();
     let mut scanned = 0_u64;
     let mut indexed = 0_u64;
+    let mut index_failures = Vec::new();
     let mut stack = vec![root_path.to_string()];
 
     while let Some(path) = stack.pop() {
@@ -464,7 +539,10 @@ pub(super) fn scan_webdav_library(
                         Some(info.channels),
                     ) {
                         Ok(_) => indexed += 1,
-                        Err(e) => log::warn!("Failed to index remote media '{}': {}", entry.url, e),
+                        Err(e) => {
+                            log::warn!("Failed to index remote media '{}': {}", entry.url, e);
+                            index_failures.push(format!("{} ({})", entry.url, e));
+                        }
                     }
                 }
                 Err(e) => log::warn!("Skipping remote media '{}': {}", entry.url, e),
@@ -487,6 +565,14 @@ pub(super) fn scan_webdav_library(
                 );
             }
         }
+    }
+
+    if !index_failures.is_empty() {
+        return Err(format!(
+            "Failed to index {} remote media item(s): {}",
+            index_failures.len(),
+            index_failures.join("; ")
+        ));
     }
 
     data.app_db
@@ -523,15 +609,26 @@ pub(super) fn scan_webdav_library(
 
 #[cfg(test)]
 mod tests {
-    use super::{external_cover_for_media, metadata_with_external_cover};
+    use super::{collect_supported_local_media_paths, external_cover_for_media, metadata_with_external_cover};
     use std::fs;
+    use std::path::Path;
+
+    fn unique_temp_dir(name: &str) -> std::path::PathBuf {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        std::env::temp_dir().join(format!(
+            "audio_player_library_scan_{}_{}_{}",
+            name,
+            std::process::id(),
+            suffix
+        ))
+    }
 
     #[test]
     fn metadata_with_external_cover_uses_sidecar_art_when_missing() {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "audio_player_library_scan_test_{}",
-            std::process::id()
-        ));
+        let temp_dir = unique_temp_dir("cover");
         let _ = fs::create_dir_all(&temp_dir);
 
         let cover_path = temp_dir.join("cover.jpg");
@@ -551,5 +648,36 @@ mod tests {
 
         let _ = fs::remove_file(cover_path);
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn collect_supported_local_media_paths_skips_symlink_directories() {
+        let temp_dir = unique_temp_dir("walk");
+        let nested_dir = temp_dir.join("nested");
+        fs::create_dir_all(&nested_dir).unwrap();
+        let track_path = nested_dir.join("song.flac");
+        let text_path = nested_dir.join("notes.txt");
+        fs::write(&track_path, b"fake audio").unwrap();
+        fs::write(&text_path, b"not audio").unwrap();
+
+        let linked_dir = temp_dir.join("linked");
+        create_dir_symlink(&nested_dir, &linked_dir);
+
+        let mut paths = collect_supported_local_media_paths(temp_dir.to_str().unwrap()).unwrap();
+        paths.sort();
+
+        assert_eq!(paths, vec![track_path]);
+
+        let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[cfg(unix)]
+    fn create_dir_symlink(target: &Path, link: &Path) {
+        let _ = std::os::unix::fs::symlink(target, link);
+    }
+
+    #[cfg(windows)]
+    fn create_dir_symlink(target: &Path, link: &Path) {
+        let _ = std::os::windows::fs::symlink_dir(target, link);
     }
 }
