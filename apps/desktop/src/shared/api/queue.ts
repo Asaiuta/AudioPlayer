@@ -16,6 +16,7 @@ export interface QueueApiClient {
   cancelPreload: () => Promise<void>;
   getPersistentQueue: () => Promise<QueueEntry[]>;
   enqueueTrack: (path: string) => Promise<QueueEntry[]>;
+  enqueueTracks: (paths: string[]) => Promise<QueueEntry[]>;
   removeQueueEntry: (entryId: number) => Promise<QueueEntry[]>;
   clearPersistentQueue: () => Promise<void>;
   playFromQueue: (options?: PlayQueueOptions) => Promise<PlayerState>;
@@ -160,6 +161,11 @@ export const createQueueApiClient = (transport: QueueApiTransport): QueueApiClie
     parseQueueResponse(
       await transport.requestJson("/domain/queue/enqueue", postJson({ path })),
       "Invalid queue enqueue response"
+    ),
+  enqueueTracks: async (paths) =>
+    parseQueueResponse(
+      await transport.requestJson("/domain/queue/enqueue_many", postJson({ paths })),
+      "Invalid queue batch enqueue response"
     ),
   removeQueueEntry: async (entryId) =>
     parseQueueResponse(

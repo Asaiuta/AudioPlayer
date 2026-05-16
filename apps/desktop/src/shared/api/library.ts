@@ -9,6 +9,7 @@ import type {
   LocalPlaylistDetail,
   MediaItem,
   PlayerState,
+  QueueEntry,
   ScanResult
 } from "./types";
 
@@ -59,6 +60,7 @@ export interface LibraryApiClient {
   getLibraryTrackDetail: (trackKey: number) => Promise<LibraryTrackDetail>;
   replaceQueueFromLibraryQuery: (input: LibraryQueueQueryInput) => Promise<LibraryQueuePlaybackResult>;
   replaceQueueFromTrackKeys: (input: LibraryQueueTrackKeysInput) => Promise<LibraryQueuePlaybackResult>;
+  enqueueQueueFromTrackKeys: (input: LibraryQueueTrackKeysInput) => Promise<QueueEntry[]>;
   deleteMediaItems: (mediaIds: string[]) => Promise<number>;
   listLocalPlaylists: () => Promise<LocalPlaylist[]>;
   createLocalPlaylist: (input: LocalPlaylistCreateInput) => Promise<LocalPlaylist>;
@@ -240,6 +242,20 @@ const parseLibraryQueuePlaybackResponse = (value: unknown): LibraryQueuePlayback
   };
 };
 
+const parseLibraryQueueEntriesResponse = (value: unknown, errorMessage: string): QueueEntry[] => {
+  if (!isRecord(value)) {
+    throw new Error(errorMessage);
+  }
+  const status = parseStatus(value.status);
+  if (status === "error") {
+    throw new Error(typeof value.message === "string" ? value.message : errorMessage);
+  }
+  if (!Array.isArray(value.queue)) {
+    throw new Error(errorMessage);
+  }
+  return value.queue as QueueEntry[];
+};
+
 const parseLocalPlaylistsResponse = (value: unknown): LocalPlaylist[] => {
   if (!isRecord(value)) {
     throw new Error("Invalid local playlists response shape");
@@ -371,6 +387,17 @@ export const createLibraryApiClient = (transport: LibraryApiTransport): LibraryA
           start_track_key: input.startTrackKey ?? null
         })
       )
+    ),
+  enqueueQueueFromTrackKeys: async (input) =>
+    parseLibraryQueueEntriesResponse(
+      await transport.requestJson(
+        "/domain/library/queue_enqueue_from_track_keys",
+        postJson({
+          track_keys: input.trackKeys,
+          start_track_key: input.startTrackKey ?? null
+        })
+      ),
+      "Invalid library queue enqueue response"
     ),
   deleteMediaItems: async (mediaIds) => {
     const json = await transport.requestJson(

@@ -39,9 +39,12 @@ import {
 } from "./libraryScanState";
 import { nextSortForField, nextSortForOrder } from "./librarySortModel";
 import { uniqueMediaIds } from "./librarySelectionModel";
+import { enqueueLibraryItem, enqueueLibraryItems } from "./libraryQueueActions";
 
 const DEFAULT_LIBRARY_RANGE = { start: 0, end: 80 };
 const LEGACY_LIBRARY_TABS: readonly LibraryTab[] = ["artists", "albums", "folders"];
+const LIBRARY_SCAN_POLL_MAX_ATTEMPTS = 240;
+const LIBRARY_SCAN_POLL_INTERVAL_MS = 500;
 
 export type LibraryDataControllerApi = Pick<
   ApiClient,
@@ -50,7 +53,8 @@ export type LibraryDataControllerApi = Pick<
   | "deleteLibraryRoot"
   | "deleteLocalPlaylist"
   | "deleteMediaItems"
-  | "enqueueTrack"
+  | "enqueueQueueFromTrackKeys"
+  | "enqueueTracks"
   | "getCoverArtUrl"
   | "getLibraryRoots"
   | "getLibraryScanTask"
@@ -304,14 +308,13 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   };
 
   const pollScanTask = async (taskId: number) => {
-    const maxAttempts = 240;
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    for (let attempt = 0; attempt < LIBRARY_SCAN_POLL_MAX_ATTEMPTS; attempt += 1) {
       const task = await api.getLibraryScanTask(taskId);
       applyScanTask(task);
       if (task.status === "success" || task.status === "error") {
         return task;
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      await new Promise((resolve) => window.setTimeout(resolve, LIBRARY_SCAN_POLL_INTERVAL_MS));
     }
     throw new Error(t("library.feedback.scanTimeout"));
   };
@@ -513,12 +516,12 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
 
   const enqueueItem = async (item: LibraryListItem) => {
     try {
-      const detail = await ensureItemDetail(item);
-      if (!detail) {
-        throw new Error(t("common.error.requestFailed"));
-      }
-      await api.enqueueTrack(detail.source_path);
-      setRawFeedback("success", t("library.feedback.added", { title: item.title ?? detail.source_path }));
+      const result = await enqueueLibraryItem({
+        api,
+        ensureItemDetail,
+        requestFailedMessage: () => t("common.error.requestFailed")
+      }, item);
+      setRawFeedback("success", t("library.feedback.added", { title: result.title }));
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
       throw error;
@@ -528,13 +531,12 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const enqueueItems = async (items: readonly LibraryListItem[]) => {
     if (items.length === 0) return;
     try {
-      for (const item of items) {
-        const detail = await ensureItemDetail(item);
-        if (detail) {
-          await api.enqueueTrack(detail.source_path);
-        }
-      }
-      setRawFeedback("success", t("library.feedback.addedMany", { count: items.length }));
+      const result = await enqueueLibraryItems({
+        api,
+        ensureItemDetail,
+        requestFailedMessage: () => t("common.error.requestFailed")
+      }, items);
+      setRawFeedback("success", t("library.feedback.addedMany", { count: result.enqueuedCount }));
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
       throw error;
