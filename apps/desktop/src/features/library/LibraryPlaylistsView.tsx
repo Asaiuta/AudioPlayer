@@ -19,6 +19,7 @@ import type { LocalPlaylist } from "../../shared/api/types";
 import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { useUISettings } from "../../shared/state/useUISettings";
+import { resolveArtworkUrl } from "../../shared/ui/artwork";
 import type { LibraryListItem } from "./libraryViewTypes";
 
 interface LibraryPlaylistsViewProps {
@@ -58,12 +59,13 @@ export function LibraryPlaylistsView(props: LibraryPlaylistsViewProps) {
         .some((value) => value?.toLowerCase().includes(query))
     );
   });
-  const playlistCover = (playlist: LocalPlaylist): string | null => {
-    if (playlist.cover_has_cover_art && playlist.cover_media_id) {
-      return api.getCoverArtUrl(playlist.cover_media_id);
-    }
-    return playlist.cover_external_artwork_url;
-  };
+  const playlistCover = (playlist: LocalPlaylist): string | null =>
+    resolveArtworkUrl({
+      externalArtworkUrl: playlist.cover_external_artwork_url,
+      mediaId: playlist.cover_media_id,
+      hasCoverArt: playlist.cover_has_cover_art,
+      urls: api
+    });
   const playlistSubtitle = (playlist: LocalPlaylist): string =>
     t("library.group.songCount", { count: playlist.track_count });
   const playSelectedPlaylist = () => {

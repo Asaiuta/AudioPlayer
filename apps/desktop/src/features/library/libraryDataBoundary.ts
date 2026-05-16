@@ -1,4 +1,5 @@
 import type { MediaItem } from "../../shared/api/types";
+import { resolveArtworkUrl } from "../../shared/ui/artwork";
 import type { LibraryListItem } from "./libraryViewTypes";
 import type { LibraryWorkerRow } from "./libraryWorkerProtocol";
 
@@ -13,7 +14,12 @@ export const adaptMediaItemToListItem = (
 ): LibraryListItem => ({
   ...item,
   id: item.media_id,
-  artworkUrl: item.has_cover_art ? urls.getCoverArtUrl(item.media_id) : item.external_artwork_url
+  artworkUrl: resolveArtworkUrl({
+    externalArtworkUrl: item.external_artwork_url,
+    mediaId: item.media_id,
+    hasCoverArt: item.has_cover_art,
+    urls
+  })
 });
 
 export const adaptWorkerRowToListItem = (
@@ -32,9 +38,14 @@ export const adaptWorkerRowToListItem = (
   added_at_epoch_secs: row.added_at_epoch_secs,
   updated_at_epoch_secs: row.updated_at_epoch_secs,
   fileName: row.fileName,
-  artworkUrl: row.hasCoverArt
-    ? urls.getLibraryTrackCoverArtUrl(row.trackKey)
-    : row.externalArtworkUrl
+  artworkUrl: resolveArtworkUrl({
+    externalArtworkUrl: row.externalArtworkUrl,
+    mediaId: String(row.trackKey),
+    hasCoverArt: row.hasCoverArt,
+    urls: {
+      getCoverArtUrl: (trackKey) => urls.getLibraryTrackCoverArtUrl(Number(trackKey))
+    }
+  })
 });
 
 export class LibraryTrackDetailResolver {

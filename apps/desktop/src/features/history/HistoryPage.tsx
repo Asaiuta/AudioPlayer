@@ -5,6 +5,7 @@ import { useTranslation } from "../../shared/i18n";
 import type { TranslationKey } from "../../shared/i18n";
 import { IconDelete, IconPlayCircle } from "../../components/icons";
 import { MediaList, type MediaContextAction, type MediaListItem } from "../../components/media/MediaList";
+import { resolveArtworkUrl } from "../../shared/ui/artwork";
 import type { NcmTrackReference } from "../online/ncmPlayback";
 import { createPlaybackController } from "../online/shared/playback";
 import type { Feedback as OnlineFeedback, OnlineTrackItem } from "../online/shared/types";
@@ -67,9 +68,12 @@ const toHistorySongItems = (entries: PlaybackHistoryEntry[]): HistorySongItem[] 
       duration_secs: entry.duration_secs,
       songId: entry.ncm_song_id ?? undefined,
       size_bytes: null,
-      artworkUrl:
-        entry.external_artwork_url ??
-        (entry.media_id && entry.has_cover_art ? api.getCoverArtUrl(entry.media_id) : null),
+      artworkUrl: resolveArtworkUrl({
+        externalArtworkUrl: entry.external_artwork_url,
+        mediaId: entry.media_id,
+        hasCoverArt: entry.has_cover_art,
+        urls: api
+      }),
       eventAtEpochSecs: entry.event_at_epoch_secs
     });
     return items;
