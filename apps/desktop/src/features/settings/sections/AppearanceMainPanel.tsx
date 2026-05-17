@@ -8,9 +8,9 @@ import type {
   PlayerTimeFormat,
   PlayerType,
   RouteAnimation,
-  ThemeMode
+  ThemeMode,
+  UISettingsBooleanFieldName
 } from "../../../shared/state/useUISettings";
-import { STORAGE_KEYS } from "../../../shared/state/useUISettings";
 import {
   BooleanSettingItem,
   ButtonSettingItem,
@@ -40,7 +40,7 @@ interface BooleanItemConfig {
   id: string;
   labelKey: TranslationKey;
   descriptionKey?: TranslationKey;
-  storageKey: string;
+  field: UISettingsBooleanFieldName;
   value: (settings: AppearanceSettings) => () => boolean;
   setValue: (settings: AppearanceSettings) => Setter<boolean>;
 }
@@ -58,7 +58,7 @@ const LAYOUT_BOOLEAN_ITEMS: readonly BooleanItemConfig[] = [
     id: "menuShowCover",
     labelKey: "settings.appearance.menuShowCover",
     descriptionKey: "settings.appearance.menuShowCover.desc",
-    storageKey: STORAGE_KEYS.menuShowCover,
+    field: "menuShowCover",
     value: (settings) => settings.menuShowCover,
     setValue: (settings) => settings.setMenuShowCover
   },
@@ -66,7 +66,7 @@ const LAYOUT_BOOLEAN_ITEMS: readonly BooleanItemConfig[] = [
     id: "showPlaylistCount",
     labelKey: "settings.appearance.showPlaylistCount",
     descriptionKey: "settings.appearance.showPlaylistCount.desc",
-    storageKey: STORAGE_KEYS.showPlaylistCount,
+    field: "showPlaylistCount",
     value: (settings) => settings.showPlaylistCount,
     setValue: (settings) => settings.setShowPlaylistCount
   }
@@ -77,7 +77,7 @@ const PLAYER_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "autoHidePlayerMeta",
     labelKey: "settings.appearance.autoHidePlayerMeta",
     descriptionKey: "settings.appearance.autoHidePlayerMeta.desc",
-    storageKey: STORAGE_KEYS.autoHidePlayerMeta,
+    field: "autoHidePlayerMeta",
     value: (settings) => settings.autoHidePlayerMeta,
     setValue: (settings) => settings.setAutoHidePlayerMeta
   },
@@ -85,7 +85,7 @@ const PLAYER_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showPlayMeta",
     labelKey: "settings.appearance.showPlayMeta",
     descriptionKey: "settings.appearance.showPlayMeta.desc",
-    storageKey: STORAGE_KEYS.showPlayMeta,
+    field: "showPlayMeta",
     value: (settings) => settings.showPlayMeta,
     setValue: (settings) => settings.setShowPlayMeta
   },
@@ -93,7 +93,7 @@ const PLAYER_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "countDownShow",
     labelKey: "settings.appearance.countDownShow",
     descriptionKey: "settings.appearance.countDownShow.desc",
-    storageKey: STORAGE_KEYS.countDownShow,
+    field: "countDownShow",
     value: (settings) => settings.countDownShow,
     setValue: (settings) => settings.setCountDownShow
   },
@@ -101,7 +101,7 @@ const PLAYER_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "barLyricShow",
     labelKey: "settings.appearance.barLyricShow",
     descriptionKey: "settings.appearance.barLyricShow.desc",
-    storageKey: STORAGE_KEYS.barLyricShow,
+    field: "barLyricShow",
     value: (settings) => settings.barLyricShow,
     setValue: (settings) => settings.setBarLyricShow
   },
@@ -109,7 +109,7 @@ const PLAYER_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showPlayerQuality",
     labelKey: "settings.appearance.showPlayerQuality",
     descriptionKey: "settings.appearance.showPlayerQuality.desc",
-    storageKey: STORAGE_KEYS.showPlayerQuality,
+    field: "showPlayerQuality",
     value: (settings) => settings.showPlayerQuality,
     setValue: (settings) => settings.setShowPlayerQuality
   }
@@ -120,7 +120,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongAlbum",
     labelKey: "settings.appearance.showSongAlbum",
     descriptionKey: "settings.appearance.showSongAlbum.desc",
-    storageKey: STORAGE_KEYS.showSongAlbum,
+    field: "showSongAlbum",
     value: (settings) => settings.showSongAlbum,
     setValue: (settings) => settings.setShowSongAlbum
   },
@@ -128,7 +128,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongArtist",
     labelKey: "settings.appearance.showSongArtist",
     descriptionKey: "settings.appearance.showSongArtist.desc",
-    storageKey: STORAGE_KEYS.showSongArtist,
+    field: "showSongArtist",
     value: (settings) => settings.showSongArtist,
     setValue: (settings) => settings.setShowSongArtist
   },
@@ -136,7 +136,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongDuration",
     labelKey: "settings.appearance.showSongDuration",
     descriptionKey: "settings.appearance.showSongDuration.desc",
-    storageKey: STORAGE_KEYS.showSongDuration,
+    field: "showSongDuration",
     value: (settings) => settings.showSongDuration,
     setValue: (settings) => settings.setShowSongDuration
   },
@@ -144,7 +144,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongOperations",
     labelKey: "settings.appearance.showSongOperations",
     descriptionKey: "settings.appearance.showSongOperations.desc",
-    storageKey: STORAGE_KEYS.showSongOperations,
+    field: "showSongOperations",
     value: (settings) => settings.showSongOperations,
     setValue: (settings) => settings.setShowSongOperations
   },
@@ -152,7 +152,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongQuality",
     labelKey: "settings.appearance.showSongQuality",
     descriptionKey: "settings.appearance.showSongQuality.desc",
-    storageKey: STORAGE_KEYS.showSongQuality,
+    field: "showSongQuality",
     value: (settings) => settings.showSongQuality,
     setValue: (settings) => settings.setShowSongQuality
   },
@@ -160,7 +160,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongPrivilegeTag",
     labelKey: "settings.appearance.showSongPrivilegeTag",
     descriptionKey: "settings.appearance.showSongPrivilegeTag.desc",
-    storageKey: STORAGE_KEYS.showSongPrivilegeTag,
+    field: "showSongPrivilegeTag",
     value: (settings) => settings.showSongPrivilegeTag,
     setValue: (settings) => settings.setShowSongPrivilegeTag
   },
@@ -168,7 +168,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongExplicitTag",
     labelKey: "settings.appearance.showSongExplicitTag",
     descriptionKey: "settings.appearance.showSongExplicitTag.desc",
-    storageKey: STORAGE_KEYS.showSongExplicitTag,
+    field: "showSongExplicitTag",
     value: (settings) => settings.showSongExplicitTag,
     setValue: (settings) => settings.setShowSongExplicitTag
   },
@@ -176,7 +176,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "showSongOriginalTag",
     labelKey: "settings.appearance.showSongOriginalTag",
     descriptionKey: "settings.appearance.showSongOriginalTag.desc",
-    storageKey: STORAGE_KEYS.showSongOriginalTag,
+    field: "showSongOriginalTag",
     value: (settings) => settings.showSongOriginalTag,
     setValue: (settings) => settings.setShowSongOriginalTag
   },
@@ -184,7 +184,7 @@ const SONG_LIST_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
     id: "hideBracketedContent",
     labelKey: "settings.appearance.hideBracketedContent",
     descriptionKey: "settings.appearance.hideBracketedContent.desc",
-    storageKey: STORAGE_KEYS.hideBracketedContent,
+    field: "hideBracketedContent",
     value: (settings) => settings.hideBracketedContent,
     setValue: (settings) => settings.setHideBracketedContent
   }
@@ -206,7 +206,7 @@ function renderBooleanItem(
       highlighted={props.highlightId === config.id}
       index={props.nextIndex()}
       checked={value()}
-      onChange={() => props.settings.toggleBool(config.storageKey, value, setValue)}
+      onChange={() => props.settings.toggleField(config.field, value, setValue)}
     />
   );
 }
@@ -286,8 +286,8 @@ export function AppearanceMainPanel(props: AppearanceMainPanelProps) {
       descriptionKey: "settings.appearance.playerBackgroundPause.desc",
       checked: props.settings.playerBackgroundPause,
       onChange: () =>
-        props.settings.toggleBool(
-          STORAGE_KEYS.playerBackgroundPause,
+        props.settings.toggleField(
+          "playerBackgroundPause",
           props.settings.playerBackgroundPause,
           props.settings.setPlayerBackgroundPause
         )
@@ -298,8 +298,8 @@ export function AppearanceMainPanel(props: AppearanceMainPanelProps) {
       descriptionKey: "settings.appearance.playerBackgroundLowFreqVolume.desc",
       checked: props.settings.playerBackgroundLowFreqVolume,
       onChange: () =>
-        props.settings.toggleBool(
-          STORAGE_KEYS.playerBackgroundLowFreqVolume,
+        props.settings.toggleField(
+          "playerBackgroundLowFreqVolume",
           props.settings.playerBackgroundLowFreqVolume,
           props.settings.setPlayerBackgroundLowFreqVolume
         )
@@ -313,8 +313,8 @@ export function AppearanceMainPanel(props: AppearanceMainPanelProps) {
       descriptionKey: "settings.appearance.showSpectrums.desc",
       checked: props.settings.showSpectrums,
       onChange: () =>
-        props.settings.toggleBool(
-          STORAGE_KEYS.showSpectrums,
+        props.settings.toggleField(
+          "showSpectrums",
           props.settings.showSpectrums,
           props.settings.setShowSpectrums
         )

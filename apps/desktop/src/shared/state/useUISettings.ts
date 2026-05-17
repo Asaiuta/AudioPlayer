@@ -1,11 +1,12 @@
+import { onCleanup, onMount, type Accessor, type Setter } from "solid-js";
 import { createStore, reconcile } from "solid-js/store";
-import { onCleanup, onMount } from "solid-js";
 
 export const UI_SETTINGS_CHANGED_EVENT = "ui-settings-changed";
 
 export interface UISettingsStorage {
   getItem: (key: string) => string | null;
   setItem?: (key: string, value: string) => void;
+  removeItem?: (key: string) => void;
 }
 
 export interface UISettingsEventTarget {
@@ -290,26 +291,52 @@ interface UISettingField<T> {
   key: string;
   defaultValue: T;
   read: (runtime: UISettingsRuntime) => T;
+  write: (runtime: UISettingsRuntime, value: T) => boolean;
 }
 
 type UISettingsSchema = {
   [K in keyof UISettings]: UISettingField<UISettings[K]>;
 };
 
-function createBoolField(key: string, defaultValue: boolean): UISettingField<boolean> {
+export type UISettingsFieldName = keyof UISettings;
+
+export type UISettingsScalarFieldName = {
+  [K in UISettingsFieldName]: UISettings[K] extends boolean | number | string ? K : never;
+}[UISettingsFieldName];
+
+export type UISettingsBooleanFieldName = {
+  [K in UISettingsFieldName]: UISettings[K] extends boolean ? K : never;
+}[UISettingsFieldName];
+
+export type UISettingsBooleanRecordFieldName = {
+  [K in UISettingsFieldName]: UISettings[K] extends Record<string, boolean> ? K : never;
+}[UISettingsFieldName];
+
+type UISettingSerializedWrite = {
+  key: string;
+  value: string;
+};
+
+function createField<T>(
+  key: string,
+  defaultValue: T,
+  read: (runtime: UISettingsRuntime) => T,
+  serialize: (value: T) => string = (value) => String(value)
+): UISettingField<T> {
   return {
     key,
     defaultValue,
-    read: (runtime) => readBool(runtime, key, defaultValue)
+    read,
+    write: (runtime, value) => persistUISetting(key, serialize(value), runtime)
   };
 }
 
+function createBoolField(key: string, defaultValue: boolean): UISettingField<boolean> {
+  return createField(key, defaultValue, (runtime) => readBool(runtime, key, defaultValue));
+}
+
 function createNumberField(key: string, defaultValue: number): UISettingField<number> {
-  return {
-    key,
-    defaultValue,
-    read: (runtime) => readNumber(runtime, key, defaultValue)
-  };
+  return createField(key, defaultValue, (runtime) => readNumber(runtime, key, defaultValue));
 }
 
 function createClampedNumberField(
@@ -318,11 +345,9 @@ function createClampedNumberField(
   min: number,
   max: number
 ): UISettingField<number> {
-  return {
-    key,
-    defaultValue,
-    read: (runtime) => Math.min(max, Math.max(min, readNumber(runtime, key, defaultValue)))
-  };
+  return createField(key, defaultValue, (runtime) =>
+    Math.min(max, Math.max(min, readNumber(runtime, key, defaultValue)))
+  );
 }
 
 function createEnumField<T extends string>(
@@ -330,39 +355,36 @@ function createEnumField<T extends string>(
   defaultValue: T,
   validValues: ReadonlySet<T>
 ): UISettingField<T> {
-  return {
-    key,
-    defaultValue,
-    read: (runtime) => {
-      const raw = readString(runtime, key, defaultValue);
-      if (validValues.has(raw as T)) {
-        return raw as T;
-      }
-      reportReadError(runtime, key, "invalid_value");
-      return defaultValue;
+  return createField(key, defaultValue, (runtime) => {
+    const raw = readString(runtime, key, defaultValue);
+    if (validValues.has(raw as T)) {
+      return raw as T;
     }
-  };
+    reportReadError(runtime, key, "invalid_value");
+    return defaultValue;
+  });
 }
 
 function createBoolRecordField<T extends Record<string, boolean>>(
   key: string,
   defaultValue: T
 ): UISettingField<T> {
-  return {
+  return createField(
     key,
     defaultValue,
-    read: (runtime) => readBoolRecord(runtime, key, defaultValue)
-  };
+    (runtime) => readBoolRecord(runtime, key, defaultValue),
+    (value) => JSON.stringify(value)
+  );
 }
 
 function createHomeSectionsField(
   key: string,
   defaultValue: HomeSectionConfig[]
 ): UISettingField<HomeSectionConfig[]> {
-  return {
+  return createField(
     key,
     defaultValue,
-    read: (runtime) => {
+    (runtime) => {
       try {
         const raw = runtime.storage.getItem(key);
         if (!raw) return defaultValue;
@@ -388,32 +410,29 @@ function createHomeSectionsField(
         reportReadError(runtime, key, "invalid_json");
       }
       return defaultValue;
-    }
-  };
+    },
+    (value) => JSON.stringify(value)
+  );
 }
 
 function createFullPlayerLayoutField(
   key: string,
   defaultValue: UISettings["fullPlayerLayout"]
 ): UISettingField<UISettings["fullPlayerLayout"]> {
-  return {
-    key,
-    defaultValue,
-    read: (runtime) => {
-      try {
-        const raw = runtime.storage.getItem(key);
-        if (raw === "lyrics" || raw === "balanced") {
-          return raw;
-        }
-        if (raw !== null) {
-          reportReadError(runtime, key, "invalid_value");
-        }
-      } catch {
-        reportReadError(runtime, key, "storage_unavailable");
+  return createField(key, defaultValue, (runtime) => {
+    try {
+      const raw = runtime.storage.getItem(key);
+      if (raw === "lyrics" || raw === "balanced") {
+        return raw;
       }
-      return defaultValue;
+      if (raw !== null) {
+        reportReadError(runtime, key, "invalid_value");
+      }
+    } catch {
+      reportReadError(runtime, key, "storage_unavailable");
     }
-  };
+    return defaultValue;
+  });
 }
 
 function createPlayerTypeField(
@@ -433,7 +452,15 @@ function createPlayerTypeField(
         reportReadError(runtime, key, "invalid_value");
       }
       return coverModeField.read(runtime) === "record" ? "record" : defaultValue;
-    }
+    },
+    write: (runtime, value) =>
+      persistUISettingsBatch(
+        [
+          { key, value },
+          { key: coverModeField.key, value: value === "record" ? "record" : "normal" }
+        ],
+        runtime
+      )
   };
 }
 
@@ -562,6 +589,12 @@ export const STORAGE_KEYS = Object.fromEntries(
   Object.entries(UI_SETTINGS_SCHEMA).map(([field, schema]) => [field, schema.key])
 ) as { [K in keyof UISettings]: UISettingsSchema[K]["key"] };
 
+const UI_SETTING_FIELDS = Object.keys(UI_SETTINGS_SCHEMA) as UISettingsFieldName[];
+
+const UI_SETTING_FIELD_BY_STORAGE_KEY = Object.fromEntries(
+  UI_SETTING_FIELDS.map((field) => [UI_SETTINGS_SCHEMA[field].key, field])
+) as Record<string, UISettingsFieldName>;
+
 const browserUISettingsRuntime = (): UISettingsRuntime => ({
   storage: localStorage,
   events: window,
@@ -606,18 +639,93 @@ export function persistUISetting(
   value: string,
   runtime: UISettingsRuntime = browserUISettingsRuntime()
 ): boolean {
+  return persistUISettingsBatch([{ key, value }], runtime);
+}
+
+function rollbackPersistedWrites(
+  runtime: UISettingsRuntime,
+  previousValues: ReadonlyArray<{ key: string; value: string | null }>
+): void {
+  if (!runtime.storage.setItem) {
+    return;
+  }
+  previousValues.forEach(({ key, value }) => {
+    try {
+      if (value === null) {
+        runtime.storage.removeItem?.(key);
+      } else {
+        runtime.storage.setItem?.(key, value);
+      }
+    } catch {
+      // Best effort rollback only.
+    }
+  });
+}
+
+function persistUISettingsBatch(
+  writes: ReadonlyArray<UISettingSerializedWrite>,
+  runtime: UISettingsRuntime = browserUISettingsRuntime()
+): boolean {
+  const previousValues = writes.map(({ key }) => ({
+    key,
+    value: runtime.storage.getItem(key)
+  }));
   try {
     if (!runtime.storage.setItem) {
-      reportWriteError(runtime, key, "storage_readonly");
+      reportWriteError(runtime, writes[0]?.key ?? "unknown", "storage_readonly");
       return false;
     }
-    runtime.storage.setItem(key, value);
+    for (const write of writes) {
+      runtime.storage.setItem(write.key, write.value);
+    }
     runtime.notifyChange?.();
     return true;
   } catch {
-    reportWriteError(runtime, key, "storage_unavailable");
+    rollbackPersistedWrites(runtime, previousValues);
+    reportWriteError(runtime, writes[0]?.key ?? "unknown", "storage_unavailable");
     return false;
   }
+}
+
+export function persistUISettingField<K extends UISettingsFieldName>(
+  field: K,
+  value: UISettings[K],
+  runtime: UISettingsRuntime = browserUISettingsRuntime()
+): boolean {
+  return UI_SETTINGS_SCHEMA[field].write(runtime, value);
+}
+
+export function commitUISettingField<K extends UISettingsFieldName>(
+  field: K,
+  value: UISettings[K],
+  currentValue: Accessor<UISettings[K]>,
+  setValue: Setter<UISettings[K]>,
+  runtime: UISettingsRuntime = browserUISettingsRuntime()
+): boolean {
+  const previous = currentValue();
+  setValue(() => value);
+  if (persistUISettingField(field, value, runtime)) {
+    return true;
+  }
+  setValue(() => previous);
+  console.warn("[settings] failed to persist setting", {
+    field,
+    key: UI_SETTINGS_SCHEMA[field].key
+  });
+  return false;
+}
+
+export function toggleUISettingField<K extends UISettingsBooleanFieldName>(
+  field: K,
+  currentValue: Accessor<UISettings[K]>,
+  setValue: Setter<UISettings[K]>,
+  runtime: UISettingsRuntime = browserUISettingsRuntime()
+): boolean {
+  return commitUISettingField(field, (!currentValue()) as UISettings[K], currentValue, setValue, runtime);
+}
+
+export function storageKeyToUISettingField(key: string): UISettingsFieldName | null {
+  return UI_SETTING_FIELD_BY_STORAGE_KEY[key] ?? null;
 }
 
 function readNumber(runtime: UISettingsRuntime, key: string, fallback: number): number {
@@ -677,82 +785,9 @@ function readBoolRecord<T extends Record<string, boolean>>(
 export function readUISettingsSnapshot(
   runtime: UISettingsRuntime = browserUISettingsRuntime()
 ): UISettings {
-  return {
-    bgEnabled: UI_SETTINGS_SCHEMA.bgEnabled.read(runtime),
-    bgBlur: UI_SETTINGS_SCHEMA.bgBlur.read(runtime),
-    bgMask: UI_SETTINGS_SCHEMA.bgMask.read(runtime),
-    customChrome: UI_SETTINGS_SCHEMA.customChrome.read(runtime),
-    fullPlayerLayout: UI_SETTINGS_SCHEMA.fullPlayerLayout.read(runtime),
-    fullPlayerAutoFocusLyrics: UI_SETTINGS_SCHEMA.fullPlayerAutoFocusLyrics.read(runtime),
-    fullPlayerCommentMode: UI_SETTINGS_SCHEMA.fullPlayerCommentMode.read(runtime),
-    fullPlayerCoverMode: UI_SETTINGS_SCHEMA.fullPlayerCoverMode.read(runtime),
-    playerType: UI_SETTINGS_SCHEMA.playerType.read(runtime),
-    playerStyleRatio: UI_SETTINGS_SCHEMA.playerStyleRatio.read(runtime),
-    playerFullscreenGradient: UI_SETTINGS_SCHEMA.playerFullscreenGradient.read(runtime),
-    playerBackgroundType: UI_SETTINGS_SCHEMA.playerBackgroundType.read(runtime),
-    playerBackgroundFps: UI_SETTINGS_SCHEMA.playerBackgroundFps.read(runtime),
-    playerBackgroundFlowSpeed: UI_SETTINGS_SCHEMA.playerBackgroundFlowSpeed.read(runtime),
-    playerBackgroundRenderScale: UI_SETTINGS_SCHEMA.playerBackgroundRenderScale.read(runtime),
-    playerBackgroundPause: UI_SETTINGS_SCHEMA.playerBackgroundPause.read(runtime),
-    playerBackgroundLowFreqVolume: UI_SETTINGS_SCHEMA.playerBackgroundLowFreqVolume.read(runtime),
-    playerExpandAnimation: UI_SETTINGS_SCHEMA.playerExpandAnimation.read(runtime),
-    playerFollowCoverColor: UI_SETTINGS_SCHEMA.playerFollowCoverColor.read(runtime),
-    hiddenCovers: UI_SETTINGS_SCHEMA.hiddenCovers.read(runtime),
-    sidebarHiddenItems: UI_SETTINGS_SCHEMA.sidebarHiddenItems.read(runtime),
-    playlistPageElements: UI_SETTINGS_SCHEMA.playlistPageElements.read(runtime),
-    contextMenuOptions: UI_SETTINGS_SCHEMA.contextMenuOptions.read(runtime),
-    menuShowCover: UI_SETTINGS_SCHEMA.menuShowCover.read(runtime),
-    fullPlayerShowAddToPlaylist: UI_SETTINGS_SCHEMA.fullPlayerShowAddToPlaylist.read(runtime),
-    fullPlayerShowCommentCount: UI_SETTINGS_SCHEMA.fullPlayerShowCommentCount.read(runtime),
-    fullPlayerShowComments: UI_SETTINGS_SCHEMA.fullPlayerShowComments.read(runtime),
-    fullPlayerShowDesktopLyric: UI_SETTINGS_SCHEMA.fullPlayerShowDesktopLyric.read(runtime),
-    fullPlayerShowDownload: UI_SETTINGS_SCHEMA.fullPlayerShowDownload.read(runtime),
-    fullPlayerShowLike: UI_SETTINGS_SCHEMA.fullPlayerShowLike.read(runtime),
-    fullPlayerShowMoreSettings: UI_SETTINGS_SCHEMA.fullPlayerShowMoreSettings.read(runtime),
-    autoHidePlayerMeta: UI_SETTINGS_SCHEMA.autoHidePlayerMeta.read(runtime),
-    showPlayMeta: UI_SETTINGS_SCHEMA.showPlayMeta.read(runtime),
-    countDownShow: UI_SETTINGS_SCHEMA.countDownShow.read(runtime),
-    showSpectrums: UI_SETTINGS_SCHEMA.showSpectrums.read(runtime),
-    homeSections: UI_SETTINGS_SCHEMA.homeSections.read(runtime),
-    themeMode: UI_SETTINGS_SCHEMA.themeMode.read(runtime),
-    ncmSongLevel: UI_SETTINGS_SCHEMA.ncmSongLevel.read(runtime),
-    autoPlay: UI_SETTINGS_SCHEMA.autoPlay.read(runtime),
-    volumeFade: UI_SETTINGS_SCHEMA.volumeFade.read(runtime),
-    volumeFadeTime: UI_SETTINGS_SCHEMA.volumeFadeTime.read(runtime),
-    memoryLastSeek: UI_SETTINGS_SCHEMA.memoryLastSeek.read(runtime),
-    progressTooltipShow: UI_SETTINGS_SCHEMA.progressTooltipShow.read(runtime),
-    progressLyricShow: UI_SETTINGS_SCHEMA.progressLyricShow.read(runtime),
-    progressAdjustLyric: UI_SETTINGS_SCHEMA.progressAdjustLyric.read(runtime),
-    lyricFontSize: UI_SETTINGS_SCHEMA.lyricFontSize.read(runtime),
-    lyricFontWeight: UI_SETTINGS_SCHEMA.lyricFontWeight.read(runtime),
-    showLyricTranslation: UI_SETTINGS_SCHEMA.showLyricTranslation.read(runtime),
-    showLyricRomanization: UI_SETTINGS_SCHEMA.showLyricRomanization.read(runtime),
-    showWordLyrics: UI_SETTINGS_SCHEMA.showWordLyrics.read(runtime),
-    lyricsBlur: UI_SETTINGS_SCHEMA.lyricsBlur.read(runtime),
-    lyricsScrollOffset: UI_SETTINGS_SCHEMA.lyricsScrollOffset.read(runtime),
-    routeAnimation: UI_SETTINGS_SCHEMA.routeAnimation.read(runtime),
-    showPlaylistCount: UI_SETTINGS_SCHEMA.showPlaylistCount.read(runtime),
-    barLyricShow: UI_SETTINGS_SCHEMA.barLyricShow.read(runtime),
-    showSongQuality: UI_SETTINGS_SCHEMA.showSongQuality.read(runtime),
-    showSongPrivilegeTag: UI_SETTINGS_SCHEMA.showSongPrivilegeTag.read(runtime),
-    showSongExplicitTag: UI_SETTINGS_SCHEMA.showSongExplicitTag.read(runtime),
-    showSongOriginalTag: UI_SETTINGS_SCHEMA.showSongOriginalTag.read(runtime),
-    showSongAlbum: UI_SETTINGS_SCHEMA.showSongAlbum.read(runtime),
-    showSongDuration: UI_SETTINGS_SCHEMA.showSongDuration.read(runtime),
-    showSongOperations: UI_SETTINGS_SCHEMA.showSongOperations.read(runtime),
-    showSongArtist: UI_SETTINGS_SCHEMA.showSongArtist.read(runtime),
-    hideBracketedContent: UI_SETTINGS_SCHEMA.hideBracketedContent.read(runtime),
-    showPlayerQuality: UI_SETTINGS_SCHEMA.showPlayerQuality.read(runtime),
-    timeFormat: UI_SETTINGS_SCHEMA.timeFormat.read(runtime),
-    lyricTranslationFontSize: UI_SETTINGS_SCHEMA.lyricTranslationFontSize.read(runtime),
-    lyricRomanizationFontSize: UI_SETTINGS_SCHEMA.lyricRomanizationFontSize.read(runtime),
-    swapLyricTranslationRomanization:
-      UI_SETTINGS_SCHEMA.swapLyricTranslationRomanization.read(runtime),
-    lyricsPosition: UI_SETTINGS_SCHEMA.lyricsPosition.read(runtime),
-    lyricHorizontalOffset: UI_SETTINGS_SCHEMA.lyricHorizontalOffset.read(runtime),
-    lyricAlignRight: UI_SETTINGS_SCHEMA.lyricAlignRight.read(runtime),
-    lyricsBlendMode: UI_SETTINGS_SCHEMA.lyricsBlendMode.read(runtime)
-  };
+  return Object.fromEntries(
+    UI_SETTING_FIELDS.map((field) => [field, UI_SETTINGS_SCHEMA[field].read(runtime)])
+  ) as unknown as UISettings;
 }
 
 export function createUISettingsStore(runtime: UISettingsRuntime): UISettingsStore {

@@ -1,12 +1,11 @@
 import { For, createSignal } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
 import {
+  commitUISettingField,
   readUISettingsSnapshot,
-  STORAGE_KEYS,
   type HomeSectionConfig,
   type HomeSectionKey
 } from "../../shared/state/useUISettings";
-import { persist as persistSetting } from "./storage";
 
 const SECTION_LABELS: Record<HomeSectionKey, string> = {
   dailyPicks: "ncm.home.section.dailyPicks",
@@ -36,12 +35,12 @@ function readSections(): HomeSectionConfig[] {
   return readUISettingsSnapshot().homeSections;
 }
 
-const persistSections = (sections: HomeSectionConfig[]): boolean =>
-  persistSetting(STORAGE_KEYS.homeSections, JSON.stringify(sections));
-
 export function HomeSectionManager() {
   const { t } = useTranslation();
   const [sections, setSections] = createSignal(readSections());
+
+  const commitSections = (next: HomeSectionConfig[]) =>
+    commitUISettingField("homeSections", next, sections, setSections);
 
   const sorted = () => [...sections()].sort((a, b) => a.order - b.order);
 
@@ -49,8 +48,7 @@ export function HomeSectionManager() {
     const next = sections().map((s) =>
       s.key === key ? { ...s, visible: !s.visible } : s
     );
-    setSections(next);
-    persistSections(next);
+    commitSections(next);
   };
 
   const moveUp = (key: HomeSectionKey) => {
@@ -64,8 +62,7 @@ export function HomeSectionManager() {
       if (s.key === prev.key) return { ...s, order: curr.order };
       return s;
     });
-    setSections(next);
-    persistSections(next);
+    commitSections(next);
   };
 
   const moveDown = (key: HomeSectionKey) => {
@@ -79,8 +76,7 @@ export function HomeSectionManager() {
       if (s.key === next_item.key) return { ...s, order: curr.order };
       return s;
     });
-    setSections(next);
-    persistSections(next);
+    commitSections(next);
   };
 
   return (

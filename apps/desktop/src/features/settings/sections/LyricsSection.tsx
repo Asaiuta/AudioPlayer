@@ -4,7 +4,10 @@ import type {
   LyricsBlendMode,
   LyricsPosition
 } from "../../../shared/state/useUISettings";
-import { readUISettingsSnapshot, STORAGE_KEYS } from "../../../shared/state/useUISettings";
+import {
+  commitUISettingField,
+  readUISettingsSnapshot
+} from "../../../shared/state/useUISettings";
 import {
   SettingItem,
   RangeInput,
@@ -12,7 +15,7 @@ import {
 } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
 import { SelectInput, type SelectOption } from "../components/SelectInput";
-import { persist } from "../storage";
+import { togglePersistedField } from "../storage";
 
 interface LyricsSectionProps {
   highlightId: string | null;
@@ -64,67 +67,61 @@ export function LyricsSection(props: LyricsSectionProps) {
   const nextIndex = () => itemIndex++;
 
   const handleLyricFontSize = (v: number) => {
-    setLyricFontSize(v);
-    persist(STORAGE_KEYS.lyricFontSize, v);
+    commitUISettingField("lyricFontSize", v, lyricFontSize, setLyricFontSize);
   };
   const handleLyricFontWeight = (v: number) => {
-    setLyricFontWeight(v);
-    persist(STORAGE_KEYS.lyricFontWeight, v);
+    commitUISettingField("lyricFontWeight", v, lyricFontWeight, setLyricFontWeight);
   };
   const handleLyricTranslationFontSize = (v: number) => {
-    setLyricTranslationFontSize(v);
-    persist(STORAGE_KEYS.lyricTranslationFontSize, v);
+    commitUISettingField(
+      "lyricTranslationFontSize",
+      v,
+      lyricTranslationFontSize,
+      setLyricTranslationFontSize
+    );
   };
   const handleLyricRomanizationFontSize = (v: number) => {
-    setLyricRomanizationFontSize(v);
-    persist(STORAGE_KEYS.lyricRomanizationFontSize, v);
+    commitUISettingField(
+      "lyricRomanizationFontSize",
+      v,
+      lyricRomanizationFontSize,
+      setLyricRomanizationFontSize
+    );
   };
   const handleShowLyricTranslation = () => {
-    const next = !showLyricTranslation();
-    setShowLyricTranslation(next);
-    persist(STORAGE_KEYS.showLyricTranslation, next);
+    togglePersistedField("showLyricTranslation", showLyricTranslation, setShowLyricTranslation);
   };
   const handleShowLyricRomanization = () => {
-    const next = !showLyricRomanization();
-    setShowLyricRomanization(next);
-    persist(STORAGE_KEYS.showLyricRomanization, next);
+    togglePersistedField("showLyricRomanization", showLyricRomanization, setShowLyricRomanization);
   };
   const handleShowWordLyrics = () => {
-    const next = !showWordLyrics();
-    setShowWordLyrics(next);
-    persist(STORAGE_KEYS.showWordLyrics, next);
+    togglePersistedField("showWordLyrics", showWordLyrics, setShowWordLyrics);
   };
   const handleLyricsBlur = () => {
-    const next = !lyricsBlur();
-    setLyricsBlur(next);
-    persist(STORAGE_KEYS.lyricsBlur, next);
+    togglePersistedField("lyricsBlur", lyricsBlur, setLyricsBlur);
   };
   const handleLyricsScrollOffsetPercent = (v: number) => {
     const next = v / 100;
-    setLyricsScrollOffset(next);
-    persist(STORAGE_KEYS.lyricsScrollOffset, next);
+    commitUISettingField("lyricsScrollOffset", next, lyricsScrollOffset, setLyricsScrollOffset);
   };
   const handleSwapLyricTranslationRomanization = () => {
-    const next = !swapLyricTranslationRomanization();
-    setSwapLyricTranslationRomanization(next);
-    persist(STORAGE_KEYS.swapLyricTranslationRomanization, next);
+    togglePersistedField(
+      "swapLyricTranslationRomanization",
+      swapLyricTranslationRomanization,
+      setSwapLyricTranslationRomanization
+    );
   };
   const handleLyricsPosition = (value: LyricsPosition) => {
-    setLyricsPosition(value);
-    persist(STORAGE_KEYS.lyricsPosition, value);
+    commitUISettingField("lyricsPosition", value, lyricsPosition, setLyricsPosition);
   };
   const handleLyricHorizontalOffset = (v: number) => {
-    setLyricHorizontalOffset(v);
-    persist(STORAGE_KEYS.lyricHorizontalOffset, v);
+    commitUISettingField("lyricHorizontalOffset", v, lyricHorizontalOffset, setLyricHorizontalOffset);
   };
   const handleLyricAlignRight = () => {
-    const next = !lyricAlignRight();
-    setLyricAlignRight(next);
-    persist(STORAGE_KEYS.lyricAlignRight, next);
+    togglePersistedField("lyricAlignRight", lyricAlignRight, setLyricAlignRight);
   };
   const handleLyricsBlendMode = (value: LyricsBlendMode) => {
-    setLyricsBlendMode(value);
-    persist(STORAGE_KEYS.lyricsBlendMode, value);
+    commitUISettingField("lyricsBlendMode", value, lyricsBlendMode, setLyricsBlendMode);
   };
 
   return (

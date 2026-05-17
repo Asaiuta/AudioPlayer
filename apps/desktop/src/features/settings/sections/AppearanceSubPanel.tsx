@@ -5,9 +5,10 @@ import type {
   ContextMenuOptions,
   HiddenCovers,
   PlaylistPageElements,
-  SidebarHiddenItems
+  SidebarHiddenItems,
+  UISettingsBooleanFieldName,
+  UISettingsBooleanRecordFieldName
 } from "../../../shared/state/useUISettings";
-import { STORAGE_KEYS } from "../../../shared/state/useUISettings";
 import { HomeSectionManager } from "../HomeSectionManager";
 import { BooleanSettingItem, RecordBooleanSettingItem } from "../components/SettingControls";
 import {
@@ -36,7 +37,7 @@ interface AppearanceSubPanelProps {
 interface BooleanItemConfig {
   id: string;
   labelKey: TranslationKey;
-  storageKey: string;
+  field: UISettingsBooleanFieldName;
   value: (settings: AppearanceSettings) => () => boolean;
   setValue: (settings: AppearanceSettings) => Setter<boolean>;
 }
@@ -45,21 +46,21 @@ const FULL_PLAYER_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
   {
     id: "fullPlayerShowLike",
     labelKey: "settings.appearance.fullPlayerShowLike",
-    storageKey: STORAGE_KEYS.fullPlayerShowLike,
+    field: "fullPlayerShowLike",
     value: (settings) => settings.fullPlayerShowLike,
     setValue: (settings) => settings.setFullPlayerShowLike
   },
   {
     id: "fullPlayerShowAddToPlaylist",
     labelKey: "settings.appearance.fullPlayerShowAddToPlaylist",
-    storageKey: STORAGE_KEYS.fullPlayerShowAddToPlaylist,
+    field: "fullPlayerShowAddToPlaylist",
     value: (settings) => settings.fullPlayerShowAddToPlaylist,
     setValue: (settings) => settings.setFullPlayerShowAddToPlaylist
   },
   {
     id: "fullPlayerShowDownload",
     labelKey: "settings.appearance.fullPlayerShowDownload",
-    storageKey: STORAGE_KEYS.fullPlayerShowDownload,
+    field: "fullPlayerShowDownload",
     value: (settings) => settings.fullPlayerShowDownload,
     setValue: (settings) => settings.setFullPlayerShowDownload
   }
@@ -69,14 +70,14 @@ const FULL_PLAYER_ELEMENT_TRAILING_ITEMS: readonly BooleanItemConfig[] = [
   {
     id: "fullPlayerShowDesktopLyric",
     labelKey: "settings.appearance.fullPlayerShowDesktopLyric",
-    storageKey: STORAGE_KEYS.fullPlayerShowDesktopLyric,
+    field: "fullPlayerShowDesktopLyric",
     value: (settings) => settings.fullPlayerShowDesktopLyric,
     setValue: (settings) => settings.setFullPlayerShowDesktopLyric
   },
   {
     id: "fullPlayerShowMoreSettings",
     labelKey: "settings.appearance.fullPlayerShowMoreSettings",
-    storageKey: STORAGE_KEYS.fullPlayerShowMoreSettings,
+    field: "fullPlayerShowMoreSettings",
     value: (settings) => settings.fullPlayerShowMoreSettings,
     setValue: (settings) => settings.setFullPlayerShowMoreSettings
   }
@@ -88,13 +89,10 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
   const standaloneSettingClass = (id: string) =>
     isHi(id) ? `${settingItemClass} ${settingItemHighlightedClass}` : settingItemClass;
 
-  const renderRecordItem = <
-    T extends Record<string, boolean>,
-    K extends keyof T
-  >(
+  const renderRecordItem = <T extends Record<string, boolean>, K extends keyof T>(
     item: { key: K; itemId: string; labelKey: TranslationKey; descriptionKey?: TranslationKey },
     record: () => T,
-    storageKey: string,
+    field: UISettingsBooleanRecordFieldName,
     setValue: Setter<T>,
     checked: (record: T, key: K) => boolean,
     toStoredValue: (nextChecked: boolean) => boolean
@@ -109,12 +107,12 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
       recordKey={item.key}
       checked={checked}
       onChange={(nextChecked) =>
-        props.settings.updateBoolRecord(
-          storageKey,
-          record,
-          item.key,
+        props.settings.updateRecordField(
+          field,
+          record as never,
+          item.key as never,
           toStoredValue(nextChecked),
-          setValue
+          setValue as never
         )
       }
     />
@@ -139,7 +137,7 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
               renderRecordItem<SidebarHiddenItems, typeof item.key>(
                 item,
                 props.settings.sidebarHiddenItems,
-                STORAGE_KEYS.sidebarHiddenItems,
+                "sidebarHiddenItems",
                 props.settings.setSidebarHiddenItems,
                 (record, key) => !record[key],
                 (nextChecked) => !nextChecked
@@ -167,7 +165,7 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
               renderRecordItem<PlaylistPageElements, typeof item.key>(
                 item,
                 props.settings.playlistPageElements,
-                STORAGE_KEYS.playlistPageElements,
+                "playlistPageElements",
                 props.settings.setPlaylistPageElements,
                 (record, key) => record[key],
                 (nextChecked) => nextChecked
@@ -188,8 +186,8 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
                 index={props.nextIndex()}
                 checked={item.value(props.settings)()}
                 onChange={() =>
-                  props.settings.toggleBool(
-                    item.storageKey,
+                  props.settings.toggleField(
+                    item.field,
                     item.value(props.settings),
                     item.setValue(props.settings)
                   )
@@ -205,8 +203,8 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
             index={props.nextIndex()}
             checked={props.settings.fullPlayerShowComments()}
             onChange={() =>
-              props.settings.toggleBool(
-                STORAGE_KEYS.fullPlayerShowComments,
+              props.settings.toggleField(
+                "fullPlayerShowComments",
                 props.settings.fullPlayerShowComments,
                 props.settings.setFullPlayerShowComments
               )
@@ -221,8 +219,8 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
               index={props.nextIndex()}
               checked={props.settings.fullPlayerShowCommentCount()}
               onChange={() =>
-                props.settings.toggleBool(
-                  STORAGE_KEYS.fullPlayerShowCommentCount,
+                props.settings.toggleField(
+                  "fullPlayerShowCommentCount",
                   props.settings.fullPlayerShowCommentCount,
                   props.settings.setFullPlayerShowCommentCount
                 )
@@ -239,8 +237,8 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
                 index={props.nextIndex()}
                 checked={item.value(props.settings)()}
                 onChange={() =>
-                  props.settings.toggleBool(
-                    item.storageKey,
+                  props.settings.toggleField(
+                    item.field,
                     item.value(props.settings),
                     item.setValue(props.settings)
                   )
@@ -258,7 +256,7 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
               renderRecordItem<ContextMenuOptions, typeof item.key>(
                 item,
                 props.settings.contextMenuOptions,
-                STORAGE_KEYS.contextMenuOptions,
+                "contextMenuOptions",
                 props.settings.setContextMenuOptions,
                 (record, key) => record[key],
                 (nextChecked) => nextChecked
@@ -289,7 +287,7 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
               renderRecordItem<HiddenCovers, typeof item.key>(
                 item,
                 props.settings.hiddenCovers,
-                STORAGE_KEYS.hiddenCovers,
+                "hiddenCovers",
                 props.settings.setHiddenCovers,
                 (record, key) => !record[key],
                 (nextChecked) => !nextChecked

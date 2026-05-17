@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import type { Setter } from "solid-js";
 import {
+  commitUISettingField,
   createUISettingsStore,
+  persistUISettingField,
   persistUISetting,
   readUISettingsSnapshot,
   STORAGE_KEYS,
@@ -132,6 +135,84 @@ test("persistUISetting writes through the injected runtime and notifies listener
   assert.equal(persistUISetting(STORAGE_KEYS.ncmSongLevel, "lossless", runtime), true);
   assert.deepEqual(writes, [{ key: STORAGE_KEYS.ncmSongLevel, value: "lossless" }]);
   assert.equal(notified, 1);
+});
+
+test("persistUISettingField writes schema-managed linked settings together", () => {
+  const writes: Array<{ key: string; value: string }> = [];
+  const values: Record<string, string> = {};
+  let notified = 0;
+  const runtime: UISettingsRuntime = {
+    storage: {
+      getItem: (key) => values[key] ?? null,
+      setItem: (key, value) => {
+        values[key] = value;
+        writes.push({ key, value });
+      }
+    },
+    events: {
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined
+    },
+    notifyChange: () => {
+      notified += 1;
+    }
+  };
+
+  assert.equal(persistUISettingField("playerType", "record", runtime), true);
+  assert.deepEqual(writes, [
+    { key: STORAGE_KEYS.playerType, value: "record" },
+    { key: STORAGE_KEYS.fullPlayerCoverMode, value: "record" }
+  ]);
+  assert.equal(notified, 1);
+});
+
+test("persistUISettingField serializes structured home sections through schema metadata", () => {
+  const values: Record<string, string> = {};
+  const runtime: UISettingsRuntime = {
+    storage: {
+      getItem: (key) => values[key] ?? null,
+      setItem: (key, value) => {
+        values[key] = value;
+      }
+    },
+    events: {
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined
+    }
+  };
+
+  const nextSections = [
+    { key: "albums", order: 0, visible: false },
+    { key: "dailyPicks", order: 1, visible: true }
+  ] as const;
+
+  assert.equal(persistUISettingField("homeSections", [...nextSections], runtime), true);
+  assert.deepEqual(JSON.parse(values[STORAGE_KEYS.homeSections] ?? "null"), nextSections);
+});
+
+test("commitUISettingField rolls back local state when schema-managed persist fails", () => {
+  let currentTheme: "dark" | "light" | "auto" = "dark";
+  const runtime: UISettingsRuntime = {
+    storage: {
+      getItem: () => null,
+      setItem: () => {
+        throw new Error("no storage");
+      }
+    },
+    events: {
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined
+    }
+  };
+
+  const readTheme = () => currentTheme;
+  const setTheme: Setter<"dark" | "light" | "auto"> = ((value) => {
+    currentTheme = typeof value === "function" ? value(currentTheme) : value;
+    return currentTheme;
+  }) as Setter<"dark" | "light" | "auto">;
+
+  assert.equal(commitUISettingField("themeMode", "light", readTheme, setTheme, runtime), false);
+  assert.equal(currentTheme, "dark");
 });
 
 test("persistUISetting reports write failures without throwing", () => {

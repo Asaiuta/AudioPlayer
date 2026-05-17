@@ -2,7 +2,10 @@ import { Show, createMemo, createSignal, onMount } from "solid-js";
 import { createApiClient } from "../../../shared/api/client";
 import type { TranslationKey } from "../../../shared/i18n";
 import { useTranslation } from "../../../shared/i18n";
-import { readUISettingsSnapshot, STORAGE_KEYS } from "../../../shared/state/useUISettings";
+import {
+  commitUISettingField,
+  readUISettingsSnapshot
+} from "../../../shared/state/useUISettings";
 import {
   SettingItem,
   RangeInput,
@@ -10,7 +13,7 @@ import {
 } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
 import { SelectInput, type SelectOption } from "../components/SelectInput";
-import { commitPersistedSetting } from "../storage";
+import { togglePersistedField } from "../storage";
 
 const api = createApiClient();
 
@@ -66,8 +69,7 @@ export function PlaybackSection(props: PlaybackSectionProps) {
   });
 
   const handleAutoPlay = () => {
-    const next = !autoPlay();
-    commitPersistedSetting(STORAGE_KEYS.autoPlay, next, autoPlay, setAutoPlay);
+    togglePersistedField("autoPlay", autoPlay, setAutoPlay);
   };
   const handleUseNextPrefetch = () => {
     const previous = useNextPrefetch();
@@ -78,45 +80,25 @@ export function PlaybackSection(props: PlaybackSectionProps) {
     });
   };
   const handleVolumeFade = () => {
-    const next = !volumeFade();
-    commitPersistedSetting(STORAGE_KEYS.volumeFade, next, volumeFade, setVolumeFade);
+    togglePersistedField("volumeFade", volumeFade, setVolumeFade);
   };
   const handleVolumeFadeTime = (v: number) => {
-    commitPersistedSetting(STORAGE_KEYS.volumeFadeTime, v, volumeFadeTime, setVolumeFadeTime);
+    commitUISettingField("volumeFadeTime", v, volumeFadeTime, setVolumeFadeTime);
   };
   const handleMemoryLastSeek = () => {
-    const next = !memoryLastSeek();
-    commitPersistedSetting(STORAGE_KEYS.memoryLastSeek, next, memoryLastSeek, setMemoryLastSeek);
+    togglePersistedField("memoryLastSeek", memoryLastSeek, setMemoryLastSeek);
   };
   const handleProgressTooltipShow = () => {
-    const next = !progressTooltipShow();
-    commitPersistedSetting(
-      STORAGE_KEYS.progressTooltipShow,
-      next,
-      progressTooltipShow,
-      setProgressTooltipShow
-    );
+    togglePersistedField("progressTooltipShow", progressTooltipShow, setProgressTooltipShow);
   };
   const handleProgressLyricShow = () => {
-    const next = !progressLyricShow();
-    commitPersistedSetting(
-      STORAGE_KEYS.progressLyricShow,
-      next,
-      progressLyricShow,
-      setProgressLyricShow
-    );
+    togglePersistedField("progressLyricShow", progressLyricShow, setProgressLyricShow);
   };
   const handleProgressAdjustLyric = () => {
-    const next = !progressAdjustLyric();
-    commitPersistedSetting(
-      STORAGE_KEYS.progressAdjustLyric,
-      next,
-      progressAdjustLyric,
-      setProgressAdjustLyric
-    );
+    togglePersistedField("progressAdjustLyric", progressAdjustLyric, setProgressAdjustLyric);
   };
   const handleNcmSongLevel = (level: string) => {
-    commitPersistedSetting(STORAGE_KEYS.ncmSongLevel, level, ncmSongLevel, setNcmSongLevel);
+    commitUISettingField("ncmSongLevel", level, ncmSongLevel, setNcmSongLevel);
   };
 
   return (

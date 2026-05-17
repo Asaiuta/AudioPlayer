@@ -3,6 +3,9 @@ import type {
   ContextMenuOptions,
   FullPlayerCommentMode,
   HiddenCovers,
+  UISettings,
+  UISettingsBooleanFieldName,
+  UISettingsBooleanRecordFieldName,
   PlayerBackgroundType,
   PlayerExpandAnimation,
   PlayerTimeFormat,
@@ -13,14 +16,12 @@ import type {
   ThemeMode
 } from "../../../shared/state/useUISettings";
 import {
+  commitUISettingField,
   DEFAULT_HIDDEN_COVERS,
-  STORAGE_KEYS,
   readUISettingsSnapshot
 } from "../../../shared/state/useUISettings";
 import {
-  commitPersistedRecordSetting,
-  commitPersistedSetting,
-  persist
+  togglePersistedField
 } from "../storage";
 import { COVER_DISPLAY_ITEMS } from "./appearanceConfig";
 
@@ -125,118 +126,103 @@ export function useAppearanceSettings() {
   );
 
   const handleThemeChange = (mode: ThemeMode) => {
-    if (commitPersistedSetting(STORAGE_KEYS.themeMode, mode, themeMode, setThemeMode)) {
+    if (commitUISettingField("themeMode", mode, themeMode, setThemeMode)) {
       applyTheme(mode);
     } else {
       applyTheme(themeMode());
     }
   };
   const handleRouteAnimation = (value: RouteAnimation) => {
-    commitPersistedSetting(STORAGE_KEYS.routeAnimation, value, routeAnimation, setRouteAnimation);
+    commitUISettingField("routeAnimation", value, routeAnimation, setRouteAnimation);
   };
-  const handleBgToggle = () =>
-    commitPersistedSetting(STORAGE_KEYS.bgEnabled, !bgEnabled(), bgEnabled, setBgEnabled);
+  const handleBgToggle = () => togglePersistedField("bgEnabled", bgEnabled, setBgEnabled);
   const handleBgBlur = (value: number) => {
-    commitPersistedSetting(STORAGE_KEYS.bgBlur, value, bgBlur, setBgBlur);
+    commitUISettingField("bgBlur", value, bgBlur, setBgBlur);
   };
   const handleBgMask = (value: number) => {
-    commitPersistedSetting(STORAGE_KEYS.bgMask, value, bgMask, setBgMask);
+    commitUISettingField("bgMask", value, bgMask, setBgMask);
   };
   const handleCustomChrome = () =>
-    commitPersistedSetting(
-      STORAGE_KEYS.customChrome,
-      !customChrome(),
-      customChrome,
-      setCustomChrome
-    );
+    togglePersistedField("customChrome", customChrome, setCustomChrome);
   const handleFullPlayerLayout = (value: "balanced" | "lyrics") => {
-    commitPersistedSetting(
-      STORAGE_KEYS.fullPlayerLayout,
-      value,
-      fullPlayerLayout,
-      setFullPlayerLayout
-    );
+    commitUISettingField("fullPlayerLayout", value, fullPlayerLayout, setFullPlayerLayout);
   };
   const handleFullPlayerAutoFocusLyrics = () =>
-    commitPersistedSetting(
-      STORAGE_KEYS.fullPlayerAutoFocusLyrics,
-      !fullPlayerAutoFocusLyrics(),
+    togglePersistedField(
+      "fullPlayerAutoFocusLyrics",
       fullPlayerAutoFocusLyrics,
       setFullPlayerAutoFocusLyrics
     );
   const handleFullPlayerCommentMode = (value: FullPlayerCommentMode) => {
-    commitPersistedSetting(
-      STORAGE_KEYS.fullPlayerCommentMode,
+    commitUISettingField(
+      "fullPlayerCommentMode",
       value,
       fullPlayerCommentMode,
       setFullPlayerCommentMode
     );
   };
   const handlePlayerType = (value: PlayerType) => {
-    if (commitPersistedSetting(STORAGE_KEYS.playerType, value, playerType, setPlayerType)) {
-      persist(STORAGE_KEYS.fullPlayerCoverMode, value === "record" ? "record" : "normal");
-    }
+    commitUISettingField("playerType", value, playerType, setPlayerType);
   };
   const handlePlayerStyleRatio = (value: number) => {
-    commitPersistedSetting(STORAGE_KEYS.playerStyleRatio, value, playerStyleRatio, setPlayerStyleRatio);
+    commitUISettingField("playerStyleRatio", value, playerStyleRatio, setPlayerStyleRatio);
   };
   const handlePlayerFullscreenGradient = (value: number) => {
-    commitPersistedSetting(
-      STORAGE_KEYS.playerFullscreenGradient,
+    commitUISettingField(
+      "playerFullscreenGradient",
       value,
       playerFullscreenGradient,
       setPlayerFullscreenGradient
     );
   };
   const handlePlayerBackgroundType = (value: PlayerBackgroundType) => {
-    commitPersistedSetting(
-      STORAGE_KEYS.playerBackgroundType,
+    commitUISettingField(
+      "playerBackgroundType",
       value,
       playerBackgroundType,
       setPlayerBackgroundType
     );
   };
   const handlePlayerBackgroundFps = (value: number) => {
-    commitPersistedSetting(
-      STORAGE_KEYS.playerBackgroundFps,
+    commitUISettingField(
+      "playerBackgroundFps",
       value,
       playerBackgroundFps,
       setPlayerBackgroundFps
     );
   };
   const handlePlayerBackgroundFlowSpeed = (value: number) => {
-    commitPersistedSetting(
-      STORAGE_KEYS.playerBackgroundFlowSpeed,
+    commitUISettingField(
+      "playerBackgroundFlowSpeed",
       value,
       playerBackgroundFlowSpeed,
       setPlayerBackgroundFlowSpeed
     );
   };
   const handlePlayerBackgroundRenderScale = (value: number) => {
-    commitPersistedSetting(
-      STORAGE_KEYS.playerBackgroundRenderScale,
+    commitUISettingField(
+      "playerBackgroundRenderScale",
       value,
       playerBackgroundRenderScale,
       setPlayerBackgroundRenderScale
     );
   };
   const handlePlayerExpandAnimation = (value: PlayerExpandAnimation) => {
-    commitPersistedSetting(
-      STORAGE_KEYS.playerExpandAnimation,
+    commitUISettingField(
+      "playerExpandAnimation",
       value,
       playerExpandAnimation,
       setPlayerExpandAnimation
     );
   };
   const handlePlayerFollowCoverColor = () =>
-    commitPersistedSetting(
-      STORAGE_KEYS.playerFollowCoverColor,
-      !playerFollowCoverColor(),
+    togglePersistedField(
+      "playerFollowCoverColor",
       playerFollowCoverColor,
       setPlayerFollowCoverColor
     );
   const handleTimeFormat = (value: PlayerTimeFormat) => {
-    commitPersistedSetting(STORAGE_KEYS.timeFormat, value, timeFormat, setTimeFormat);
+    commitUISettingField("timeFormat", value, timeFormat, setTimeFormat);
   };
   const handleToggleAllCovers = () => {
     const nextHidden = !allCoversHidden();
@@ -244,23 +230,30 @@ export function useAppearanceSettings() {
     COVER_DISPLAY_ITEMS.forEach((item) => {
       nextRecord[item.key] = nextHidden;
     });
-    commitPersistedRecordSetting(STORAGE_KEYS.hiddenCovers, nextRecord, hiddenCovers, setHiddenCovers);
+    commitUISettingField("hiddenCovers", nextRecord, hiddenCovers, setHiddenCovers);
   };
 
-  const toggleBool = (key: string, value: Accessor<boolean>, setValue: Setter<boolean>) => {
-    commitPersistedSetting(key, !value(), value, setValue);
-  };
-
-  const updateBoolRecord = <T extends Record<string, boolean>, K extends keyof T>(
-    storageKey: string,
-    record: Accessor<T>,
+  const toggleField = <K extends UISettingsBooleanFieldName>(
     field: K,
+    value: Accessor<UISettings[K]>,
+    setValue: Setter<UISettings[K]>
+  ) => {
+    togglePersistedField(field, value, setValue);
+  };
+
+  const updateRecordField = <
+    K extends UISettingsBooleanRecordFieldName,
+    ItemKey extends keyof UISettings[K]
+  >(
+    field: K,
+    record: Accessor<UISettings[K]>,
+    itemKey: ItemKey,
     next: boolean,
-    setValue: Setter<T>
+    setValue: Setter<UISettings[K]>
   ) => {
     const current = record();
-    const nextRecord = { ...current, [field]: next };
-    commitPersistedRecordSetting(storageKey, nextRecord, record, setValue);
+    const nextRecord = { ...current, [itemKey]: next } as UISettings[K];
+    commitUISettingField(field, nextRecord, record, setValue);
   };
 
   return {
@@ -341,8 +334,8 @@ export function useAppearanceSettings() {
     handlePlayerFollowCoverColor,
     handleTimeFormat,
     handleToggleAllCovers,
-    toggleBool,
-    updateBoolRecord,
+    toggleField,
+    updateRecordField,
     setSidebarHiddenItems,
     setPlaylistPageElements,
     setContextMenuOptions,
