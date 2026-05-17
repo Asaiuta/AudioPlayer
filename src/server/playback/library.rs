@@ -1,47 +1,5 @@
 use super::*;
-use crate::app_database::{LibrarySortField, LibrarySortOrder, LibraryTrackQuery};
 use actix_web::HttpResponse;
-
-pub(super) fn build_library_query(body: &LibraryQueueQueryRequest) -> LibraryTrackQuery {
-    LibraryTrackQuery {
-        search: body.search.as_ref().and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        }),
-        folder_path: body.folder_path.as_ref().and_then(|value| {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        }),
-        sort_field: parse_library_sort_field(body.sort_field.as_deref()),
-        sort_order: parse_library_sort_order(body.sort_order.as_deref()),
-    }
-}
-
-fn parse_library_sort_field(value: Option<&str>) -> LibrarySortField {
-    match value.unwrap_or("default") {
-        "title" => LibrarySortField::Title,
-        "album" => LibrarySortField::Album,
-        "duration" => LibrarySortField::Duration,
-        "size" => LibrarySortField::Size,
-        _ => LibrarySortField::Default,
-    }
-}
-
-fn parse_library_sort_order(value: Option<&str>) -> LibrarySortOrder {
-    match value.unwrap_or("default") {
-        "asc" => LibrarySortOrder::Asc,
-        "desc" => LibrarySortOrder::Desc,
-        _ => LibrarySortOrder::Default,
-    }
-}
 
 pub(super) fn load_replaced_queue_at_position(
     data: &web::Data<Arc<AppState>>,
@@ -61,32 +19,21 @@ pub(super) fn load_replaced_queue_at_position(
     Ok(state)
 }
 
-fn library_queue_start_index(
-    rows: &[LibraryQueueRow],
-    start_track_key: Option<i64>,
-    missing_start_message: &str,
-) -> Result<usize, LibraryQueueFailure> {
-    match start_track_key {
-        Some(track_key) => rows
-            .iter()
-            .position(|(row_track_key, _)| *row_track_key == track_key)
-            .ok_or_else(|| LibraryQueueFailure::NotFound(missing_start_message.to_string())),
-        None => Ok(0),
-    }
-}
-
 fn media_queue_start_index(
     rows: &[MediaQueueRow],
     start_media_id: Option<&str>,
-    missing_start_message: &str,
 ) -> Result<usize, LibraryQueueFailure> {
-    match start_media_id {
-        Some(media_id) => rows
-            .iter()
-            .position(|(row_media_id, _)| row_media_id == media_id)
-            .ok_or_else(|| LibraryQueueFailure::NotFound(missing_start_message.to_string())),
-        None => Ok(0),
-    }
+    let Some(media_id) = start_media_id else {
+        return Ok(0);
+    };
+    rows.iter()
+        .position(|(row_media_id, _)| row_media_id == media_id)
+        .ok_or_else(|| {
+            LibraryQueueFailure::NotFound(format!(
+                "Library queue start media '{}' is no longer in the resolved view",
+                media_id
+            ))
+        })
 }
 
 fn validate_library_queue_paths(paths: &[String]) -> Result<Vec<String>, String> {
@@ -102,37 +49,11 @@ pub(super) fn play_media_queue_rows(
     rows: &[MediaQueueRow],
     start_media_id: Option<&str>,
     empty_message: &str,
-    missing_start_message: &str,
 ) -> Result<LibraryQueuePlayback, LibraryQueueFailure> {
     if rows.is_empty() {
         return Err(LibraryQueueFailure::NotFound(empty_message.to_string()));
     }
-    let start_index = media_queue_start_index(rows, start_media_id, missing_start_message)?;
-    let paths = rows
-        .iter()
-        .map(|(_, source_path)| source_path.clone())
-        .collect::<Vec<_>>();
-    let validated_paths =
-        validate_library_queue_paths(&paths).map_err(LibraryQueueFailure::BadRequest)?;
-    let state = load_replaced_queue_at_position(data, &validated_paths, start_index)
-        .map_err(LibraryQueueFailure::Internal)?;
-    Ok(LibraryQueuePlayback {
-        state,
-        queued_count: validated_paths.len(),
-    })
-}
-
-pub(super) fn play_library_queue_rows(
-    data: &web::Data<Arc<AppState>>,
-    rows: &[LibraryQueueRow],
-    start_track_key: Option<i64>,
-    empty_message: &str,
-    missing_start_message: &str,
-) -> Result<LibraryQueuePlayback, LibraryQueueFailure> {
-    if rows.is_empty() {
-        return Err(LibraryQueueFailure::NotFound(empty_message.to_string()));
-    }
-    let start_index = library_queue_start_index(rows, start_track_key, missing_start_message)?;
+    let start_index = media_queue_start_index(rows, start_media_id)?;
     let paths = rows
         .iter()
         .map(|(_, source_path)| source_path.clone())
@@ -157,43 +78,18 @@ pub(super) fn library_queue_playback_response(playback: LibraryQueuePlayback) ->
 
 #[cfg(test)]
 mod tests {
-    use super::{library_queue_start_index, media_queue_start_index};
-    use crate::server::playback::types::LibraryQueueFailure;
+    use super::{media_queue_start_index, LibraryQueueFailure};
 
     #[test]
-    fn library_queue_start_index_defaults_to_first_track() {
+    fn media_queue_start_index_defaults_to_first_track() {
         let rows = vec![
-            (10, "D:/music/a.flac".to_string()),
-            (20, "D:/music/b.flac".to_string()),
+            ("media-a".to_string(), "D:/music/a.flac".to_string()),
+            ("media-b".to_string(), "D:/music/b.flac".to_string()),
         ];
 
-        let start_index = library_queue_start_index(&rows, None, "missing").unwrap();
+        let start_index = media_queue_start_index(&rows, None).unwrap();
 
         assert_eq!(start_index, 0);
-    }
-
-    #[test]
-    fn library_queue_start_index_finds_requested_track() {
-        let rows = vec![
-            (10, "D:/music/a.flac".to_string()),
-            (20, "D:/music/b.flac".to_string()),
-        ];
-
-        let start_index = library_queue_start_index(&rows, Some(20), "missing").unwrap();
-
-        assert_eq!(start_index, 1);
-    }
-
-    #[test]
-    fn library_queue_start_index_rejects_missing_requested_track() {
-        let rows = vec![(10, "D:/music/a.flac".to_string())];
-
-        let error = library_queue_start_index(&rows, Some(20), "missing track").unwrap_err();
-
-        match error {
-            LibraryQueueFailure::NotFound(message) => assert_eq!(message, "missing track"),
-            other => panic!("expected NotFound, got {other:?}"),
-        }
     }
 
     #[test]
@@ -203,20 +99,20 @@ mod tests {
             ("media-b".to_string(), "D:/music/b.flac".to_string()),
         ];
 
-        let start_index = media_queue_start_index(&rows, Some("media-b"), "missing").unwrap();
+        let start_index = media_queue_start_index(&rows, Some("media-b")).unwrap();
 
         assert_eq!(start_index, 1);
     }
 
     #[test]
-    fn media_queue_start_index_rejects_missing_requested_media_id() {
+    fn media_queue_start_index_rejects_missing_explicit_media() {
         let rows = vec![("media-a".to_string(), "D:/music/a.flac".to_string())];
 
-        let error = media_queue_start_index(&rows, Some("media-b"), "missing media").unwrap_err();
+        let error = media_queue_start_index(&rows, Some("media-b")).unwrap_err();
 
         match error {
-            LibraryQueueFailure::NotFound(message) => assert_eq!(message, "missing media"),
-            other => panic!("expected NotFound, got {other:?}"),
+            LibraryQueueFailure::NotFound(message) => assert!(message.contains("media-b")),
+            other => panic!("unexpected error: {:?}", other),
         }
     }
 }

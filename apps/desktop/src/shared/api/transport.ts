@@ -4,6 +4,18 @@ import type { ApiEnvelope } from "./types";
 
 export type ParseApiEnvelope = (value: unknown) => ApiEnvelope;
 
+const readFetchFailureMessage = (error: unknown): string => {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return "Unknown network error";
+};
+
+const createFetchFailureError = (path: string, error: unknown): Error =>
+  new Error(
+    `Request to ${path} failed before receiving a response: ${readFetchFailureMessage(error)}`
+  );
+
 export const requestJson = async (baseUrl: string, path: string, init?: RequestInit): Promise<unknown> => {
   const runRequest = async (forceTokenRefresh: boolean) => {
     const token = await resolveApiToken(forceTokenRefresh);
@@ -20,10 +32,20 @@ export const requestJson = async (baseUrl: string, path: string, init?: RequestI
     });
   };
 
-  let response = await runRequest(false);
+  let response: Response;
+  try {
+    response = await runRequest(false);
+  } catch (error) {
+    throw createFetchFailureError(path, error);
+  }
+
   if (response.status === 401) {
     invalidateApiToken();
-    response = await runRequest(true);
+    try {
+      response = await runRequest(true);
+    } catch (error) {
+      throw createFetchFailureError(path, error);
+    }
   }
 
   if (!response.ok) {

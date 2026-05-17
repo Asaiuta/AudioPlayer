@@ -13,17 +13,9 @@ import type {
   ScanResult
 } from "./types";
 
-export interface LibraryQueueQueryInput {
-  search?: string | null;
-  folderPath?: string | null;
-  sortField?: string | null;
-  sortOrder?: string | null;
-  startTrackKey?: number | null;
-}
-
-export interface LibraryQueueTrackKeysInput {
-  trackKeys: number[];
-  startTrackKey?: number | null;
+export interface LibraryQueueMediaIdsInput {
+  mediaIds: string[];
+  startMediaId?: string | null;
 }
 
 export interface LocalPlaylistQueueInput {
@@ -63,10 +55,9 @@ export interface LibraryApiClient {
   getMediaItems: (limit?: number, all?: boolean) => Promise<MediaItem[]>;
   getLibraryTrackSummaries: () => Promise<LibraryTrackSummariesResponse>;
   getLibraryTrackDetail: (trackKey: number) => Promise<LibraryTrackDetail>;
-  replaceQueueFromLibraryQuery: (input: LibraryQueueQueryInput) => Promise<LibraryQueuePlaybackResult>;
-  replaceQueueFromTrackKeys: (input: LibraryQueueTrackKeysInput) => Promise<LibraryQueuePlaybackResult>;
+  replaceQueueFromMediaIds: (input: LibraryQueueMediaIdsInput) => Promise<LibraryQueuePlaybackResult>;
   replaceQueueFromLocalPlaylist: (input: LocalPlaylistQueueInput) => Promise<LibraryQueuePlaybackResult>;
-  enqueueQueueFromTrackKeys: (input: LibraryQueueTrackKeysInput) => Promise<QueueEntry[]>;
+  enqueueQueueFromMediaIds: (input: LibraryQueueMediaIdsInput) => Promise<QueueEntry[]>;
   deleteMediaItems: (mediaIds: string[]) => Promise<number>;
   listLocalPlaylists: () => Promise<LocalPlaylist[]>;
   createLocalPlaylist: (input: LocalPlaylistCreateInput) => Promise<LocalPlaylist>;
@@ -371,26 +362,13 @@ export const createLibraryApiClient = (transport: LibraryApiTransport): LibraryA
     parseLibraryTrackDetailResponse(
       await transport.requestJson(`/domain/library/tracks/${encodeURIComponent(String(trackKey))}`)
     ),
-  replaceQueueFromLibraryQuery: async (input) =>
+  replaceQueueFromMediaIds: async (input) =>
     parseLibraryQueuePlaybackResponse(
       await transport.requestJson(
-        "/domain/library/queue_from_query",
+        "/domain/library/queue_from_media_ids",
         postJson({
-          search: input.search ?? null,
-          folder_path: input.folderPath ?? null,
-          sort_field: input.sortField ?? null,
-          sort_order: input.sortOrder ?? null,
-          start_track_key: input.startTrackKey ?? null
-        })
-      )
-    ),
-  replaceQueueFromTrackKeys: async (input) =>
-    parseLibraryQueuePlaybackResponse(
-      await transport.requestJson(
-        "/domain/library/queue_from_track_keys",
-        postJson({
-          track_keys: input.trackKeys,
-          start_track_key: input.startTrackKey ?? null
+          media_ids: input.mediaIds,
+          start_media_id: input.startMediaId ?? null
         })
       )
     ),
@@ -403,13 +381,13 @@ export const createLibraryApiClient = (transport: LibraryApiTransport): LibraryA
         })
       )
     ),
-  enqueueQueueFromTrackKeys: async (input) =>
+  enqueueQueueFromMediaIds: async (input) =>
     parseLibraryQueueEntriesResponse(
       await transport.requestJson(
-        "/domain/library/queue_enqueue_from_track_keys",
+        "/domain/library/queue_enqueue_from_media_ids",
         postJson({
-          track_keys: input.trackKeys,
-          start_track_key: input.startTrackKey ?? null
+          media_ids: input.mediaIds,
+          start_media_id: input.startMediaId ?? null
         })
       ),
       "Invalid library queue enqueue response"

@@ -33,7 +33,7 @@ export class LibraryWorkerClient {
   private latestInitRequestId = 0;
   private latestViewRequestId = 0;
   private ready = false;
-  private readonly pendingTrackKeyRequests = new Map<number, PendingRequest<number[]>>();
+  private readonly pendingMediaIdRequests = new Map<number, PendingRequest<string[]>>();
   private readonly pendingRowRequests = new Map<number, PendingRequest<LibraryWorkerRow[]>>();
 
   constructor(private readonly handlers: LibraryWorkerClientHandlers) {}
@@ -71,18 +71,18 @@ export class LibraryWorkerClient {
     return true;
   }
 
-  requestTrackKeys(input: LibraryWorkerViewInput): Promise<number[]> {
+  requestMediaIds(input: LibraryWorkerViewInput): Promise<string[]> {
     this.assertReady();
     const requestId = this.nextRequestId();
     const message: LibraryWorkerRequest = {
-      type: "TRACK_KEYS",
+      type: "MEDIA_IDS",
       requestId,
       queries: input.queries,
       folderKey: input.folderKey,
       sort: input.sort
     };
-    return new Promise<number[]>((resolve, reject) => {
-      this.pendingTrackKeyRequests.set(requestId, { resolve, reject });
+    return new Promise<string[]>((resolve, reject) => {
+      this.pendingMediaIdRequests.set(requestId, { resolve, reject });
       this.postMessage(message);
     });
   }
@@ -147,11 +147,11 @@ export class LibraryWorkerClient {
           this.handlers.onReady(message.total);
         }
         return;
-      case "TRACK_KEYS_RESULT": {
-        const pending = this.pendingTrackKeyRequests.get(message.requestId);
+      case "MEDIA_IDS_RESULT": {
+        const pending = this.pendingMediaIdRequests.get(message.requestId);
         if (pending) {
-          this.pendingTrackKeyRequests.delete(message.requestId);
-          pending.resolve(message.trackKeys);
+          this.pendingMediaIdRequests.delete(message.requestId);
+          pending.resolve(message.mediaIds);
         }
         return;
       }
@@ -181,10 +181,10 @@ export class LibraryWorkerClient {
   }
 
   private rejectPendingRequests(message: string): void {
-    this.pendingTrackKeyRequests.forEach((pending) => {
+    this.pendingMediaIdRequests.forEach((pending) => {
       pending.reject(new Error(message));
     });
-    this.pendingTrackKeyRequests.clear();
+    this.pendingMediaIdRequests.clear();
     this.pendingRowRequests.forEach((pending) => {
       pending.reject(new Error(message));
     });

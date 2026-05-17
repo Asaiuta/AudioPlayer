@@ -62,18 +62,10 @@ pub(super) struct LibraryTrackPath {
 }
 
 #[derive(Deserialize)]
-pub(super) struct LibraryQueueQueryRequest {
-    pub(super) search: Option<String>,
-    pub(super) folder_path: Option<String>,
-    pub(super) sort_field: Option<String>,
-    pub(super) sort_order: Option<String>,
-    pub(super) start_track_key: Option<i64>,
-}
-
-#[derive(Deserialize)]
-pub(super) struct LibraryQueueTrackKeysRequest {
-    pub(super) track_keys: Vec<i64>,
-    pub(super) start_track_key: Option<i64>,
+pub(super) struct LibraryQueueMediaIdsRequest {
+    pub(super) media_ids: Vec<String>,
+    #[serde(default)]
+    pub(super) start_media_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -81,7 +73,6 @@ pub(super) struct LocalPlaylistQueueRequest {
     pub(super) start_media_id: Option<String>,
 }
 
-pub(super) type LibraryQueueRow = (i64, String);
 pub(super) type MediaQueueRow = (String, String);
 
 pub(super) struct LibraryQueuePlayback {

@@ -145,3 +145,39 @@ test("patchMergedPlayerState applies functional patches through merge semantics"
   assert.equal(data.current_time, 15);
   assert.equal(data.title, "Keep me");
 });
+
+test("patchMergedPlayerState clears stale path-derived fields when file path changes", () => {
+  const current: RequestState<PlayerState> = {
+    status: "success",
+    data: playerState({
+      file_path: "C:/Music/first.flac",
+      media_id: "c:/music/first.flac",
+      title: "First",
+      artist: "Artist",
+      album: "Album",
+      ncm_song_id: 123,
+      ncm_source_page_url: "https://music.163.com/#/song?id=123",
+      has_cover_art: true,
+      external_artwork_url: "https://img.example/first.jpg"
+    })
+  };
+
+  const patched = patchMergedPlayerState(current, {
+    file_path: "C:/Music/later.flac",
+    duration: 180,
+    current_time: 0,
+    is_loading: false
+  });
+
+  assert.equal(patched.status, "success");
+  const data = expectSuccess(patched).data;
+  assert.equal(data.file_path, "C:/Music/later.flac");
+  assert.equal(data.media_id, null);
+  assert.equal(data.title, null);
+  assert.equal(data.artist, null);
+  assert.equal(data.album, null);
+  assert.equal(data.ncm_song_id, null);
+  assert.equal(data.ncm_source_page_url, null);
+  assert.equal(data.has_cover_art, false);
+  assert.equal(data.external_artwork_url, null);
+});

@@ -113,73 +113,51 @@ pub(super) async fn get_library_track_cover_art(
     }
 }
 
-pub(super) async fn replace_queue_from_library_query(
+pub(super) async fn replace_queue_from_media_ids(
     data: web::Data<Arc<AppState>>,
-    body: web::Json<LibraryQueueQueryRequest>,
+    body: web::Json<LibraryQueueMediaIdsRequest>,
 ) -> HttpResponse {
-    let query = build_library_query(&body);
-    let rows = match data.app_db.source_paths_for_library_query(&query) {
+    if body.media_ids.is_empty() {
+        return bad_request_response("media_ids cannot be empty");
+    }
+    let media_ids = media_ids_with_start(&body.media_ids, body.start_media_id.as_deref());
+    let rows = match data.app_db.source_paths_for_media_ids(&media_ids) {
         Ok(rows) => rows,
         Err(e) => return internal_server_error_response(e),
     };
-    match play_library_queue_rows(
+    match play_media_queue_rows(
         &data,
         &rows,
-        body.start_track_key,
-        "No library tracks matched the current view",
-        "Start track is not in the current library view",
-    ) {
-        Ok(playback) => library_queue_playback_response(playback),
-        Err(error) => error.into_response(),
-    }
-}
-
-pub(super) async fn replace_queue_from_track_keys(
-    data: web::Data<Arc<AppState>>,
-    body: web::Json<LibraryQueueTrackKeysRequest>,
-) -> HttpResponse {
-    if body.track_keys.is_empty() {
-        return bad_request_response("track_keys cannot be empty");
-    }
-    let track_keys = track_keys_with_start(&body.track_keys, body.start_track_key);
-    let rows = match data.app_db.source_paths_for_track_keys(&track_keys) {
-        Ok(rows) => rows,
-        Err(e) => return internal_server_error_response(e),
-    };
-    match play_library_queue_rows(
-        &data,
-        &rows,
-        body.start_track_key,
+        body.start_media_id.as_deref(),
         "Library tracks not found",
-        "Start track is not in the submitted library view",
     ) {
         Ok(playback) => library_queue_playback_response(playback),
         Err(error) => error.into_response(),
     }
 }
 
-fn track_keys_with_start(track_keys: &[i64], start_track_key: Option<i64>) -> Vec<i64> {
-    let Some(start_track_key) = start_track_key else {
-        return track_keys.to_vec();
+fn media_ids_with_start(media_ids: &[String], start_media_id: Option<&str>) -> Vec<String> {
+    let Some(start_media_id) = start_media_id else {
+        return media_ids.to_vec();
     };
-    if track_keys.contains(&start_track_key) {
-        return track_keys.to_vec();
+    if media_ids.iter().any(|value| value == start_media_id) {
+        return media_ids.to_vec();
     }
 
-    let mut keys = Vec::with_capacity(track_keys.len() + 1);
-    keys.push(start_track_key);
-    keys.extend_from_slice(track_keys);
-    keys
+    let mut ids = Vec::with_capacity(media_ids.len() + 1);
+    ids.push(start_media_id.to_string());
+    ids.extend_from_slice(media_ids);
+    ids
 }
 
-pub(super) async fn enqueue_queue_from_track_keys(
+pub(super) async fn enqueue_queue_from_media_ids(
     data: web::Data<Arc<AppState>>,
-    body: web::Json<LibraryQueueTrackKeysRequest>,
+    body: web::Json<LibraryQueueMediaIdsRequest>,
 ) -> HttpResponse {
-    if body.track_keys.is_empty() {
-        return bad_request_response("track_keys cannot be empty");
+    if body.media_ids.is_empty() {
+        return bad_request_response("media_ids cannot be empty");
     }
-    let rows = match data.app_db.source_paths_for_track_keys(&body.track_keys) {
+    let rows = match data.app_db.source_paths_for_media_ids(&body.media_ids) {
         Ok(rows) => rows,
         Err(e) => return internal_server_error_response(e),
     };
@@ -202,27 +180,44 @@ pub(super) async fn enqueue_queue_from_track_keys(
 
 #[cfg(test)]
 mod tests {
-    use super::track_keys_with_start;
+    use super::media_ids_with_start;
 
     #[test]
-    fn track_keys_with_start_keeps_submitted_order_when_start_exists() {
-        let keys = track_keys_with_start(&[10, 20, 30], Some(20));
+    fn media_ids_with_start_keeps_submitted_order_when_start_exists() {
+        let ids = media_ids_with_start(
+            &["a".to_string(), "b".to_string(), "c".to_string()],
+            Some("b"),
+        );
 
-        assert_eq!(keys, vec![10, 20, 30]);
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }
 
     #[test]
-    fn track_keys_with_start_prepends_missing_start_track() {
-        let keys = track_keys_with_start(&[10, 20, 30], Some(40));
+    fn media_ids_with_start_prepends_missing_start_media() {
+        let ids = media_ids_with_start(
+            &["a".to_string(), "b".to_string(), "c".to_string()],
+            Some("z"),
+        );
 
-        assert_eq!(keys, vec![40, 10, 20, 30]);
+        assert_eq!(
+            ids,
+            vec![
+                "z".to_string(),
+                "a".to_string(),
+                "b".to_string(),
+                "c".to_string()
+            ]
+        );
     }
 
     #[test]
-    fn track_keys_with_start_leaves_keys_without_start_track() {
-        let keys = track_keys_with_start(&[10, 20, 30], None);
+    fn media_ids_with_start_leaves_ids_without_start_media() {
+        let ids = media_ids_with_start(
+            &["a".to_string(), "b".to_string(), "c".to_string()],
+            None,
+        );
 
-        assert_eq!(keys, vec![10, 20, 30]);
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }
 }
 
@@ -334,7 +329,6 @@ pub(super) async fn replace_queue_from_local_playlist(
         &rows,
         body.start_media_id.as_deref(),
         "No tracks in the local playlist",
-        "Start track is not in the local playlist",
     ) {
         Ok(playback) => library_queue_playback_response(playback),
         Err(error) => error.into_response(),

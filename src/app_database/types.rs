@@ -117,30 +117,6 @@ pub struct LibrarySummaryStatsRecord {
     pub revision: String,
 }
 
-#[derive(Debug, Clone)]
-pub enum LibrarySortField {
-    Default,
-    Title,
-    Album,
-    Duration,
-    Size,
-}
-
-#[derive(Debug, Clone)]
-pub enum LibrarySortOrder {
-    Default,
-    Asc,
-    Desc,
-}
-
-#[derive(Debug, Clone)]
-pub struct LibraryTrackQuery {
-    pub search: Option<String>,
-    pub folder_path: Option<String>,
-    pub sort_field: LibrarySortField,
-    pub sort_order: LibrarySortOrder,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LocalPlaylistRecord {
     pub playlist_id: String,

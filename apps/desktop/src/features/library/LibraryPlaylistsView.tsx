@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { AlbumCard } from "../../components/AlbumCard";
 import {
   IconDelete,
@@ -27,6 +27,7 @@ interface LibraryPlaylistsViewProps {
   selectedPlaylistId: string | null;
   items: LibraryListItem[];
   currentTrackPath: string | null;
+  currentMediaId: string | null;
   isPlaying: boolean;
   isLoading: boolean;
   sort: MediaSortState;
@@ -74,6 +75,19 @@ export function LibraryPlaylistsView(props: LibraryPlaylistsViewProps) {
       props.onPlay(first, selectedPlaylistItems());
     }
   };
+  const handlePlaylistScroll = (event: Event) => {
+    const target = event.currentTarget as HTMLElement;
+    if (target.scrollHeight - target.clientHeight < 150) {
+      setIsScrolled(false);
+      return;
+    }
+    setIsScrolled(target.scrollTop > 80);
+  };
+
+  createEffect(() => {
+    void props.selectedPlaylistId;
+    setIsScrolled(false);
+  });
 
   return (
     <Show
@@ -121,7 +135,7 @@ export function LibraryPlaylistsView(props: LibraryPlaylistsViewProps) {
       >
         {(playlist) => (
           <section class="playlist-detail local-playlist-detail">
-            <div class={`playlist-detail-shell${isScrolled() ? " is-small" : ""}`}>
+            <div class={`playlist-detail-shell${isScrolled() ? " is-local-scrolled" : ""}`}>
               <header class={`playlist-detail-head${uiSettings.hiddenCovers.list ? " is-cover-hidden" : ""}`}>
                 <Show when={!uiSettings.hiddenCovers.list}>
                   <div class="playlist-detail-art" aria-hidden="true">
@@ -201,11 +215,12 @@ export function LibraryPlaylistsView(props: LibraryPlaylistsViewProps) {
                 <MediaList
                   items={selectedPlaylistItems()}
                   currentSourcePath={props.currentTrackPath}
+                  currentMediaId={props.currentMediaId}
                   isPlayingNow={props.isPlaying}
                   onPlay={(item) => props.onPlay(item, selectedPlaylistItems())}
                   onEnqueue={props.onEnqueue}
                   onContextAction={props.onContextAction}
-                  onScroll={(event) => setIsScrolled((event.currentTarget as HTMLElement).scrollTop > 12)}
+                  onScroll={handlePlaylistScroll}
                   isLoading={props.isLoading}
                   emptyState={t("library.playlists.emptyTracks")}
                   contextActions={["play", "enqueue", "copy-path", "delete"]}

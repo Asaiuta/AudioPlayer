@@ -722,6 +722,42 @@ fn local_playlists_prepend_remove_and_cascade_deleted_media() {
 }
 
 #[test]
+fn deleting_library_root_removes_local_media_and_playlist_refs() {
+    let db = AppDatabase::in_memory().unwrap();
+    let root_id = db
+        .upsert_library_root(None, "D:/music", "local", "Music", "completed")
+        .unwrap();
+    let media_a = db.record_media_stub("D:/music/a.flac").unwrap();
+    let media_b = db.record_media_stub("D:/music/nested/b.flac").unwrap();
+    let outside_media = db.record_media_stub("D:/other/c.flac").unwrap();
+    let playlist = db.create_local_playlist("Road", None).unwrap();
+
+    db.add_media_to_local_playlist(
+        &playlist.playlist_id,
+        &[media_a.clone(), media_b.clone(), outside_media.clone()],
+    )
+    .unwrap();
+
+    let deleted = db.delete_library_root(root_id).unwrap();
+
+    assert_eq!(deleted, Some(("D:/music".to_string(), 2)));
+    assert!(db.source_path_for_media_id(&media_a).unwrap().is_none());
+    assert!(db.source_path_for_media_id(&media_b).unwrap().is_none());
+    assert_eq!(
+        db.source_path_for_media_id(&outside_media).unwrap().as_deref(),
+        Some("D:/other/c.flac")
+    );
+    assert!(db.list_library_roots().unwrap().is_empty());
+
+    let detail = db
+        .get_local_playlist(&playlist.playlist_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(detail.playlist.track_count, 1);
+    assert_eq!(detail.items[0].media_id, outside_media);
+}
+
+#[test]
 fn local_playlist_batch_add_filters_invalid_ids_across_lookup_chunks() {
     let db = AppDatabase::in_memory().unwrap();
     let media_ids = (0..505)
@@ -1230,31 +1266,22 @@ fn library_track_key_lookup_preserves_order_and_keeps_summaries_light() {
     db.record_media_stub("D:/music/nested/c.flac").unwrap();
 
     let summaries = db.list_library_track_summaries().unwrap();
-    let key_for_media = |media_id: &str| {
-        summaries
-            .iter()
-            .find(|track| track.media_id == media_id)
-            .map(|track| track.track_key)
-            .unwrap()
-    };
-    let key_a = key_for_media(&media_a);
-    let key_b = key_for_media(&media_b);
-    let missing_key = summaries
-        .iter()
-        .map(|track| track.track_key)
-        .max()
-        .unwrap_or(0)
-        + 10_000;
+    let missing_media_id = "deadbeefcafebabe".to_string();
 
     let rows = db
-        .source_paths_for_track_keys(&[key_b, missing_key, key_a, key_b])
+        .source_paths_for_media_ids(&[
+            media_b.clone(),
+            missing_media_id,
+            media_a.clone(),
+            media_b.clone(),
+        ])
         .unwrap();
     assert_eq!(
         rows,
         vec![
-            (key_b, "D:/music/b.flac".to_string()),
-            (key_a, "D:/music/a.flac".to_string()),
-            (key_b, "D:/music/b.flac".to_string())
+            (media_b.clone(), "D:/music/b.flac".to_string()),
+            (media_a.clone(), "D:/music/a.flac".to_string()),
+            (media_b.clone(), "D:/music/b.flac".to_string())
         ]
     );
 

@@ -91,31 +91,23 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
       sort()
     );
 
-  const currentLibraryQueryInput = (startTrackKey?: number | null) => ({
-    search: debouncedQueries().join(" "),
-    folderPath: selectedFolder() === ALL_FOLDERS_VALUE ? null : selectedFolder(),
-    sortField: sort().field,
-    sortOrder: sort().order,
-    startTrackKey: startTrackKey ?? null
-  });
-
   const postWorkerView = () => {
     if (!workerReady()) return;
     workerClient.requestView(currentWorkerViewInput(), virtualRange());
   };
 
-  const requestWorkerTrackKeys = async (startTrackKey?: number): Promise<number[]> => {
+  const requestWorkerMediaIds = async (startMediaId?: string | null): Promise<string[]> => {
     if (!workerReady()) {
       throw new Error(t("common.error.requestFailed"));
     }
-    const trackKeys = await workerClient.requestTrackKeys(currentWorkerViewInput());
-    if (trackKeys.length === 0) {
+    const mediaIds = await workerClient.requestMediaIds(currentWorkerViewInput());
+    if (mediaIds.length === 0) {
       throw new Error(t("library.tracks.emptyFilter"));
     }
-    if (startTrackKey !== undefined && !trackKeys.includes(startTrackKey)) {
-      return [startTrackKey, ...trackKeys];
+    if (startMediaId && !mediaIds.includes(startMediaId)) {
+      return [startMediaId, ...mediaIds];
     }
-    return trackKeys;
+    return mediaIds;
   };
 
   const requestWorkerRows = async (): Promise<LibraryListItem[]> => {
@@ -289,8 +281,7 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
     setIsScanning,
     scanProgress,
     setScanProgress,
-    currentLibraryQueryInput,
-    requestWorkerTrackKeys,
+    requestWorkerMediaIds,
     requestWorkerRows,
     applyTrackSummaries,
     filteredItems,

@@ -412,7 +412,7 @@ pub async fn run_server(
                             .unwrap_or(false)
                     })
                     .supports_credentials()
-                    .allowed_methods(vec!["GET", "POST", "OPTIONS"])
+                    .allowed_methods(vec!["GET", "POST", "PATCH", "DELETE", "OPTIONS"])
                     .allowed_headers(vec![
                         header::CONTENT_TYPE,
                         header::AUTHORIZATION,

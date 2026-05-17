@@ -51,8 +51,8 @@ export type LibraryWorkerViewRequest = {
   range: LibraryWorkerRange;
 } & LibraryWorkerViewInput;
 
-export type LibraryWorkerTrackKeysRequest = {
-  type: "TRACK_KEYS";
+export type LibraryWorkerMediaIdsRequest = {
+  type: "MEDIA_IDS";
   requestId: number;
 } & LibraryWorkerViewInput;
 
@@ -64,7 +64,7 @@ export type LibraryWorkerRowsRequest = {
 export type LibraryWorkerRequest =
   | LibraryWorkerInitRequest
   | LibraryWorkerViewRequest
-  | LibraryWorkerTrackKeysRequest
+  | LibraryWorkerMediaIdsRequest
   | LibraryWorkerRowsRequest;
 
 export type LibraryWorkerResponse =
@@ -82,9 +82,9 @@ export type LibraryWorkerResponse =
       folders: LibraryWorkerFolderGroup[];
     }
   | {
-      type: "TRACK_KEYS_RESULT";
+      type: "MEDIA_IDS_RESULT";
       requestId: number;
-      trackKeys: number[];
+      mediaIds: string[];
     }
   | {
       type: "ROWS_RESULT";

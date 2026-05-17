@@ -19,20 +19,24 @@ export const mediaKeyForPath = (path: string | null | undefined): string | null 
     .toLowerCase();
 };
 
+const mediaIdentityKey = (value: string | null | undefined): string | null =>
+  mediaKeyForPath(value);
+
 export const isMediaListItemCurrent = (
   item: MediaIdentityListItem,
   current: CurrentMediaIdentity
-): boolean =>
-  (current.songId !== null &&
-    current.songId !== undefined &&
-    item.songId === current.songId) ||
-  (current.mediaId !== null &&
-    current.mediaId !== undefined &&
-    item.media_id !== null &&
-    item.media_id !== undefined &&
-    item.media_id === current.mediaId) ||
-  (current.sourcePath !== null &&
-    current.sourcePath !== undefined &&
-    item.source_path !== null &&
-    item.source_path !== undefined &&
-    mediaKeyForPath(item.source_path) === mediaKeyForPath(current.sourcePath));
+): boolean => {
+  if (current.songId !== null && current.songId !== undefined && item.songId === current.songId) {
+    return true;
+  }
+
+  const currentSourceKey = mediaKeyForPath(current.sourcePath);
+  const currentMediaKey = currentSourceKey ?? mediaIdentityKey(current.mediaId);
+  const itemMediaKey = mediaIdentityKey(item.media_id);
+  if (currentMediaKey && itemMediaKey === currentMediaKey) {
+    return true;
+  }
+
+  const itemSourceKey = mediaKeyForPath(item.source_path);
+  return currentSourceKey !== null && itemSourceKey === currentSourceKey;
+};

@@ -121,6 +121,7 @@ export function LibraryTabContent(props: LibraryTabContentProps) {
           selectedPlaylistId={props.controller.selectedPlaylistId()}
           items={props.controller.selectedPlaylistSortedItems()}
           currentTrackPath={props.currentTrackPath}
+          currentMediaId={props.currentMediaId}
           isPlaying={props.isPlaying}
           isLoading={props.controller.isFetching()}
           sort={props.controller.sort()}

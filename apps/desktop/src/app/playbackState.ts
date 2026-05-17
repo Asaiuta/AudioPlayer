@@ -51,8 +51,25 @@ export const patchMergedPlayerState = (
     return current;
   }
 
+  const patchChangesMediaPath =
+    "file_path" in nextPatch &&
+    !sameMediaPath(current.data.file_path, nextPatch.file_path);
+  const normalizedPatch = patchChangesMediaPath
+    ? {
+        media_id: null,
+        ncm_song_id: null,
+        ncm_source_page_url: null,
+        title: null,
+        artist: null,
+        album: null,
+        has_cover_art: false,
+        external_artwork_url: null,
+        ...nextPatch
+      }
+    : nextPatch;
+
   return mergePlayerState(current, {
     ...current.data,
-    ...nextPatch
+    ...normalizedPatch
   });
 };

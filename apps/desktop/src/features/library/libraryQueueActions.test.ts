@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { enqueueLibraryItem, enqueueLibraryItems } from "./libraryQueueActions";
+import {
+  enqueueLibraryItem,
+  enqueueLibraryItems,
+  mediaIdsForPlaybackContext
+} from "./libraryQueueActions";
 import type { MediaItem } from "../../shared/api/types";
 import type { LibraryListItem } from "./libraryViewTypes";
 
-const makeItem = (id: string, trackKey?: number): LibraryListItem => ({
+const makeItem = (id: string, mediaId?: string): LibraryListItem => ({
   id,
   title: `Track ${id}`,
   artist: null,
   album: null,
   duration_secs: null,
   source_path: null,
-  trackKey,
+  media_id: mediaId,
   artworkUrl: null
 });
 
@@ -21,16 +25,16 @@ const makeDetail = (id: string): MediaItem =>
     source_path: `D:\\Music\\${id}.flac`
   }) as MediaItem;
 
-test("enqueueLibraryItems batches track-key rows without resolving details", async () => {
-  const trackKeyCalls: number[][] = [];
+test("enqueueLibraryItems batches media-id rows without resolving details", async () => {
+  const mediaIdCalls: string[][] = [];
   const pathCalls: string[][] = [];
   let detailCalls = 0;
 
   const result = await enqueueLibraryItems(
     {
       api: {
-        enqueueQueueFromTrackKeys: async (input) => {
-          trackKeyCalls.push(input.trackKeys);
+        enqueueQueueFromMediaIds: async (input) => {
+          mediaIdCalls.push(input.mediaIds);
         },
         enqueueTracks: async (paths) => {
           pathCalls.push(paths);
@@ -42,24 +46,24 @@ test("enqueueLibraryItems batches track-key rows without resolving details", asy
       },
       requestFailedMessage: () => "request failed"
     },
-    [makeItem("a", 11), makeItem("b", 12), makeItem("c", 13)]
+    [makeItem("a", "media-a"), makeItem("b", "media-b"), makeItem("c", "media-c")]
   );
 
-  assert.deepEqual(trackKeyCalls, [[11, 12, 13]]);
+  assert.deepEqual(mediaIdCalls, [["media-a", "media-b", "media-c"]]);
   assert.deepEqual(pathCalls, []);
   assert.equal(detailCalls, 0);
   assert.deepEqual(result, { enqueuedCount: 3 });
 });
 
 test("enqueueLibraryItems falls back to one path batch when rows need detail", async () => {
-  const trackKeyCalls: number[][] = [];
+  const mediaIdCalls: string[][] = [];
   const pathCalls: string[][] = [];
 
   const result = await enqueueLibraryItems(
     {
       api: {
-        enqueueQueueFromTrackKeys: async (input) => {
-          trackKeyCalls.push(input.trackKeys);
+        enqueueQueueFromMediaIds: async (input) => {
+          mediaIdCalls.push(input.mediaIds);
         },
         enqueueTracks: async (paths) => {
           pathCalls.push(paths);
@@ -68,22 +72,22 @@ test("enqueueLibraryItems falls back to one path batch when rows need detail", a
       ensureItemDetail: async (item) => makeDetail(item.id),
       requestFailedMessage: () => "request failed"
     },
-    [makeItem("a", 11), makeItem("legacy")]
+    [makeItem("a", "media-a"), makeItem("legacy")]
   );
 
-  assert.deepEqual(trackKeyCalls, []);
+  assert.deepEqual(mediaIdCalls, []);
   assert.deepEqual(pathCalls, [["D:\\Music\\a.flac", "D:\\Music\\legacy.flac"]]);
   assert.deepEqual(result, { enqueuedCount: 2 });
 });
 
-test("enqueueLibraryItem uses track-key enqueue for summary-only rows", async () => {
-  const trackKeyCalls: number[][] = [];
+test("enqueueLibraryItem uses media-id enqueue for summary-only rows", async () => {
+  const mediaIdCalls: string[][] = [];
 
   const result = await enqueueLibraryItem(
     {
       api: {
-        enqueueQueueFromTrackKeys: async (input) => {
-          trackKeyCalls.push(input.trackKeys);
+        enqueueQueueFromMediaIds: async (input) => {
+          mediaIdCalls.push(input.mediaIds);
         },
         enqueueTracks: async () => {
           throw new Error("unexpected path enqueue");
@@ -94,9 +98,33 @@ test("enqueueLibraryItem uses track-key enqueue for summary-only rows", async ()
       },
       requestFailedMessage: () => "request failed"
     },
-    makeItem("a", 42)
+    makeItem("a", "media-a")
   );
 
-  assert.deepEqual(trackKeyCalls, [[42]]);
+  assert.deepEqual(mediaIdCalls, [["media-a"]]);
   assert.deepEqual(result, { title: "Track a" });
+});
+
+test("mediaIdsForPlaybackContext preserves displayed order for local playlist playback", () => {
+  const first = makeItem("visible-a", "media-a");
+  const second = makeItem("visible-b", "media-b");
+  const third = makeItem("visible-c", "media-c");
+
+  assert.deepEqual(mediaIdsForPlaybackContext(second, [first, second, third]), [
+    "media-a",
+    "media-b",
+    "media-c"
+  ]);
+});
+
+test("mediaIdsForPlaybackContext prepends the requested item when context is stale", () => {
+  const requested = makeItem("requested", "media-requested");
+  const first = makeItem("visible-a", "media-a");
+  const second = makeItem("visible-b", "media-b");
+
+  assert.deepEqual(mediaIdsForPlaybackContext(requested, [first, second]), [
+    "media-requested",
+    "media-a",
+    "media-b"
+  ]);
 });

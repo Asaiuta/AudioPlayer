@@ -14,7 +14,7 @@ import {
 } from "../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
 import type { MediaContextAction } from "../../components/media/MediaList";
-import type { LocalPlaylist } from "../../shared/api/types";
+import type { LocalPlaylist, PlayerState } from "../../shared/api/types";
 import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { ManageRootsModal } from "./ManageRootsModal";
 import {
@@ -32,6 +32,7 @@ interface LibraryPageProps {
   currentTrackPath: string | null;
   currentMediaId: string | null;
   isPlaying: boolean;
+  onPlaybackState: (next: PlayerState) => void;
   onPlay: () => Promise<void> | undefined;
   onPause: () => Promise<void> | undefined;
 }
@@ -61,8 +62,9 @@ export function LibraryPage(props: LibraryPageProps) {
     playCurrent: props.onPlay,
     pauseCurrent: props.onPause,
     playLibraryItem: async (item, contextItems) => {
-      await controller.playItem(item, contextItems);
-      await props.onStateRefresh(item.source_path ?? null);
+      const nextState = await controller.playItem(item, contextItems);
+      props.onPlaybackState(nextState);
+      await props.onStateRefresh(nextState.file_path ?? item.source_path ?? null);
     }
   });
 
@@ -157,7 +159,10 @@ export function LibraryPage(props: LibraryPageProps) {
 
   const handlePlayAll = () => {
     if (controller.activeTab() === "songs") {
-      void controller.playCurrentSongView().then(() => props.onStateRefresh(null));
+      void controller.playCurrentSongView().then(async (nextState) => {
+        props.onPlaybackState(nextState);
+        await props.onStateRefresh(nextState.file_path);
+      });
       return;
     }
     const items = activePlaybackItems();

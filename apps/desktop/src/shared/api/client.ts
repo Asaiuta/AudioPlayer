@@ -52,8 +52,7 @@ export type {
   ExternalMediaMetadataInput,
   LibraryApiClient,
   LibraryQueuePlaybackResult,
-  LibraryQueueQueryInput,
-  LibraryQueueTrackKeysInput,
+  LibraryQueueMediaIdsInput,
   LocalPlaylistQueueInput,
   LocalPlaylistCreateInput,
   LocalPlaylistUpdateInput

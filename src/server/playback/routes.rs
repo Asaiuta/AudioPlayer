@@ -72,16 +72,12 @@ pub(super) fn configure_routes(cfg: &mut web::ServiceConfig) {
             web::get().to(super::get_library_track_cover_art),
         )
         .route(
-            "/domain/library/queue_from_query",
-            web::post().to(super::replace_queue_from_library_query),
+            "/domain/library/queue_from_media_ids",
+            web::post().to(super::replace_queue_from_media_ids),
         )
         .route(
-            "/domain/library/queue_from_track_keys",
-            web::post().to(super::replace_queue_from_track_keys),
-        )
-        .route(
-            "/domain/library/queue_enqueue_from_track_keys",
-            web::post().to(super::enqueue_queue_from_track_keys),
+            "/domain/library/queue_enqueue_from_media_ids",
+            web::post().to(super::enqueue_queue_from_media_ids),
         )
         .route(
             "/domain/media_items/delete",

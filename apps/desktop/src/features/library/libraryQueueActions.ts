@@ -2,9 +2,9 @@ import type { MediaItem } from "../../shared/api/types";
 import type { LibraryListItem } from "./libraryViewTypes";
 
 interface LibraryQueueActionApi {
-  enqueueQueueFromTrackKeys: (input: {
-    trackKeys: number[];
-    startTrackKey?: number | null;
+  enqueueQueueFromMediaIds: (input: {
+    mediaIds: string[];
+    startMediaId?: string | null;
   }) => Promise<unknown>;
   enqueueTracks: (paths: string[]) => Promise<unknown>;
 }
@@ -23,11 +23,31 @@ export interface EnqueueItemsResult {
   enqueuedCount: number;
 }
 
-const trackKeysFromItems = (items: readonly LibraryListItem[]): number[] | null => {
-  const trackKeys = items
-    .map((item) => item.trackKey)
-    .filter((trackKey): trackKey is number => trackKey !== undefined);
-  return trackKeys.length === items.length ? trackKeys : null;
+const mediaIdsFromItems = (items: readonly LibraryListItem[]): string[] | null => {
+  const mediaIds = items
+    .map((item) => item.media_id)
+    .filter((mediaId): mediaId is string => typeof mediaId === "string" && mediaId.length > 0);
+  return mediaIds.length === items.length ? mediaIds : null;
+};
+
+export const mediaIdsForPlaybackContext = (
+  item: LibraryListItem,
+  contextItems: readonly LibraryListItem[]
+): string[] => {
+  const itemMediaId = item.media_id;
+  if (!itemMediaId) {
+    return [];
+  }
+
+  const contextMediaIds = contextItems
+    .map((contextItem) => contextItem.media_id)
+    .filter((mediaId): mediaId is string => typeof mediaId === "string" && mediaId.length > 0);
+  if (contextMediaIds.length === 0) {
+    return [itemMediaId];
+  }
+  return contextMediaIds.includes(itemMediaId)
+    ? contextMediaIds
+    : [itemMediaId, ...contextMediaIds];
 };
 
 const sourcePathsFromDetails = (details: readonly (MediaItem | null)[]): string[] =>
@@ -39,12 +59,12 @@ export const enqueueLibraryItem = async (
   deps: LibraryQueueActionDeps,
   item: LibraryListItem
 ): Promise<EnqueueItemResult> => {
-  if (item.trackKey !== undefined) {
-    await deps.api.enqueueQueueFromTrackKeys({
-      trackKeys: [item.trackKey],
-      startTrackKey: null
+  if (item.media_id) {
+    await deps.api.enqueueQueueFromMediaIds({
+      mediaIds: [item.media_id],
+      startMediaId: null
     });
-    return { title: item.title ?? String(item.trackKey) };
+    return { title: item.title ?? item.media_id };
   }
 
   const detail = await deps.ensureItemDetail(item);
@@ -63,13 +83,13 @@ export const enqueueLibraryItems = async (
     return { enqueuedCount: 0 };
   }
 
-  const trackKeys = trackKeysFromItems(items);
-  if (trackKeys) {
-    await deps.api.enqueueQueueFromTrackKeys({
-      trackKeys,
-      startTrackKey: null
+  const mediaIds = mediaIdsFromItems(items);
+  if (mediaIds) {
+    await deps.api.enqueueQueueFromMediaIds({
+      mediaIds,
+      startMediaId: null
     });
-    return { enqueuedCount: trackKeys.length };
+    return { enqueuedCount: mediaIds.length };
   }
 
   const details = await Promise.all(items.map(deps.ensureItemDetail));

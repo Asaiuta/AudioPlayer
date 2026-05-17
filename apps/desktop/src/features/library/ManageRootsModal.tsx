@@ -32,6 +32,8 @@ export function ManageRootsModal(props: ManageRootsModalProps) {
     setSubmitting(true);
     try {
       await props.onDeleteRoot(root);
+    } catch {
+      // The page controller owns feedback; this modal only needs to prevent a leaked rejection.
     } finally {
       setSubmitting(false);
     }

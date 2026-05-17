@@ -147,6 +147,7 @@ function AppContent() {
                     currentTrackPath={controller.currentTrackPath()}
                     currentMediaId={controller.currentMediaId()}
                     isPlaying={Boolean(controller.player()?.is_playing)}
+                    onPlaybackState={controller.applyPlayerState}
                     onPlay={controller.handlePlay}
                     onPause={controller.handlePause}
                   />

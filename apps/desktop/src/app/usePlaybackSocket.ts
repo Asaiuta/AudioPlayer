@@ -20,7 +20,7 @@ export const applyPlaybackSocketEvent = (event: WsEvent, deps: PlaybackSocketDep
       }));
       deps.setLoadingProgress(null);
       deps.setPreloadRequested(false);
-      deps.scheduleRefresh();
+      deps.scheduleRefresh(event.file_path);
       break;
     case "load_error":
       deps.patchPlayerState({

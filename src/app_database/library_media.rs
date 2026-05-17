@@ -3,9 +3,9 @@ use std::collections::{HashMap, HashSet};
 
 use super::{
     media_id_for_path, media_item_from_row, media_item_from_row_with_offset,
-    normalize_media_path_for_id, AppDatabase, LibraryFolderSummaryRecord, LibrarySortField,
-    LibrarySortOrder, LibrarySummaryStatsRecord, LibraryTrackDetailRecord, LibraryTrackQuery,
-    LibraryTrackSummaryRecord, MediaItemRecord,
+    normalize_media_path_for_id, AppDatabase, LibraryFolderSummaryRecord,
+    LibrarySummaryStatsRecord, LibraryTrackDetailRecord, LibraryTrackSummaryRecord,
+    MediaItemRecord,
 };
 
 fn library_track_summary_from_row(
@@ -59,61 +59,6 @@ fn stable_key_for_text(value: &str) -> String {
         (acc ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
     });
     format!("{:016x}", hash)
-}
-
-fn search_like_pattern(value: &str) -> Option<String> {
-    let trimmed = value.trim().to_lowercase();
-    if trimmed.is_empty() {
-        return None;
-    }
-    Some(format!(
-        "%{}%",
-        trimmed
-            .replace('\\', "\\\\")
-            .replace('%', "\\%")
-            .replace('_', "\\_")
-    ))
-}
-
-fn normalized_folder_prefix(value: &str) -> Option<String> {
-    let normalized = normalize_media_path_for_id(value)
-        .replace('\\', "/")
-        .trim_end_matches('/')
-        .to_string();
-    if normalized.trim().is_empty() {
-        return None;
-    }
-    Some(format!("{}/%", normalized))
-}
-
-fn library_order_clause(query: &LibraryTrackQuery) -> &'static str {
-    match (&query.sort_field, &query.sort_order) {
-        (LibrarySortField::Title, LibrarySortOrder::Asc) => {
-            "lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
-        }
-        (LibrarySortField::Title, LibrarySortOrder::Desc) => {
-            "lower(COALESCE(NULLIF(title, ''), source_path)) DESC, media_id DESC"
-        }
-        (LibrarySortField::Album, LibrarySortOrder::Asc) => {
-            "lower(COALESCE(album, '')) ASC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
-        }
-        (LibrarySortField::Album, LibrarySortOrder::Desc) => {
-            "lower(COALESCE(album, '')) DESC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
-        }
-        (LibrarySortField::Duration, LibrarySortOrder::Asc) => {
-            "COALESCE(duration_secs, 0) ASC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
-        }
-        (LibrarySortField::Duration, LibrarySortOrder::Desc) => {
-            "COALESCE(duration_secs, 0) DESC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
-        }
-        (LibrarySortField::Size, LibrarySortOrder::Asc) => {
-            "COALESCE(size_bytes, 0) ASC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
-        }
-        (LibrarySortField::Size, LibrarySortOrder::Desc) => {
-            "COALESCE(size_bytes, 0) DESC, lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC"
-        }
-        _ => "lower(COALESCE(NULLIF(title, ''), source_path)) ASC, media_id ASC",
-    }
 }
 
 impl AppDatabase {
@@ -303,29 +248,13 @@ impl AppDatabase {
         .map_err(|e| format!("Failed to read media id for track '{}': {}", track_key, e))
     }
 
-    pub fn source_path_for_track_key(&self, track_key: i64) -> Result<Option<String>, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        conn.query_row(
-            "SELECT source_path FROM media_items WHERE rowid = ?1 LIMIT 1",
-            params![track_key],
-            |row| row.get(0),
-        )
-        .optional()
-        .map_err(|e| {
-            format!(
-                "Failed to read source path for track '{}': {}",
-                track_key, e
-            )
-        })
-    }
-
-    pub fn source_paths_for_track_keys(
+    pub fn source_paths_for_media_ids(
         &self,
-        track_keys: &[i64],
-    ) -> Result<Vec<(i64, String)>, String> {
+        media_ids: &[String],
+    ) -> Result<Vec<(String, String)>, String> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let mut path_by_key = HashMap::with_capacity(track_keys.len());
-        for chunk in track_keys.chunks(500) {
+        let mut path_by_media_id = HashMap::with_capacity(media_ids.len());
+        for chunk in media_ids.chunks(500) {
             if chunk.is_empty() {
                 continue;
             }
@@ -334,69 +263,31 @@ impl AppDatabase {
                 .collect::<Vec<_>>()
                 .join(",");
             let sql = format!(
-                "SELECT rowid, source_path FROM media_items WHERE rowid IN ({})",
+                "SELECT media_id, source_path FROM media_items WHERE media_id IN ({})",
                 placeholders
             );
             let mut stmt = conn
                 .prepare(&sql)
-                .map_err(|e| format!("Failed to prepare library track key lookup: {}", e))?;
+                .map_err(|e| format!("Failed to prepare library media id lookup: {}", e))?;
             let rows = stmt
                 .query_map(params_from_iter(chunk.iter()), |row| {
-                    Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
                 })
-                .map_err(|e| format!("Failed to query library track key lookup: {}", e))?;
+                .map_err(|e| format!("Failed to query library media id lookup: {}", e))?;
             for row in rows {
-                let (track_key, source_path) =
-                    row.map_err(|e| format!("Failed to decode library track key lookup: {}", e))?;
-                path_by_key.insert(track_key, source_path);
+                let (media_id, source_path) =
+                    row.map_err(|e| format!("Failed to decode library media id lookup: {}", e))?;
+                path_by_media_id.insert(media_id, source_path);
             }
         }
-        Ok(track_keys
+        Ok(media_ids
             .iter()
-            .filter_map(|track_key| {
-                path_by_key
-                    .get(track_key)
-                    .map(|source_path| (*track_key, source_path.clone()))
+            .filter_map(|media_id| {
+                path_by_media_id
+                    .get(media_id)
+                    .map(|source_path| (media_id.clone(), source_path.clone()))
             })
             .collect())
-    }
-
-    pub fn source_paths_for_library_query(
-        &self,
-        query: &LibraryTrackQuery,
-    ) -> Result<Vec<(i64, String)>, String> {
-        let conn = self.conn.lock().map_err(|e| e.to_string())?;
-        let search = search_like_pattern(query.search.as_deref().unwrap_or(""));
-        let folder_prefix = query
-            .folder_path
-            .as_deref()
-            .and_then(normalized_folder_prefix);
-        let order_clause = library_order_clause(query);
-        let sql = format!(
-            r#"
-            SELECT rowid, source_path
-            FROM media_items
-            WHERE (?1 IS NULL OR (
-                    lower(COALESCE(title, '')) LIKE ?1 ESCAPE '\'
-                 OR lower(COALESCE(artist, '')) LIKE ?1 ESCAPE '\'
-                 OR lower(COALESCE(album, '')) LIKE ?1 ESCAPE '\'
-                 OR lower(REPLACE(source_path, '\', '/')) LIKE ?1 ESCAPE '\'
-            ))
-              AND (?2 IS NULL OR REPLACE(source_path, '\', '/') LIKE ?2)
-            ORDER BY {}
-            "#,
-            order_clause
-        );
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|e| format!("Failed to prepare library queue query: {}", e))?;
-        let rows = stmt
-            .query_map(params![search, folder_prefix], |row| {
-                Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
-            })
-            .map_err(|e| format!("Failed to query library queue paths: {}", e))?;
-        rows.collect::<Result<Vec<_>, _>>()
-            .map_err(|e| format!("Failed to decode library queue paths: {}", e))
     }
 
     pub fn delete_media_items(&self, media_ids: &[String]) -> Result<u64, String> {

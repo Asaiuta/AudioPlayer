@@ -214,15 +214,17 @@ const handleView = (
   };
 };
 
-const handleTrackKeys = (
-  message: Extract<LibraryWorkerRequest, { type: "TRACK_KEYS" }>
+const handleMediaIds = (
+  message: Extract<LibraryWorkerRequest, { type: "MEDIA_IDS" }>
 ): LibraryWorkerResponse => {
   const queries = message.queries.map(normalizeQuery).filter((query) => query.length > 0);
   const snapshot = snapshotForView(queries, message.folderKey, message.sort);
   return {
-    type: "TRACK_KEYS_RESULT",
+    type: "MEDIA_IDS_RESULT",
     requestId: message.requestId,
-    trackKeys: snapshot.sortedTracks.map((track) => track.summary.track_key)
+    mediaIds: snapshot.sortedTracks
+      .map((track) => track.summary.media_id)
+      .filter((value): value is string => typeof value === "string" && value.length > 0)
   };
 };
 
@@ -261,8 +263,8 @@ self.onmessage = (event: MessageEvent<LibraryWorkerRequest>) => {
     return;
   }
 
-  if (message.type === "TRACK_KEYS") {
-    self.postMessage(handleTrackKeys(message));
+  if (message.type === "MEDIA_IDS") {
+    self.postMessage(handleMediaIds(message));
     return;
   }
 

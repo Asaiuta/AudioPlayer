@@ -1,7 +1,7 @@
 import { onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
 import { createApiClient, type ApiClient } from "../../shared/api/client";
-import type { LibraryRoot, MediaItem } from "../../shared/api/types";
+import type { LibraryRoot, MediaItem, PlayerState } from "../../shared/api/types";
 import type { TranslationKey } from "../../shared/i18n";
 import { type LibraryListItem } from "./libraryViewTypes";
 import type { LibraryWorkerRow } from "./libraryWorkerProtocol";
@@ -16,7 +16,11 @@ import { createLibraryScanPoller } from "./libraryScanPoller";
 import { createLibraryFeedbackController } from "./libraryFeedback";
 import { createLibraryScanActions } from "./libraryScanActions";
 import { uniqueMediaIds } from "./librarySelectionModel";
-import { enqueueLibraryItem, enqueueLibraryItems } from "./libraryQueueActions";
+import {
+  enqueueLibraryItem,
+  enqueueLibraryItems,
+  mediaIdsForPlaybackContext
+} from "./libraryQueueActions";
 import { createLibraryControllerViewState } from "./libraryControllerViewState";
 
 export type LibraryDataControllerApi = Pick<
@@ -26,7 +30,7 @@ export type LibraryDataControllerApi = Pick<
   | "deleteLibraryRoot"
   | "deleteLocalPlaylist"
   | "deleteMediaItems"
-  | "enqueueQueueFromTrackKeys"
+  | "enqueueQueueFromMediaIds"
   | "enqueueTracks"
   | "getCoverArtUrl"
   | "getLibraryRoots"
@@ -39,9 +43,7 @@ export type LibraryDataControllerApi = Pick<
   | "playFromQueue"
   | "removeMediaFromLocalPlaylist"
   | "replaceQueue"
-  | "replaceQueueFromLibraryQuery"
-  | "replaceQueueFromLocalPlaylist"
-  | "replaceQueueFromTrackKeys"
+  | "replaceQueueFromMediaIds"
   | "scanLibraryRoot"
 >;
 
@@ -112,43 +114,40 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     scanPoller.dispose();
   });
 
-  const trackKeysForPlaybackContext = async (
+  const resolveMediaIdsForPlaybackContext = async (
     item: LibraryListItem,
     contextItems: readonly LibraryListItem[]
-  ): Promise<number[]> => {
-    if (item.trackKey === undefined) {
+  ): Promise<string[]> => {
+    if (!item.media_id) {
       throw new Error(t("common.error.requestFailed"));
     }
     if (viewState.activeTab() === "songs") {
-      return viewState.requestWorkerTrackKeys(item.trackKey);
+      return viewState.requestWorkerMediaIds(item.media_id);
     }
-    const contextTrackKeys = contextItems
-      .map((contextItem) => contextItem.trackKey)
-      .filter((trackKey): trackKey is number => trackKey !== undefined);
-    if (contextTrackKeys.length === 0) {
-      return viewState.requestWorkerTrackKeys(item.trackKey);
+    const contextMediaIds = mediaIdsForPlaybackContext(item, contextItems);
+    if (contextMediaIds.length === 0) {
+      return viewState.requestWorkerMediaIds(item.media_id);
     }
-    return contextTrackKeys.includes(item.trackKey)
-      ? contextTrackKeys
-      : [item.trackKey, ...contextTrackKeys];
+    return contextMediaIds;
   };
 
-  const replaceQueueFromCurrentLibraryQuery = async (item: LibraryListItem) => {
-    if (item.trackKey === undefined) {
-      throw new Error(t("common.error.requestFailed"));
-    }
-    await api.replaceQueueFromLibraryQuery(viewState.currentLibraryQueryInput(item.trackKey));
-  };
-
-  const replaceQueueFromSelectedPlaylist = async (item: LibraryListItem) => {
+  const replaceQueueFromSelectedPlaylist = async (
+    item: LibraryListItem,
+    contextItems: readonly LibraryListItem[]
+  ): Promise<PlayerState> => {
     const playlistId = viewState.selectedPlaylistId();
     if (!playlistId || !item.media_id) {
       throw new Error(t("common.error.requestFailed"));
     }
-    await api.replaceQueueFromLocalPlaylist({
-      playlistId,
+    const mediaIds = mediaIdsForPlaybackContext(item, contextItems);
+    if (mediaIds.length === 0) {
+      throw new Error(t("common.error.requestFailed"));
+    }
+    const playback = await api.replaceQueueFromMediaIds({
+      mediaIds,
       startMediaId: item.media_id
     });
+    return playback.state;
   };
 
   const ensureItemDetail = (item: LibraryListItem): Promise<MediaItem | null> =>
@@ -241,19 +240,21 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const playItem = async (
     item: LibraryListItem,
     contextItems: readonly LibraryListItem[] = viewState.filteredItems()
-  ) => {
+  ): Promise<PlayerState> => {
     setKeyedFeedback("neutral", "library.feedback.initial");
     try {
-      if (viewState.activeTab() === "songs" || viewState.activeTab() === "folders") {
-        await replaceQueueFromCurrentLibraryQuery(item);
-      } else if (viewState.activeTab() === "playlists") {
-        await replaceQueueFromSelectedPlaylist(item);
-      } else if (item.trackKey !== undefined) {
-        const trackKeys = await trackKeysForPlaybackContext(item, contextItems);
-        await api.replaceQueueFromTrackKeys({
-          trackKeys,
-          startTrackKey: item.trackKey
+      if (viewState.activeTab() === "playlists") {
+        const state = await replaceQueueFromSelectedPlaylist(item, contextItems);
+        setKeyedFeedback("neutral", "library.feedback.initial");
+        return state;
+      } else if (item.media_id) {
+        const mediaIds = await resolveMediaIdsForPlaybackContext(item, contextItems);
+        const playback = await api.replaceQueueFromMediaIds({
+          mediaIds,
+          startMediaId: item.media_id
         });
+        setKeyedFeedback("neutral", "library.feedback.initial");
+        return playback.state;
       } else {
         const paths = contextItems
           .map((contextItem) => contextItem.source_path)
@@ -268,20 +269,26 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
         if (!entry) {
           throw new Error(t("common.error.requestFailed"));
         }
-        await api.playFromQueue({ entryId: entry.entry_id, sourcePath: entry.source_path });
+        const state = await api.playFromQueue({
+          entryId: entry.entry_id,
+          sourcePath: entry.source_path
+        });
+        setKeyedFeedback("neutral", "library.feedback.initial");
+        return state;
       }
-      setKeyedFeedback("neutral", "library.feedback.initial");
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
       throw error;
     }
   };
 
-  const playCurrentSongView = async () => {
+  const playCurrentSongView = async (): Promise<PlayerState> => {
     setKeyedFeedback("neutral", "library.feedback.initial");
     try {
-      await api.replaceQueueFromLibraryQuery(viewState.currentLibraryQueryInput(null));
+      const mediaIds = await viewState.requestWorkerMediaIds();
+      const playback = await api.replaceQueueFromMediaIds({ mediaIds, startMediaId: null });
       setKeyedFeedback("neutral", "library.feedback.initial");
+      return playback.state;
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
       throw error;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createLibraryApiClient } from "./library";
 
-test("replaceQueueFromLocalPlaylist posts a source-based playback request", async () => {
+test("replaceQueueFromLocalPlaylist posts a legacy playlist playback request", async () => {
   const calls: Array<{ path: string; body: unknown }> = [];
   const api = createLibraryApiClient({
     requestJson: async (path, init) => {

@@ -74,6 +74,7 @@ export interface AppController {
   playbackHistoryVersion: Accessor<number>;
   uiSettings: ReturnType<typeof useUISettings>;
   refreshState: (expectedPath?: string | null) => Promise<void>;
+  applyPlayerState: (next: PlayerState) => void;
   refreshQueue: () => Promise<void>;
   handlePlay: () => Promise<void>;
   handlePause: () => Promise<void>;
@@ -238,6 +239,7 @@ export function useAppController(api: ApiClient): AppController {
     playbackHistoryVersion,
     uiSettings,
     refreshState: playback.refreshState,
+    applyPlayerState: playback.applyPlayerState,
     refreshQueue: queue.refreshQueue,
     handlePlay: playback.handlePlay,
     handlePause: playback.handlePause,
