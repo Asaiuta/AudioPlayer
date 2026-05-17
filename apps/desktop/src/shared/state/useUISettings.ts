@@ -178,82 +178,6 @@ export interface UISettings {
   lyricsBlendMode: LyricsBlendMode;
 }
 
-export const STORAGE_KEYS = {
-  bgEnabled: "ui.bg.enabled",
-  bgBlur: "ui.bg.blur",
-  bgMask: "ui.bg.mask",
-  customChrome: "ui.window.customChrome",
-  fullPlayerLayout: "ui.fullPlayer.layout",
-  fullPlayerAutoFocusLyrics: "ui.fullPlayer.autoFocusLyrics",
-  fullPlayerCommentMode: "ui.fullPlayer.commentMode",
-  fullPlayerCoverMode: "ui.fullPlayer.coverMode",
-  playerType: "ui.player.type",
-  playerStyleRatio: "ui.player.styleRatio",
-  playerFullscreenGradient: "ui.player.fullscreenGradient",
-  playerBackgroundType: "ui.player.backgroundType",
-  playerBackgroundFps: "ui.player.backgroundFps",
-  playerBackgroundFlowSpeed: "ui.player.backgroundFlowSpeed",
-  playerBackgroundRenderScale: "ui.player.backgroundRenderScale",
-  playerBackgroundPause: "ui.player.backgroundPause",
-  playerBackgroundLowFreqVolume: "ui.player.backgroundLowFreqVolume",
-  playerExpandAnimation: "ui.player.expandAnimation",
-  playerFollowCoverColor: "ui.player.followCoverColor",
-  hiddenCovers: "ui.cover.hiddenCovers",
-  sidebarHiddenItems: "ui.sidebar.hiddenItems",
-  playlistPageElements: "ui.playlistPage.elements",
-  contextMenuOptions: "ui.contextMenu.options",
-  menuShowCover: "ui.sidebar.menuShowCover",
-  fullPlayerShowAddToPlaylist: "ui.fullPlayer.elements.addToPlaylist",
-  fullPlayerShowCommentCount: "ui.fullPlayer.elements.commentCount",
-  fullPlayerShowComments: "ui.fullPlayer.elements.comments",
-  fullPlayerShowDesktopLyric: "ui.fullPlayer.elements.desktopLyric",
-  fullPlayerShowDownload: "ui.fullPlayer.elements.download",
-  fullPlayerShowLike: "ui.fullPlayer.elements.like",
-  fullPlayerShowMoreSettings: "ui.fullPlayer.elements.moreSettings",
-  autoHidePlayerMeta: "ui.fullPlayer.autoHideMeta",
-  showPlayMeta: "ui.player.showPlayMeta",
-  countDownShow: "ui.player.countDownShow",
-  showSpectrums: "ui.fullPlayer.showSpectrums",
-  homeSections: "ui.home.sections",
-  themeMode: "ui.theme.mode",
-  ncmSongLevel: "ncm.song.level",
-  autoPlay: "ui.playback.autoPlay",
-  volumeFade: "ui.playback.volumeFade",
-  volumeFadeTime: "ui.playback.volumeFadeTime",
-  memoryLastSeek: "ui.playback.memoryLastSeek",
-  progressTooltipShow: "ui.playback.progressTooltipShow",
-  progressLyricShow: "ui.playback.progressLyricShow",
-  progressAdjustLyric: "ui.playback.progressAdjustLyric",
-  lyricFontSize: "ui.lyric.fontSize",
-  lyricFontWeight: "ui.lyric.fontWeight",
-  showLyricTranslation: "ui.lyric.showTranslation",
-  showLyricRomanization: "ui.lyric.showRomanization",
-  showWordLyrics: "ui.lyric.showWordLyrics",
-  lyricsBlur: "ui.lyric.blurInactive",
-  lyricsScrollOffset: "ui.lyric.scrollOffset",
-  routeAnimation: "ui.route.animation",
-  showPlaylistCount: "ui.player.showPlaylistCount",
-  barLyricShow: "ui.player.barLyricShow",
-  showSongQuality: "ui.song.showQuality",
-  showSongPrivilegeTag: "ui.song.showPrivilegeTag",
-  showSongExplicitTag: "ui.song.showExplicitTag",
-  showSongOriginalTag: "ui.song.showOriginalTag",
-  showSongAlbum: "ui.song.showAlbum",
-  showSongDuration: "ui.song.showDuration",
-  showSongOperations: "ui.song.showOperations",
-  showSongArtist: "ui.song.showArtist",
-  hideBracketedContent: "ui.song.hideBracketedContent",
-  showPlayerQuality: "ui.player.showQuality",
-  timeFormat: "ui.player.timeFormat",
-  lyricTranslationFontSize: "ui.lyric.translationFontSize",
-  lyricRomanizationFontSize: "ui.lyric.romanizationFontSize",
-  swapLyricTranslationRomanization: "ui.lyric.swapTranslationRomanization",
-  lyricsPosition: "ui.lyric.position",
-  lyricHorizontalOffset: "ui.lyric.horizontalOffset",
-  lyricAlignRight: "ui.lyric.alignRight",
-  lyricsBlendMode: "ui.lyric.blendMode"
-} as const;
-
 export const DEFAULT_HOME_SECTIONS: HomeSectionConfig[] = [
   { key: "dailyPicks", order: 0, visible: true },
   { key: "playlists", order: 1, visible: true },
@@ -312,81 +236,331 @@ export const DEFAULT_CONTEXT_MENU_OPTIONS: ContextMenuOptions = {
   delete: true
 };
 
-const DEFAULTS: UISettings = {
-  bgEnabled: false,
-  bgBlur: 32,
-  bgMask: 50,
-  customChrome: true,
-  fullPlayerLayout: "balanced",
-  fullPlayerAutoFocusLyrics: true,
-  fullPlayerCommentMode: "fullscreen",
-  fullPlayerCoverMode: "normal",
-  playerType: "cover",
-  playerStyleRatio: 50,
-  playerFullscreenGradient: 15,
-  playerBackgroundType: "blur",
-  playerBackgroundFps: 30,
-  playerBackgroundFlowSpeed: 4,
-  playerBackgroundRenderScale: 0.5,
-  playerBackgroundPause: false,
-  playerBackgroundLowFreqVolume: false,
-  playerExpandAnimation: "up",
-  playerFollowCoverColor: true,
-  hiddenCovers: DEFAULT_HIDDEN_COVERS,
-  sidebarHiddenItems: DEFAULT_SIDEBAR_HIDDEN_ITEMS,
-  playlistPageElements: DEFAULT_PLAYLIST_PAGE_ELEMENTS,
-  contextMenuOptions: DEFAULT_CONTEXT_MENU_OPTIONS,
-  menuShowCover: true,
-  fullPlayerShowAddToPlaylist: true,
-  fullPlayerShowCommentCount: false,
-  fullPlayerShowComments: true,
-  fullPlayerShowDesktopLyric: true,
-  fullPlayerShowDownload: true,
-  fullPlayerShowLike: true,
-  fullPlayerShowMoreSettings: true,
-  autoHidePlayerMeta: true,
-  showPlayMeta: true,
-  countDownShow: true,
-  showSpectrums: false,
-  homeSections: DEFAULT_HOME_SECTIONS,
-  themeMode: "dark",
-  ncmSongLevel: "exhigh",
-  autoPlay: false,
-  volumeFade: true,
-  volumeFadeTime: 300,
-  memoryLastSeek: true,
-  progressTooltipShow: true,
-  progressLyricShow: true,
-  progressAdjustLyric: false,
-  lyricFontSize: 28,
-  lyricFontWeight: 700,
-  showLyricTranslation: true,
-  showLyricRomanization: true,
-  showWordLyrics: true,
-  lyricsBlur: false,
-  lyricsScrollOffset: 0.25,
-  routeAnimation: "slide",
-  showPlaylistCount: true,
-  barLyricShow: true,
-  showSongQuality: true,
-  showSongPrivilegeTag: true,
-  showSongExplicitTag: true,
-  showSongOriginalTag: true,
-  showSongAlbum: true,
-  showSongDuration: true,
-  showSongOperations: true,
-  showSongArtist: true,
-  hideBracketedContent: false,
-  showPlayerQuality: true,
-  timeFormat: "current-total",
-  lyricTranslationFontSize: 22,
-  lyricRomanizationFontSize: 18,
-  swapLyricTranslationRomanization: false,
-  lyricsPosition: "flex-start",
-  lyricHorizontalOffset: 10,
-  lyricAlignRight: false,
-  lyricsBlendMode: "screen"
+const VALID_SONG_LEVELS = new Set([
+  "standard",
+  "higher",
+  "exhigh",
+  "lossless",
+  "hires",
+  "jyeffect",
+  "sky",
+  "jymaster"
+]);
+
+const VALID_ROUTE_ANIMATIONS = new Set<RouteAnimation>([
+  "none",
+  "fade",
+  "zoom",
+  "slide",
+  "up",
+  "flow",
+  "mask-left",
+  "mask-top"
+]);
+
+const VALID_COMMENT_MODES = new Set<FullPlayerCommentMode>([
+  "fullscreen",
+  "half-left",
+  "half-right"
+]);
+
+const VALID_COVER_MODES = new Set<FullPlayerCoverMode>(["normal", "record"]);
+
+const VALID_PLAYER_TYPES = new Set<PlayerType>(["cover", "record", "fullscreen"]);
+
+const VALID_PLAYER_BACKGROUND_TYPES = new Set<PlayerBackgroundType>([
+  "animation",
+  "blur",
+  "color"
+]);
+
+const VALID_PLAYER_EXPAND_ANIMATIONS = new Set<PlayerExpandAnimation>(["up", "flow"]);
+
+const VALID_TIME_FORMATS = new Set<PlayerTimeFormat>([
+  "current-total",
+  "remaining-total",
+  "current-remaining"
+]);
+
+const VALID_LYRICS_POSITIONS = new Set<LyricsPosition>(["flex-start", "center", "flex-end"]);
+
+const VALID_LYRICS_BLEND_MODES = new Set<LyricsBlendMode>(["screen", "plus-lighter"]);
+
+interface UISettingField<T> {
+  key: string;
+  defaultValue: T;
+  read: (runtime: UISettingsRuntime) => T;
+}
+
+type UISettingsSchema = {
+  [K in keyof UISettings]: UISettingField<UISettings[K]>;
 };
+
+function createBoolField(key: string, defaultValue: boolean): UISettingField<boolean> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => readBool(runtime, key, defaultValue)
+  };
+}
+
+function createNumberField(key: string, defaultValue: number): UISettingField<number> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => readNumber(runtime, key, defaultValue)
+  };
+}
+
+function createClampedNumberField(
+  key: string,
+  defaultValue: number,
+  min: number,
+  max: number
+): UISettingField<number> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => Math.min(max, Math.max(min, readNumber(runtime, key, defaultValue)))
+  };
+}
+
+function createEnumField<T extends string>(
+  key: string,
+  defaultValue: T,
+  validValues: ReadonlySet<T>
+): UISettingField<T> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => {
+      const raw = readString(runtime, key, defaultValue);
+      if (validValues.has(raw as T)) {
+        return raw as T;
+      }
+      reportReadError(runtime, key, "invalid_value");
+      return defaultValue;
+    }
+  };
+}
+
+function createBoolRecordField<T extends Record<string, boolean>>(
+  key: string,
+  defaultValue: T
+): UISettingField<T> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => readBoolRecord(runtime, key, defaultValue)
+  };
+}
+
+function createHomeSectionsField(
+  key: string,
+  defaultValue: HomeSectionConfig[]
+): UISettingField<HomeSectionConfig[]> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => {
+      try {
+        const raw = runtime.storage.getItem(key);
+        if (!raw) return defaultValue;
+        const parsed: unknown = JSON.parse(raw);
+        if (!Array.isArray(parsed)) {
+          reportReadError(runtime, key, "invalid_value");
+          return defaultValue;
+        }
+        const validKeys = new Set(defaultValue.map((section) => section.key));
+        const sections = parsed.filter(
+          (section): section is HomeSectionConfig =>
+            isRecord(section) &&
+            typeof section.key === "string" &&
+            validKeys.has(section.key as HomeSectionKey) &&
+            typeof section.order === "number" &&
+            typeof section.visible === "boolean"
+        );
+        if (sections.length > 0) {
+          return sections;
+        }
+        reportReadError(runtime, key, "invalid_value");
+      } catch {
+        reportReadError(runtime, key, "invalid_json");
+      }
+      return defaultValue;
+    }
+  };
+}
+
+function createFullPlayerLayoutField(
+  key: string,
+  defaultValue: UISettings["fullPlayerLayout"]
+): UISettingField<UISettings["fullPlayerLayout"]> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => {
+      try {
+        const raw = runtime.storage.getItem(key);
+        if (raw === "lyrics" || raw === "balanced") {
+          return raw;
+        }
+        if (raw !== null) {
+          reportReadError(runtime, key, "invalid_value");
+        }
+      } catch {
+        reportReadError(runtime, key, "storage_unavailable");
+      }
+      return defaultValue;
+    }
+  };
+}
+
+function createPlayerTypeField(
+  key: string,
+  defaultValue: PlayerType,
+  coverModeField: UISettingField<FullPlayerCoverMode>
+): UISettingField<PlayerType> {
+  return {
+    key,
+    defaultValue,
+    read: (runtime) => {
+      const raw = readString(runtime, key, "");
+      if (VALID_PLAYER_TYPES.has(raw as PlayerType)) {
+        return raw as PlayerType;
+      }
+      if (raw.trim().length > 0) {
+        reportReadError(runtime, key, "invalid_value");
+      }
+      return coverModeField.read(runtime) === "record" ? "record" : defaultValue;
+    }
+  };
+}
+
+const UI_SETTINGS_SCHEMA: UISettingsSchema = {
+  bgEnabled: createBoolField("ui.bg.enabled", false),
+  bgBlur: createNumberField("ui.bg.blur", 32),
+  bgMask: createNumberField("ui.bg.mask", 50),
+  customChrome: createBoolField("ui.window.customChrome", true),
+  fullPlayerLayout: createFullPlayerLayoutField("ui.fullPlayer.layout", "balanced"),
+  fullPlayerAutoFocusLyrics: createBoolField("ui.fullPlayer.autoFocusLyrics", true),
+  fullPlayerCommentMode: createEnumField(
+    "ui.fullPlayer.commentMode",
+    "fullscreen",
+    VALID_COMMENT_MODES
+  ),
+  fullPlayerCoverMode: createEnumField("ui.fullPlayer.coverMode", "normal", VALID_COVER_MODES),
+  playerType: undefined as never,
+  playerStyleRatio: createClampedNumberField("ui.player.styleRatio", 50, 30, 70),
+  playerFullscreenGradient: createClampedNumberField(
+    "ui.player.fullscreenGradient",
+    15,
+    0,
+    100
+  ),
+  playerBackgroundType: createEnumField(
+    "ui.player.backgroundType",
+    "blur",
+    VALID_PLAYER_BACKGROUND_TYPES
+  ),
+  playerBackgroundFps: createClampedNumberField("ui.player.backgroundFps", 30, 24, 256),
+  playerBackgroundFlowSpeed: createClampedNumberField(
+    "ui.player.backgroundFlowSpeed",
+    4,
+    0.1,
+    10
+  ),
+  playerBackgroundRenderScale: createClampedNumberField(
+    "ui.player.backgroundRenderScale",
+    0.5,
+    0.1,
+    3
+  ),
+  playerBackgroundPause: createBoolField("ui.player.backgroundPause", false),
+  playerBackgroundLowFreqVolume: createBoolField("ui.player.backgroundLowFreqVolume", false),
+  playerExpandAnimation: createEnumField(
+    "ui.player.expandAnimation",
+    "up",
+    VALID_PLAYER_EXPAND_ANIMATIONS
+  ),
+  playerFollowCoverColor: createBoolField("ui.player.followCoverColor", true),
+  hiddenCovers: createBoolRecordField("ui.cover.hiddenCovers", DEFAULT_HIDDEN_COVERS),
+  sidebarHiddenItems: createBoolRecordField(
+    "ui.sidebar.hiddenItems",
+    DEFAULT_SIDEBAR_HIDDEN_ITEMS
+  ),
+  playlistPageElements: createBoolRecordField(
+    "ui.playlistPage.elements",
+    DEFAULT_PLAYLIST_PAGE_ELEMENTS
+  ),
+  contextMenuOptions: createBoolRecordField(
+    "ui.contextMenu.options",
+    DEFAULT_CONTEXT_MENU_OPTIONS
+  ),
+  menuShowCover: createBoolField("ui.sidebar.menuShowCover", true),
+  fullPlayerShowAddToPlaylist: createBoolField("ui.fullPlayer.elements.addToPlaylist", true),
+  fullPlayerShowCommentCount: createBoolField("ui.fullPlayer.elements.commentCount", false),
+  fullPlayerShowComments: createBoolField("ui.fullPlayer.elements.comments", true),
+  fullPlayerShowDesktopLyric: createBoolField("ui.fullPlayer.elements.desktopLyric", true),
+  fullPlayerShowDownload: createBoolField("ui.fullPlayer.elements.download", true),
+  fullPlayerShowLike: createBoolField("ui.fullPlayer.elements.like", true),
+  fullPlayerShowMoreSettings: createBoolField("ui.fullPlayer.elements.moreSettings", true),
+  autoHidePlayerMeta: createBoolField("ui.fullPlayer.autoHideMeta", true),
+  showPlayMeta: createBoolField("ui.player.showPlayMeta", true),
+  countDownShow: createBoolField("ui.player.countDownShow", true),
+  showSpectrums: createBoolField("ui.fullPlayer.showSpectrums", false),
+  homeSections: createHomeSectionsField("ui.home.sections", DEFAULT_HOME_SECTIONS),
+  themeMode: createEnumField("ui.theme.mode", "dark", new Set(["dark", "light", "auto"])),
+  ncmSongLevel: createEnumField("ncm.song.level", "exhigh", VALID_SONG_LEVELS),
+  autoPlay: createBoolField("ui.playback.autoPlay", false),
+  volumeFade: createBoolField("ui.playback.volumeFade", true),
+  volumeFadeTime: createNumberField("ui.playback.volumeFadeTime", 300),
+  memoryLastSeek: createBoolField("ui.playback.memoryLastSeek", true),
+  progressTooltipShow: createBoolField("ui.playback.progressTooltipShow", true),
+  progressLyricShow: createBoolField("ui.playback.progressLyricShow", true),
+  progressAdjustLyric: createBoolField("ui.playback.progressAdjustLyric", false),
+  lyricFontSize: createNumberField("ui.lyric.fontSize", 28),
+  lyricFontWeight: createNumberField("ui.lyric.fontWeight", 700),
+  showLyricTranslation: createBoolField("ui.lyric.showTranslation", true),
+  showLyricRomanization: createBoolField("ui.lyric.showRomanization", true),
+  showWordLyrics: createBoolField("ui.lyric.showWordLyrics", true),
+  lyricsBlur: createBoolField("ui.lyric.blurInactive", false),
+  lyricsScrollOffset: createNumberField("ui.lyric.scrollOffset", 0.25),
+  routeAnimation: createEnumField("ui.route.animation", "slide", VALID_ROUTE_ANIMATIONS),
+  showPlaylistCount: createBoolField("ui.player.showPlaylistCount", true),
+  barLyricShow: createBoolField("ui.player.barLyricShow", true),
+  showSongQuality: createBoolField("ui.song.showQuality", true),
+  showSongPrivilegeTag: createBoolField("ui.song.showPrivilegeTag", true),
+  showSongExplicitTag: createBoolField("ui.song.showExplicitTag", true),
+  showSongOriginalTag: createBoolField("ui.song.showOriginalTag", true),
+  showSongAlbum: createBoolField("ui.song.showAlbum", true),
+  showSongDuration: createBoolField("ui.song.showDuration", true),
+  showSongOperations: createBoolField("ui.song.showOperations", true),
+  showSongArtist: createBoolField("ui.song.showArtist", true),
+  hideBracketedContent: createBoolField("ui.song.hideBracketedContent", false),
+  showPlayerQuality: createBoolField("ui.player.showQuality", true),
+  timeFormat: createEnumField("ui.player.timeFormat", "current-total", VALID_TIME_FORMATS),
+  lyricTranslationFontSize: createNumberField("ui.lyric.translationFontSize", 22),
+  lyricRomanizationFontSize: createNumberField("ui.lyric.romanizationFontSize", 18),
+  swapLyricTranslationRomanization: createBoolField(
+    "ui.lyric.swapTranslationRomanization",
+    false
+  ),
+  lyricsPosition: createEnumField("ui.lyric.position", "flex-start", VALID_LYRICS_POSITIONS),
+  lyricHorizontalOffset: createNumberField("ui.lyric.horizontalOffset", 10),
+  lyricAlignRight: createBoolField("ui.lyric.alignRight", false),
+  lyricsBlendMode: createEnumField("ui.lyric.blendMode", "screen", VALID_LYRICS_BLEND_MODES)
+};
+
+UI_SETTINGS_SCHEMA.playerType = createPlayerTypeField(
+  "ui.player.type",
+  "cover",
+  UI_SETTINGS_SCHEMA.fullPlayerCoverMode
+);
+
+export const STORAGE_KEYS = Object.fromEntries(
+  Object.entries(UI_SETTINGS_SCHEMA).map(([field, schema]) => [field, schema.key])
+) as { [K in keyof UISettings]: UISettingsSchema[K]["key"] };
 
 const browserUISettingsRuntime = (): UISettingsRuntime => ({
   storage: localStorage,
@@ -458,32 +632,6 @@ function readNumber(runtime: UISettingsRuntime, key: string, fallback: number): 
   }
 }
 
-function readHomeSections(runtime: UISettingsRuntime): HomeSectionConfig[] {
-  try {
-    const raw = runtime.storage.getItem(STORAGE_KEYS.homeSections);
-    if (raw) {
-      const parsed: unknown = JSON.parse(raw);
-      if (Array.isArray(parsed)) {
-        const validKeys = new Set(DEFAULT_HOME_SECTIONS.map((s) => s.key));
-        const sections = parsed.filter(
-          (s): s is HomeSectionConfig =>
-            typeof s === "object" &&
-            s !== null &&
-            typeof s.key === "string" &&
-            validKeys.has(s.key as HomeSectionKey) &&
-            typeof s.order === "number" &&
-            typeof s.visible === "boolean"
-        );
-        if (sections.length > 0) return sections;
-      }
-      reportReadError(runtime, STORAGE_KEYS.homeSections, "invalid_value");
-    }
-  } catch {
-    reportReadError(runtime, STORAGE_KEYS.homeSections, "invalid_json");
-  }
-  return DEFAULT_HOME_SECTIONS;
-}
-
 function readString(runtime: UISettingsRuntime, key: string, fallback: string): string {
   try {
     const raw = runtime.storage.getItem(key);
@@ -526,399 +674,84 @@ function readBoolRecord<T extends Record<string, boolean>>(
   }
 }
 
-const VALID_SONG_LEVELS = new Set(["standard", "higher", "exhigh", "lossless", "hires", "jyeffect", "sky", "jymaster"]);
-
-const VALID_ROUTE_ANIMATIONS = new Set<RouteAnimation>(["none", "fade", "zoom", "slide", "up", "flow", "mask-left", "mask-top"]);
-
-const VALID_COMMENT_MODES = new Set<FullPlayerCommentMode>(["fullscreen", "half-left", "half-right"]);
-
-const VALID_COVER_MODES = new Set<FullPlayerCoverMode>(["normal", "record"]);
-
-const VALID_PLAYER_TYPES = new Set<PlayerType>(["cover", "record", "fullscreen"]);
-
-const VALID_PLAYER_BACKGROUND_TYPES = new Set<PlayerBackgroundType>(["animation", "blur", "color"]);
-
-const VALID_PLAYER_EXPAND_ANIMATIONS = new Set<PlayerExpandAnimation>(["up", "flow"]);
-
-const VALID_TIME_FORMATS = new Set<PlayerTimeFormat>([
-  "current-total",
-  "remaining-total",
-  "current-remaining"
-]);
-
-const VALID_LYRICS_POSITIONS = new Set<LyricsPosition>(["flex-start", "center", "flex-end"]);
-
-const VALID_LYRICS_BLEND_MODES = new Set<LyricsBlendMode>(["screen", "plus-lighter"]);
-
-function readRouteAnimation(runtime: UISettingsRuntime): RouteAnimation {
-  const raw = readString(runtime, STORAGE_KEYS.routeAnimation, DEFAULTS.routeAnimation);
-  if (VALID_ROUTE_ANIMATIONS.has(raw as RouteAnimation)) {
-    return raw as RouteAnimation;
-  }
-  reportReadError(runtime, STORAGE_KEYS.routeAnimation, "invalid_value");
-  return DEFAULTS.routeAnimation;
-}
-
-function readCommentMode(runtime: UISettingsRuntime): FullPlayerCommentMode {
-  const raw = readString(
-    runtime,
-    STORAGE_KEYS.fullPlayerCommentMode,
-    DEFAULTS.fullPlayerCommentMode
-  );
-  if (VALID_COMMENT_MODES.has(raw as FullPlayerCommentMode)) {
-    return raw as FullPlayerCommentMode;
-  }
-  reportReadError(runtime, STORAGE_KEYS.fullPlayerCommentMode, "invalid_value");
-  return DEFAULTS.fullPlayerCommentMode;
-}
-
-function readCoverMode(runtime: UISettingsRuntime): FullPlayerCoverMode {
-  const raw = readString(runtime, STORAGE_KEYS.fullPlayerCoverMode, DEFAULTS.fullPlayerCoverMode);
-  if (VALID_COVER_MODES.has(raw as FullPlayerCoverMode)) {
-    return raw as FullPlayerCoverMode;
-  }
-  reportReadError(runtime, STORAGE_KEYS.fullPlayerCoverMode, "invalid_value");
-  return DEFAULTS.fullPlayerCoverMode;
-}
-
-function readPlayerType(runtime: UISettingsRuntime): PlayerType {
-  const raw = readString(runtime, STORAGE_KEYS.playerType, "");
-  if (VALID_PLAYER_TYPES.has(raw as PlayerType)) return raw as PlayerType;
-  if (raw.trim().length > 0) {
-    reportReadError(runtime, STORAGE_KEYS.playerType, "invalid_value");
-  }
-  return readCoverMode(runtime) === "record" ? "record" : DEFAULTS.playerType;
-}
-
-function readPlayerBackgroundType(runtime: UISettingsRuntime): PlayerBackgroundType {
-  const raw = readString(
-    runtime,
-    STORAGE_KEYS.playerBackgroundType,
-    DEFAULTS.playerBackgroundType
-  );
-  if (VALID_PLAYER_BACKGROUND_TYPES.has(raw as PlayerBackgroundType)) {
-    return raw as PlayerBackgroundType;
-  }
-  reportReadError(runtime, STORAGE_KEYS.playerBackgroundType, "invalid_value");
-  return DEFAULTS.playerBackgroundType;
-}
-
-function readPlayerExpandAnimation(runtime: UISettingsRuntime): PlayerExpandAnimation {
-  const raw = readString(
-    runtime,
-    STORAGE_KEYS.playerExpandAnimation,
-    DEFAULTS.playerExpandAnimation
-  );
-  if (VALID_PLAYER_EXPAND_ANIMATIONS.has(raw as PlayerExpandAnimation)) {
-    return raw as PlayerExpandAnimation;
-  }
-  reportReadError(runtime, STORAGE_KEYS.playerExpandAnimation, "invalid_value");
-  return DEFAULTS.playerExpandAnimation;
-}
-
-function readClampedNumber(
-  runtime: UISettingsRuntime,
-  key: string,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  return Math.min(max, Math.max(min, readNumber(runtime, key, fallback)));
-}
-
-function readTimeFormat(runtime: UISettingsRuntime): PlayerTimeFormat {
-  const raw = readString(runtime, STORAGE_KEYS.timeFormat, DEFAULTS.timeFormat);
-  if (VALID_TIME_FORMATS.has(raw as PlayerTimeFormat)) {
-    return raw as PlayerTimeFormat;
-  }
-  reportReadError(runtime, STORAGE_KEYS.timeFormat, "invalid_value");
-  return DEFAULTS.timeFormat;
-}
-
-function readLyricsPosition(runtime: UISettingsRuntime): LyricsPosition {
-  const raw = readString(runtime, STORAGE_KEYS.lyricsPosition, DEFAULTS.lyricsPosition);
-  if (VALID_LYRICS_POSITIONS.has(raw as LyricsPosition)) {
-    return raw as LyricsPosition;
-  }
-  reportReadError(runtime, STORAGE_KEYS.lyricsPosition, "invalid_value");
-  return DEFAULTS.lyricsPosition;
-}
-
-function readLyricsBlendMode(runtime: UISettingsRuntime): LyricsBlendMode {
-  const raw = readString(runtime, STORAGE_KEYS.lyricsBlendMode, DEFAULTS.lyricsBlendMode);
-  if (VALID_LYRICS_BLEND_MODES.has(raw as LyricsBlendMode)) {
-    return raw as LyricsBlendMode;
-  }
-  reportReadError(runtime, STORAGE_KEYS.lyricsBlendMode, "invalid_value");
-  return DEFAULTS.lyricsBlendMode;
-}
-
 export function readUISettingsSnapshot(
   runtime: UISettingsRuntime = browserUISettingsRuntime()
 ): UISettings {
-  const storage = runtime.storage;
-  const layoutRaw = (() => {
-    try {
-      return storage.getItem(STORAGE_KEYS.fullPlayerLayout);
-    } catch {
-      reportReadError(runtime, STORAGE_KEYS.fullPlayerLayout, "storage_unavailable");
-      return null;
-    }
-  })();
-
-  const fullPlayerLayout =
-    layoutRaw === "lyrics" || layoutRaw === "balanced"
-      ? layoutRaw
-      : (() => {
-          if (layoutRaw !== null) {
-            reportReadError(runtime, STORAGE_KEYS.fullPlayerLayout, "invalid_value");
-          }
-          return DEFAULTS.fullPlayerLayout;
-        })();
-
-  const themeRaw = readString(runtime, STORAGE_KEYS.themeMode, DEFAULTS.themeMode);
-  const themeMode: ThemeMode =
-    themeRaw === "light" || themeRaw === "auto" ? themeRaw : "dark";
-
-  const levelRaw = readString(runtime, STORAGE_KEYS.ncmSongLevel, DEFAULTS.ncmSongLevel);
-  const ncmSongLevel = VALID_SONG_LEVELS.has(levelRaw) ? levelRaw : DEFAULTS.ncmSongLevel;
-
   return {
-    bgEnabled: readBool(runtime, STORAGE_KEYS.bgEnabled, DEFAULTS.bgEnabled),
-    bgBlur: readNumber(runtime, STORAGE_KEYS.bgBlur, DEFAULTS.bgBlur),
-    bgMask: readNumber(runtime, STORAGE_KEYS.bgMask, DEFAULTS.bgMask),
-    customChrome: readBool(runtime, STORAGE_KEYS.customChrome, DEFAULTS.customChrome),
-    fullPlayerLayout,
-    fullPlayerAutoFocusLyrics: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerAutoFocusLyrics,
-      DEFAULTS.fullPlayerAutoFocusLyrics
-    ),
-    fullPlayerCommentMode: readCommentMode(runtime),
-    fullPlayerCoverMode: readCoverMode(runtime),
-    playerType: readPlayerType(runtime),
-    playerStyleRatio: readClampedNumber(
-      runtime,
-      STORAGE_KEYS.playerStyleRatio,
-      DEFAULTS.playerStyleRatio,
-      30,
-      70
-    ),
-    playerFullscreenGradient: readClampedNumber(
-      runtime,
-      STORAGE_KEYS.playerFullscreenGradient,
-      DEFAULTS.playerFullscreenGradient,
-      0,
-      100
-    ),
-    playerBackgroundType: readPlayerBackgroundType(runtime),
-    playerBackgroundFps: readClampedNumber(
-      runtime,
-      STORAGE_KEYS.playerBackgroundFps,
-      DEFAULTS.playerBackgroundFps,
-      24,
-      256
-    ),
-    playerBackgroundFlowSpeed: readClampedNumber(
-      runtime,
-      STORAGE_KEYS.playerBackgroundFlowSpeed,
-      DEFAULTS.playerBackgroundFlowSpeed,
-      0.1,
-      10
-    ),
-    playerBackgroundRenderScale: readClampedNumber(
-      runtime,
-      STORAGE_KEYS.playerBackgroundRenderScale,
-      DEFAULTS.playerBackgroundRenderScale,
-      0.1,
-      3
-    ),
-    playerBackgroundPause: readBool(
-      runtime,
-      STORAGE_KEYS.playerBackgroundPause,
-      DEFAULTS.playerBackgroundPause
-    ),
-    playerBackgroundLowFreqVolume: readBool(
-      runtime,
-      STORAGE_KEYS.playerBackgroundLowFreqVolume,
-      DEFAULTS.playerBackgroundLowFreqVolume
-    ),
-    playerExpandAnimation: readPlayerExpandAnimation(runtime),
-    playerFollowCoverColor: readBool(
-      runtime,
-      STORAGE_KEYS.playerFollowCoverColor,
-      DEFAULTS.playerFollowCoverColor
-    ),
-    hiddenCovers: readBoolRecord(
-      runtime,
-      STORAGE_KEYS.hiddenCovers,
-      DEFAULTS.hiddenCovers
-    ),
-    sidebarHiddenItems: readBoolRecord(
-      runtime,
-      STORAGE_KEYS.sidebarHiddenItems,
-      DEFAULTS.sidebarHiddenItems
-    ),
-    playlistPageElements: readBoolRecord(
-      runtime,
-      STORAGE_KEYS.playlistPageElements,
-      DEFAULTS.playlistPageElements
-    ),
-    contextMenuOptions: readBoolRecord(
-      runtime,
-      STORAGE_KEYS.contextMenuOptions,
-      DEFAULTS.contextMenuOptions
-    ),
-    menuShowCover: readBool(runtime, STORAGE_KEYS.menuShowCover, DEFAULTS.menuShowCover),
-    fullPlayerShowAddToPlaylist: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerShowAddToPlaylist,
-      DEFAULTS.fullPlayerShowAddToPlaylist
-    ),
-    fullPlayerShowCommentCount: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerShowCommentCount,
-      DEFAULTS.fullPlayerShowCommentCount
-    ),
-    fullPlayerShowComments: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerShowComments,
-      DEFAULTS.fullPlayerShowComments
-    ),
-    fullPlayerShowDesktopLyric: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerShowDesktopLyric,
-      DEFAULTS.fullPlayerShowDesktopLyric
-    ),
-    fullPlayerShowDownload: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerShowDownload,
-      DEFAULTS.fullPlayerShowDownload
-    ),
-    fullPlayerShowLike: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerShowLike,
-      DEFAULTS.fullPlayerShowLike
-    ),
-    fullPlayerShowMoreSettings: readBool(
-      runtime,
-      STORAGE_KEYS.fullPlayerShowMoreSettings,
-      DEFAULTS.fullPlayerShowMoreSettings
-    ),
-    autoHidePlayerMeta: readBool(
-      runtime,
-      STORAGE_KEYS.autoHidePlayerMeta,
-      DEFAULTS.autoHidePlayerMeta
-    ),
-    showPlayMeta: readBool(runtime, STORAGE_KEYS.showPlayMeta, DEFAULTS.showPlayMeta),
-    countDownShow: readBool(runtime, STORAGE_KEYS.countDownShow, DEFAULTS.countDownShow),
-    showSpectrums: readBool(runtime, STORAGE_KEYS.showSpectrums, DEFAULTS.showSpectrums),
-    homeSections: readHomeSections(runtime),
-    themeMode,
-    ncmSongLevel,
-    autoPlay: readBool(runtime, STORAGE_KEYS.autoPlay, DEFAULTS.autoPlay),
-    volumeFade: readBool(runtime, STORAGE_KEYS.volumeFade, DEFAULTS.volumeFade),
-    volumeFadeTime: readNumber(runtime, STORAGE_KEYS.volumeFadeTime, DEFAULTS.volumeFadeTime),
-    memoryLastSeek: readBool(runtime, STORAGE_KEYS.memoryLastSeek, DEFAULTS.memoryLastSeek),
-    progressTooltipShow: readBool(
-      runtime,
-      STORAGE_KEYS.progressTooltipShow,
-      DEFAULTS.progressTooltipShow
-    ),
-    progressLyricShow: readBool(
-      runtime,
-      STORAGE_KEYS.progressLyricShow,
-      DEFAULTS.progressLyricShow
-    ),
-    progressAdjustLyric: readBool(
-      runtime,
-      STORAGE_KEYS.progressAdjustLyric,
-      DEFAULTS.progressAdjustLyric
-    ),
-    lyricFontSize: readNumber(runtime, STORAGE_KEYS.lyricFontSize, DEFAULTS.lyricFontSize),
-    lyricFontWeight: readNumber(runtime, STORAGE_KEYS.lyricFontWeight, DEFAULTS.lyricFontWeight),
-    showLyricTranslation: readBool(
-      runtime,
-      STORAGE_KEYS.showLyricTranslation,
-      DEFAULTS.showLyricTranslation
-    ),
-    showLyricRomanization: readBool(
-      runtime,
-      STORAGE_KEYS.showLyricRomanization,
-      DEFAULTS.showLyricRomanization
-    ),
-    showWordLyrics: readBool(runtime, STORAGE_KEYS.showWordLyrics, DEFAULTS.showWordLyrics),
-    lyricsBlur: readBool(runtime, STORAGE_KEYS.lyricsBlur, DEFAULTS.lyricsBlur),
-    lyricsScrollOffset: readNumber(
-      runtime,
-      STORAGE_KEYS.lyricsScrollOffset,
-      DEFAULTS.lyricsScrollOffset
-    ),
-    routeAnimation: readRouteAnimation(runtime),
-    showPlaylistCount: readBool(
-      runtime,
-      STORAGE_KEYS.showPlaylistCount,
-      DEFAULTS.showPlaylistCount
-    ),
-    barLyricShow: readBool(runtime, STORAGE_KEYS.barLyricShow, DEFAULTS.barLyricShow),
-    showSongQuality: readBool(runtime, STORAGE_KEYS.showSongQuality, DEFAULTS.showSongQuality),
-    showSongPrivilegeTag: readBool(
-      runtime,
-      STORAGE_KEYS.showSongPrivilegeTag,
-      DEFAULTS.showSongPrivilegeTag
-    ),
-    showSongExplicitTag: readBool(
-      runtime,
-      STORAGE_KEYS.showSongExplicitTag,
-      DEFAULTS.showSongExplicitTag
-    ),
-    showSongOriginalTag: readBool(
-      runtime,
-      STORAGE_KEYS.showSongOriginalTag,
-      DEFAULTS.showSongOriginalTag
-    ),
-    showSongAlbum: readBool(runtime, STORAGE_KEYS.showSongAlbum, DEFAULTS.showSongAlbum),
-    showSongDuration: readBool(runtime, STORAGE_KEYS.showSongDuration, DEFAULTS.showSongDuration),
-    showSongOperations: readBool(
-      runtime,
-      STORAGE_KEYS.showSongOperations,
-      DEFAULTS.showSongOperations
-    ),
-    showSongArtist: readBool(runtime, STORAGE_KEYS.showSongArtist, DEFAULTS.showSongArtist),
-    hideBracketedContent: readBool(
-      runtime,
-      STORAGE_KEYS.hideBracketedContent,
-      DEFAULTS.hideBracketedContent
-    ),
-    showPlayerQuality: readBool(
-      runtime,
-      STORAGE_KEYS.showPlayerQuality,
-      DEFAULTS.showPlayerQuality
-    ),
-    timeFormat: readTimeFormat(runtime),
-    lyricTranslationFontSize: readNumber(
-      runtime,
-      STORAGE_KEYS.lyricTranslationFontSize,
-      DEFAULTS.lyricTranslationFontSize
-    ),
-    lyricRomanizationFontSize: readNumber(
-      runtime,
-      STORAGE_KEYS.lyricRomanizationFontSize,
-      DEFAULTS.lyricRomanizationFontSize
-    ),
-    swapLyricTranslationRomanization: readBool(
-      runtime,
-      STORAGE_KEYS.swapLyricTranslationRomanization,
-      DEFAULTS.swapLyricTranslationRomanization
-    ),
-    lyricsPosition: readLyricsPosition(runtime),
-    lyricHorizontalOffset: readNumber(
-      runtime,
-      STORAGE_KEYS.lyricHorizontalOffset,
-      DEFAULTS.lyricHorizontalOffset
-    ),
-    lyricAlignRight: readBool(runtime, STORAGE_KEYS.lyricAlignRight, DEFAULTS.lyricAlignRight),
-    lyricsBlendMode: readLyricsBlendMode(runtime)
+    bgEnabled: UI_SETTINGS_SCHEMA.bgEnabled.read(runtime),
+    bgBlur: UI_SETTINGS_SCHEMA.bgBlur.read(runtime),
+    bgMask: UI_SETTINGS_SCHEMA.bgMask.read(runtime),
+    customChrome: UI_SETTINGS_SCHEMA.customChrome.read(runtime),
+    fullPlayerLayout: UI_SETTINGS_SCHEMA.fullPlayerLayout.read(runtime),
+    fullPlayerAutoFocusLyrics: UI_SETTINGS_SCHEMA.fullPlayerAutoFocusLyrics.read(runtime),
+    fullPlayerCommentMode: UI_SETTINGS_SCHEMA.fullPlayerCommentMode.read(runtime),
+    fullPlayerCoverMode: UI_SETTINGS_SCHEMA.fullPlayerCoverMode.read(runtime),
+    playerType: UI_SETTINGS_SCHEMA.playerType.read(runtime),
+    playerStyleRatio: UI_SETTINGS_SCHEMA.playerStyleRatio.read(runtime),
+    playerFullscreenGradient: UI_SETTINGS_SCHEMA.playerFullscreenGradient.read(runtime),
+    playerBackgroundType: UI_SETTINGS_SCHEMA.playerBackgroundType.read(runtime),
+    playerBackgroundFps: UI_SETTINGS_SCHEMA.playerBackgroundFps.read(runtime),
+    playerBackgroundFlowSpeed: UI_SETTINGS_SCHEMA.playerBackgroundFlowSpeed.read(runtime),
+    playerBackgroundRenderScale: UI_SETTINGS_SCHEMA.playerBackgroundRenderScale.read(runtime),
+    playerBackgroundPause: UI_SETTINGS_SCHEMA.playerBackgroundPause.read(runtime),
+    playerBackgroundLowFreqVolume: UI_SETTINGS_SCHEMA.playerBackgroundLowFreqVolume.read(runtime),
+    playerExpandAnimation: UI_SETTINGS_SCHEMA.playerExpandAnimation.read(runtime),
+    playerFollowCoverColor: UI_SETTINGS_SCHEMA.playerFollowCoverColor.read(runtime),
+    hiddenCovers: UI_SETTINGS_SCHEMA.hiddenCovers.read(runtime),
+    sidebarHiddenItems: UI_SETTINGS_SCHEMA.sidebarHiddenItems.read(runtime),
+    playlistPageElements: UI_SETTINGS_SCHEMA.playlistPageElements.read(runtime),
+    contextMenuOptions: UI_SETTINGS_SCHEMA.contextMenuOptions.read(runtime),
+    menuShowCover: UI_SETTINGS_SCHEMA.menuShowCover.read(runtime),
+    fullPlayerShowAddToPlaylist: UI_SETTINGS_SCHEMA.fullPlayerShowAddToPlaylist.read(runtime),
+    fullPlayerShowCommentCount: UI_SETTINGS_SCHEMA.fullPlayerShowCommentCount.read(runtime),
+    fullPlayerShowComments: UI_SETTINGS_SCHEMA.fullPlayerShowComments.read(runtime),
+    fullPlayerShowDesktopLyric: UI_SETTINGS_SCHEMA.fullPlayerShowDesktopLyric.read(runtime),
+    fullPlayerShowDownload: UI_SETTINGS_SCHEMA.fullPlayerShowDownload.read(runtime),
+    fullPlayerShowLike: UI_SETTINGS_SCHEMA.fullPlayerShowLike.read(runtime),
+    fullPlayerShowMoreSettings: UI_SETTINGS_SCHEMA.fullPlayerShowMoreSettings.read(runtime),
+    autoHidePlayerMeta: UI_SETTINGS_SCHEMA.autoHidePlayerMeta.read(runtime),
+    showPlayMeta: UI_SETTINGS_SCHEMA.showPlayMeta.read(runtime),
+    countDownShow: UI_SETTINGS_SCHEMA.countDownShow.read(runtime),
+    showSpectrums: UI_SETTINGS_SCHEMA.showSpectrums.read(runtime),
+    homeSections: UI_SETTINGS_SCHEMA.homeSections.read(runtime),
+    themeMode: UI_SETTINGS_SCHEMA.themeMode.read(runtime),
+    ncmSongLevel: UI_SETTINGS_SCHEMA.ncmSongLevel.read(runtime),
+    autoPlay: UI_SETTINGS_SCHEMA.autoPlay.read(runtime),
+    volumeFade: UI_SETTINGS_SCHEMA.volumeFade.read(runtime),
+    volumeFadeTime: UI_SETTINGS_SCHEMA.volumeFadeTime.read(runtime),
+    memoryLastSeek: UI_SETTINGS_SCHEMA.memoryLastSeek.read(runtime),
+    progressTooltipShow: UI_SETTINGS_SCHEMA.progressTooltipShow.read(runtime),
+    progressLyricShow: UI_SETTINGS_SCHEMA.progressLyricShow.read(runtime),
+    progressAdjustLyric: UI_SETTINGS_SCHEMA.progressAdjustLyric.read(runtime),
+    lyricFontSize: UI_SETTINGS_SCHEMA.lyricFontSize.read(runtime),
+    lyricFontWeight: UI_SETTINGS_SCHEMA.lyricFontWeight.read(runtime),
+    showLyricTranslation: UI_SETTINGS_SCHEMA.showLyricTranslation.read(runtime),
+    showLyricRomanization: UI_SETTINGS_SCHEMA.showLyricRomanization.read(runtime),
+    showWordLyrics: UI_SETTINGS_SCHEMA.showWordLyrics.read(runtime),
+    lyricsBlur: UI_SETTINGS_SCHEMA.lyricsBlur.read(runtime),
+    lyricsScrollOffset: UI_SETTINGS_SCHEMA.lyricsScrollOffset.read(runtime),
+    routeAnimation: UI_SETTINGS_SCHEMA.routeAnimation.read(runtime),
+    showPlaylistCount: UI_SETTINGS_SCHEMA.showPlaylistCount.read(runtime),
+    barLyricShow: UI_SETTINGS_SCHEMA.barLyricShow.read(runtime),
+    showSongQuality: UI_SETTINGS_SCHEMA.showSongQuality.read(runtime),
+    showSongPrivilegeTag: UI_SETTINGS_SCHEMA.showSongPrivilegeTag.read(runtime),
+    showSongExplicitTag: UI_SETTINGS_SCHEMA.showSongExplicitTag.read(runtime),
+    showSongOriginalTag: UI_SETTINGS_SCHEMA.showSongOriginalTag.read(runtime),
+    showSongAlbum: UI_SETTINGS_SCHEMA.showSongAlbum.read(runtime),
+    showSongDuration: UI_SETTINGS_SCHEMA.showSongDuration.read(runtime),
+    showSongOperations: UI_SETTINGS_SCHEMA.showSongOperations.read(runtime),
+    showSongArtist: UI_SETTINGS_SCHEMA.showSongArtist.read(runtime),
+    hideBracketedContent: UI_SETTINGS_SCHEMA.hideBracketedContent.read(runtime),
+    showPlayerQuality: UI_SETTINGS_SCHEMA.showPlayerQuality.read(runtime),
+    timeFormat: UI_SETTINGS_SCHEMA.timeFormat.read(runtime),
+    lyricTranslationFontSize: UI_SETTINGS_SCHEMA.lyricTranslationFontSize.read(runtime),
+    lyricRomanizationFontSize: UI_SETTINGS_SCHEMA.lyricRomanizationFontSize.read(runtime),
+    swapLyricTranslationRomanization:
+      UI_SETTINGS_SCHEMA.swapLyricTranslationRomanization.read(runtime),
+    lyricsPosition: UI_SETTINGS_SCHEMA.lyricsPosition.read(runtime),
+    lyricHorizontalOffset: UI_SETTINGS_SCHEMA.lyricHorizontalOffset.read(runtime),
+    lyricAlignRight: UI_SETTINGS_SCHEMA.lyricAlignRight.read(runtime),
+    lyricsBlendMode: UI_SETTINGS_SCHEMA.lyricsBlendMode.read(runtime)
   };
 }
 
