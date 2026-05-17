@@ -1,26 +1,10 @@
 use super::*;
 use actix_web::{web, HttpResponse};
 use std::sync::Arc;
+use crate::server::state_helpers::eq_band_name_to_index;
 
 fn not_implemented_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("not yet implemented")
-}
-
-/// Map EQ band name to array index (avoids rebuilding HashMap per request)
-fn eq_band_name_to_index(name: &str) -> Option<usize> {
-    match name {
-        "31" => Some(0),
-        "62" => Some(1),
-        "125" => Some(2),
-        "250" => Some(3),
-        "500" => Some(4),
-        "1000" | "1k" => Some(5),
-        "2000" | "2k" => Some(6),
-        "4000" | "4k" => Some(7),
-        "8000" | "8k" => Some(8),
-        "16000" | "16k" => Some(9),
-        _ => None,
-    }
 }
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {

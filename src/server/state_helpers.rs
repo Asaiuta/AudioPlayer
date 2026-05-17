@@ -16,6 +16,31 @@ use crate::player::{AudioPlayer, PlayerState};
 
 use super::{AppState, ScanTaskRecord, StateResponse};
 
+const EQ_BAND_INDEXES: [(&str, usize); 15] = [
+    ("31", 0),
+    ("62", 1),
+    ("125", 2),
+    ("250", 3),
+    ("500", 4),
+    ("1000", 5),
+    ("2000", 6),
+    ("4000", 7),
+    ("8000", 8),
+    ("16000", 9),
+    // Legacy aliases accepted for persisted older frontend payloads.
+    ("1k", 5),
+    ("2k", 6),
+    ("4k", 7),
+    ("8k", 8),
+    ("16k", 9),
+];
+
+pub(crate) fn eq_band_name_to_index(name: &str) -> Option<usize> {
+    EQ_BAND_INDEXES
+        .iter()
+        .find_map(|(band, index)| (*band == name).then_some(*index))
+}
+
 /// Apply persisted settings to player after runtime settings updates.
 pub(crate) fn apply_settings_to_player(player: &mut AudioPlayer, settings: &EngineSettings) {
     // Volume
@@ -32,31 +57,10 @@ pub(crate) fn apply_settings_to_player(player: &mut AudioPlayer, settings: &Engi
     }
 
     if let Some(ref bands) = settings.eq_bands {
-        // Build gains array from bands map
-        let band_map: std::collections::HashMap<&str, usize> = [
-            ("31", 0),
-            ("62", 1),
-            ("125", 2),
-            ("250", 3),
-            ("500", 4),
-            ("1000", 5),
-            ("2000", 6),
-            ("4000", 7),
-            ("8000", 8),
-            ("16000", 9),
-            ("1k", 5),
-            ("2k", 6),
-            ("4k", 7),
-            ("8k", 8),
-            ("16k", 9),
-        ]
-        .into_iter()
-        .collect();
-
         if player.is_fir_eq_enabled() {
             let mut gains = [0.0_f64; 10];
             for (name, &gain) in bands {
-                if let Some(&idx) = band_map.get(name.as_str()) {
+                if let Some(idx) = eq_band_name_to_index(name.as_str()) {
                     gains[idx] = gain;
                 }
             }
@@ -64,7 +68,7 @@ pub(crate) fn apply_settings_to_player(player: &mut AudioPlayer, settings: &Engi
         } else {
             // IIR EQ (lock-free)
             for (name, &gain) in bands {
-                if let Some(&idx) = band_map.get(name.as_str()) {
+                if let Some(idx) = eq_band_name_to_index(name.as_str()) {
                     player.lockfree_eq_params.set_band_gain(idx, gain);
                 }
             }

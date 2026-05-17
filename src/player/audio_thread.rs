@@ -72,6 +72,19 @@ impl AudioThreadDspParams {
     }
 }
 
+fn wasapi_dsp_refs<'a>(context: &'a WasapiCommandContext<'a>) -> DspParamRefs<'a> {
+    DspParamRefs {
+        eq_params: &context.dsp_ctx.eq_params,
+        saturation_params: &context.dsp_ctx.saturation_params,
+        crossfeed_params: &context.dsp_ctx.crossfeed_params,
+        limiter_params: &context.dsp_ctx.limiter_params,
+        volume_params: &context.dsp_ctx.volume_params,
+        noise_shaper_params: &context.dsp_ctx.noise_shaper_params,
+        dynamic_loudness_params: &context.dsp_ctx.dynamic_loudness_params,
+        dynamic_loudness_telemetry: context.dynamic_loudness_telemetry,
+    }
+}
+
 enum ThreadControl {
     Continue,
     Shutdown,
@@ -144,14 +157,7 @@ impl AudioThreadRuntime {
                 handle_load_complete_command(
                     &self.shared_state,
                     &self.loudness_state,
-                    &self.dsp_params.eq_params,
-                    &self.dsp_params.saturation_params,
-                    &self.dsp_params.crossfeed_params,
-                    &self.dsp_params.limiter_params,
-                    &self.dsp_params.volume_params,
-                    &self.dsp_params.noise_shaper_params,
-                    &self.dsp_params.dynamic_loudness_params,
-                    &self.dsp_params.dynamic_loudness_telemetry,
+                    self.dsp_params.refs(),
                     self.target_lufs,
                     generation,
                     result,
@@ -422,14 +428,7 @@ fn handle_set_fir_convolver_command(
 fn handle_load_complete_command(
     shared_state: &Arc<SharedState>,
     loudness_state: &Arc<AtomicLoudnessState>,
-    eq_params: &Arc<AtomicEqParams>,
-    saturation_params: &Arc<AtomicSaturationParams>,
-    crossfeed_params: &Arc<AtomicCrossfeedParams>,
-    limiter_params: &Arc<AtomicPeakLimiterParams>,
-    volume_params: &Arc<AtomicVolumeParams>,
-    noise_shaper_params: &Arc<AtomicNoiseShaperParams>,
-    dynamic_loudness_params: &Arc<AtomicDynamicLoudnessParams>,
-    dynamic_loudness_telemetry: &Arc<AtomicDynamicLoudnessTelemetry>,
+    dsp_params: DspParamRefs<'_>,
     target_lufs: f64,
     generation: u64,
     result: crate::player::state::LoadResult,
@@ -450,14 +449,7 @@ fn handle_load_complete_command(
     apply_loaded_track_result(
         shared_state,
         loudness_state,
-        eq_params,
-        saturation_params,
-        crossfeed_params,
-        limiter_params,
-        volume_params,
-        noise_shaper_params,
-        dynamic_loudness_params,
-        dynamic_loudness_telemetry,
+        dsp_params,
         target_lufs,
         result,
     );
@@ -476,101 +468,116 @@ fn handle_load_error_command(shared_state: &Arc<SharedState>, generation: u64, m
     shared_state.state.store(PlayerState::Stopped);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn apply_loaded_track_result(
-    shared_state: &Arc<SharedState>,
-    loudness_state: &Arc<AtomicLoudnessState>,
-    eq_params: &Arc<AtomicEqParams>,
-    saturation_params: &Arc<AtomicSaturationParams>,
-    crossfeed_params: &Arc<AtomicCrossfeedParams>,
-    limiter_params: &Arc<AtomicPeakLimiterParams>,
-    volume_params: &Arc<AtomicVolumeParams>,
-    noise_shaper_params: &Arc<AtomicNoiseShaperParams>,
-    dynamic_loudness_params: &Arc<AtomicDynamicLoudnessParams>,
-    dynamic_loudness_telemetry: &Arc<AtomicDynamicLoudnessTelemetry>,
-    target_lufs: f64,
-    result: crate::player::state::LoadResult,
+fn rebuild_pending_dsp_chain(
+    shared_state: &SharedState,
+    dsp_params: DspParamRefs<'_>,
+    channels: usize,
+    sample_rate: u32,
 ) {
     while shared_state.pending_dsp_chain.pop().is_some() {}
     let rebuilt_chain = LockfreeDspContext::build_dsp_chain(
-        result.channels,
-        result.sample_rate as f64,
-        Arc::clone(eq_params),
-        Arc::clone(saturation_params),
-        Arc::clone(crossfeed_params),
-        Arc::clone(limiter_params),
-        Arc::clone(volume_params),
-        Arc::clone(noise_shaper_params),
-        Arc::clone(dynamic_loudness_params),
-        Arc::clone(dynamic_loudness_telemetry),
+        channels,
+        sample_rate as f64,
+        Arc::clone(dsp_params.eq_params),
+        Arc::clone(dsp_params.saturation_params),
+        Arc::clone(dsp_params.crossfeed_params),
+        Arc::clone(dsp_params.limiter_params),
+        Arc::clone(dsp_params.volume_params),
+        Arc::clone(dsp_params.noise_shaper_params),
+        Arc::clone(dsp_params.dynamic_loudness_params),
+        Arc::clone(dsp_params.dynamic_loudness_telemetry),
     );
     let _ = shared_state.pending_dsp_chain.push(rebuilt_chain);
+}
 
+fn apply_loaded_track_state(
+    shared_state: &SharedState,
+    sample_rate: u32,
+    channels: usize,
+    total_frames: u64,
+    file_path: &str,
+    metadata: &crate::decoder::TrackMetadata,
+    samples: Arc<Vec<f64>>,
+) {
     shared_state
         .sample_rate
-        .store(result.sample_rate as u64, Ordering::Relaxed);
+        .store(sample_rate as u64, Ordering::Relaxed);
     shared_state
         .channels
-        .store(result.channels as u64, Ordering::Relaxed);
+        .store(channels as u64, Ordering::Relaxed);
     shared_state
         .total_frames
-        .store(result.total_frames, Ordering::Relaxed);
+        .store(total_frames, Ordering::Relaxed);
     shared_state.position_frames.store(0, Ordering::Relaxed);
-    if shared_state.state.load() == PlayerState::Playing {
-        // Keep Playing - autoplay will start the stream.
-    } else if shared_state.state.load() == PlayerState::Paused {
-        // User paused during loading - stay paused.
-    } else {
-        shared_state.state.store(PlayerState::Stopped);
+
+    match shared_state.state.load() {
+        PlayerState::Playing | PlayerState::Paused => {}
+        _ => shared_state.state.store(PlayerState::Stopped),
     }
 
-    let channels = result.channels;
-    let sr_u32 = result.sample_rate;
-    let metadata = result.metadata;
-    let file_path = result.file_path;
-    let samples_arc = Arc::new(result.samples);
-
-    shared_state.audio_buffer.store(Arc::clone(&samples_arc));
-    *shared_state.file_path.write() = Some(file_path.clone());
+    shared_state.audio_buffer.store(samples);
+    *shared_state.file_path.write() = Some(file_path.to_string());
     *shared_state.track_metadata.write() = metadata.clone();
-    *shared_state.current_track_path.write() = Some(file_path);
-    shared_state
-        .dsp_needs_rebuild
-        .store(true, Ordering::Release);
+    *shared_state.current_track_path.write() = Some(file_path.to_string());
+    shared_state.dsp_needs_rebuild.store(true, Ordering::Release);
+}
 
-    loudness_state.set_smoothing(200.0, sr_u32);
+fn calc_safe_replay_gain_db(rg_gain_db: f64, peak: Option<f64>, preamp_db: f64) -> f64 {
+    let requested_gain = rg_gain_db + preamp_db;
+    if requested_gain <= 0.0 {
+        return requested_gain;
+    }
 
-    let preamp = loudness_state.preamp_gain_db.load(Ordering::Relaxed);
-    let calc_safe_gain = |rg_gain_db: f64, peak: Option<f64>, preamp_db: f64| -> f64 {
-        let requested_gain = rg_gain_db + preamp_db;
-        if requested_gain <= 0.0 {
-            return requested_gain;
-        }
-
-        if let Some(peak_val) = peak {
-            if peak_val > 0.0 {
-                let max_linear = AUDIO_HEADROOM / peak_val;
-                let max_gain_db = 20.0 * max_linear.log10();
-                if requested_gain > max_gain_db {
-                    log::info!(
-                        "Peak protection: peak={:.4}, requested={:.2} dB, limited to {:.2} dB",
-                        peak_val,
-                        requested_gain,
-                        max_gain_db
-                    );
-                    return max_gain_db;
-                }
+    if let Some(peak_val) = peak {
+        if peak_val > 0.0 {
+            let max_linear = AUDIO_HEADROOM / peak_val;
+            let max_gain_db = 20.0 * max_linear.log10();
+            if requested_gain > max_gain_db {
+                log::info!(
+                    "Peak protection: peak={:.4}, requested={:.2} dB, limited to {:.2} dB",
+                    peak_val,
+                    requested_gain,
+                    max_gain_db
+                );
+                return max_gain_db;
             }
         }
+    }
 
-        requested_gain
-    };
+    requested_gain
+}
 
+fn analyze_ebu_r128_gain(
+    samples: &Arc<Vec<f64>>,
+    channels: usize,
+    sample_rate: u32,
+    target_lufs: f64,
+    preamp_db: f64,
+) -> Option<f64> {
+    let mut meter = crate::processor::LoudnessMeter::new(channels, sample_rate);
+    meter.process(samples);
+    let loudness = meter.integrated_loudness();
+    loudness
+        .is_finite()
+        .then_some(target_lufs - loudness + preamp_db)
+}
+
+fn apply_loaded_track_loudness(
+    loudness_state: &AtomicLoudnessState,
+    metadata: &crate::decoder::TrackMetadata,
+    samples: &Arc<Vec<f64>>,
+    channels: usize,
+    sample_rate: u32,
+    target_lufs: f64,
+) {
+    loudness_state.set_smoothing(200.0, sample_rate);
+
+    let preamp = loudness_state.preamp_gain_db.load(Ordering::Relaxed);
     match loudness_state.get_mode() {
         crate::config::NormalizationMode::ReplayGainTrack => {
             if let Some(rg_gain) = metadata.rg_track_gain {
                 let peak = metadata.rg_track_peak;
-                let effective_gain = calc_safe_gain(rg_gain, peak, preamp);
+                let effective_gain = calc_safe_replay_gain_db(rg_gain, peak, preamp);
                 loudness_state.set_target_gain(effective_gain);
                 log::info!(
                     "ReplayGain Track: {:.2} dB + preamp {:.2} dB -> {:.2} dB (peak: {:?})",
@@ -579,34 +586,16 @@ fn apply_loaded_track_result(
                     effective_gain,
                     peak
                 );
-            } else {
-                log::warn!("No ReplayGain track gain found, falling back to EBU R128 analysis");
-                let mut meter = crate::processor::LoudnessMeter::new(channels, sr_u32);
-                meter.process(&samples_arc);
-                let loudness = meter.integrated_loudness();
-                if loudness.is_finite() {
-                    let gain = target_lufs - loudness + preamp;
-                    loudness_state.set_target_gain(gain);
-                    log::info!(
-                        "EBU R128 fallback: {:.2} LUFS -> gain {:.2} dB (target: {:.2} LUFS)",
-                        loudness,
-                        gain,
-                        target_lufs
-                    );
-                } else {
-                    loudness_state.set_target_gain(preamp);
-                    log::warn!(
-                        "EBU R128 analysis failed, using preamp only: {:.2} dB",
-                        preamp
-                    );
-                }
+                return;
             }
+
+            log::warn!("No ReplayGain track gain found, falling back to EBU R128 analysis");
         }
         crate::config::NormalizationMode::ReplayGainAlbum => {
             let rg_gain = metadata.rg_album_gain.or(metadata.rg_track_gain);
             let peak = metadata.rg_album_peak.or(metadata.rg_track_peak);
             if let Some(gain) = rg_gain {
-                let effective_gain = calc_safe_gain(gain, peak, preamp);
+                let effective_gain = calc_safe_replay_gain_db(gain, peak, preamp);
                 loudness_state.set_target_gain(effective_gain);
                 log::info!(
                     "ReplayGain Album: {:.2} dB + preamp {:.2} dB -> {:.2} dB (peak: {:?})",
@@ -615,32 +604,70 @@ fn apply_loaded_track_result(
                     effective_gain,
                     peak
                 );
-            } else {
-                log::warn!("No ReplayGain gain found, falling back to EBU R128 analysis");
-                let mut meter = crate::processor::LoudnessMeter::new(channels, sr_u32);
-                meter.process(&samples_arc);
-                let loudness = meter.integrated_loudness();
-                if loudness.is_finite() {
-                    let gain = target_lufs - loudness + preamp;
-                    loudness_state.set_target_gain(gain);
-                    log::info!(
-                        "EBU R128 fallback: {:.2} LUFS -> gain {:.2} dB (target: {:.2} LUFS)",
-                        loudness,
-                        gain,
-                        target_lufs
-                    );
-                } else {
-                    loudness_state.set_target_gain(preamp);
-                }
+                return;
             }
+
+            log::warn!("No ReplayGain gain found, falling back to EBU R128 analysis");
         }
-        _ => {}
+        _ => return,
     }
+
+    if let Some(gain) = analyze_ebu_r128_gain(samples, channels, sample_rate, target_lufs, preamp) {
+        loudness_state.set_target_gain(gain);
+        log::info!(
+            "EBU R128 fallback: target gain {:.2} dB (target: {:.2} LUFS)",
+            gain,
+            target_lufs
+        );
+    } else {
+        loudness_state.set_target_gain(preamp);
+        log::warn!(
+            "EBU R128 analysis failed, using preamp only: {:.2} dB",
+            preamp
+        );
+    }
+}
+
+fn apply_loaded_track_result(
+    shared_state: &Arc<SharedState>,
+    loudness_state: &Arc<AtomicLoudnessState>,
+    dsp_params: DspParamRefs<'_>,
+    target_lufs: f64,
+    result: crate::player::state::LoadResult,
+) {
+    let crate::player::state::LoadResult {
+        samples,
+        sample_rate,
+        channels,
+        total_frames,
+        file_path,
+        loudness_info: _,
+        metadata,
+    } = result;
+    let samples_arc = Arc::new(samples);
+    rebuild_pending_dsp_chain(shared_state, dsp_params, channels, sample_rate);
+    apply_loaded_track_state(
+        shared_state,
+        sample_rate,
+        channels,
+        total_frames,
+        &file_path,
+        &metadata,
+        Arc::clone(&samples_arc),
+    );
+    apply_loaded_track_loudness(
+        loudness_state,
+        &metadata,
+        &samples_arc,
+        channels,
+        sample_rate,
+        target_lufs,
+    );
 
     shared_state
         .event_flags
         .fetch_or(EVENT_LOAD_COMPLETE | EVENT_TRACK_CHANGED, Ordering::Release);
-    log::debug!("DSP context updated for {} Hz sample rate", sr_u32);
+    log::debug!("DSP context updated for {} Hz sample rate", sample_rate);
 }
 
 fn resume_paused_stream(stream: &Option<Stream>, shared_state: &SharedState) -> bool {
@@ -885,14 +912,7 @@ fn handle_wasapi_command(
             handle_load_complete_command(
                 context.shared_state,
                 context.loudness_state,
-                &context.dsp_ctx.eq_params,
-                &context.dsp_ctx.saturation_params,
-                &context.dsp_ctx.crossfeed_params,
-                &context.dsp_ctx.limiter_params,
-                &context.dsp_ctx.volume_params,
-                &context.dsp_ctx.noise_shaper_params,
-                &context.dsp_ctx.dynamic_loudness_params,
-                context.dynamic_loudness_telemetry,
+                wasapi_dsp_refs(context),
                 context.target_lufs,
                 generation,
                 result,

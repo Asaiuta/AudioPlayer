@@ -11,6 +11,10 @@ use std::sync::Arc;
 
 type IndexedPaths = Arc<std::sync::Mutex<Vec<String>>>;
 
+const UNKNOWN_SONG_TITLE: &str = "Unknown Song";
+const UNKNOWN_ARTIST_NAME: &str = "Unknown Artist";
+const UNKNOWN_ALBUM_TITLE: &str = "Unknown Album";
+
 pub(super) struct LibraryScanOutcome {
     pub(super) scanned_files: u64,
     pub(super) indexed_files: u64,
@@ -198,7 +202,7 @@ pub(super) fn scan_local_library(
         let file_stem = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("未知歌曲");
+            .unwrap_or(UNKNOWN_SONG_TITLE);
         if metadata
             .title
             .as_deref()
@@ -211,14 +215,14 @@ pub(super) fn scan_local_library(
             .as_deref()
             .map_or(true, |a| a.trim().is_empty())
         {
-            metadata.artist = Some("未知艺术家".to_string());
+            metadata.artist = Some(UNKNOWN_ARTIST_NAME.to_string());
         }
         if metadata
             .album
             .as_deref()
             .map_or(true, |a| a.trim().is_empty())
         {
-            metadata.album = Some("未知专辑".to_string());
+            metadata.album = Some(UNKNOWN_ALBUM_TITLE.to_string());
         }
 
         if metadata.cover_art.is_none() {

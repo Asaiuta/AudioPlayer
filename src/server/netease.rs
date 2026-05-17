@@ -1,5 +1,7 @@
-use super::lyrics;
-use super::*;
+use super::{
+    bad_gateway_response, bad_request_response, gateway_timeout_response,
+    too_many_requests_response, unauthorized_response, AppState,
+};
 use actix_web::{web, HttpResponse};
 use ncm_api_rs::{NcmError, Query};
 use std::sync::Arc;
@@ -16,16 +18,62 @@ mod search;
 mod tracks;
 mod types;
 
-use accounts::*;
-use cloud::*;
-use discover::*;
-use parsers::*;
-use playback_actions::*;
-use playlists::*;
-use proxy::*;
-use search::*;
-use tracks::*;
-use types::*;
+use accounts::{
+    daily_signin_active_ncm_account, delete_ncm_account, list_ncm_accounts,
+    logout_active_ncm_account, refresh_active_ncm_account, set_active_ncm_account,
+    upsert_ncm_account,
+};
+use cloud::{delete_ncm_cloud_track, list_ncm_cloud_tracks, list_ncm_likelist_ids};
+use discover::{
+    get_ncm_discover_playlist_categories, get_ncm_home_feed, list_ncm_discover_albums,
+    list_ncm_discover_artists, list_ncm_discover_playlists, list_ncm_discover_songs,
+    list_ncm_discover_toplists,
+};
+use parsers::{
+    discover_initial_param, filter_playlist_summaries, personal_fm_preview,
+    read_artist_tracks, read_cloud_tracks_page, read_daily_song_tracks,
+    read_discover_album_cards, read_discover_artist_cards, read_discover_playlist_cards,
+    read_discover_playlist_categories, read_discover_toplists, read_likelist_ids,
+    read_newest_album_cards, read_non_empty_string, read_page_has_more,
+    read_personal_fm_tracks, read_personalized_dj_cards, read_personalized_mv_cards,
+    read_personalized_playlist_cards, read_playlist_tracks,
+    read_radar_playlist_card, read_recommend_resource_cards, read_search_playlists,
+    read_search_tracks, read_song_detail, read_song_detail_tracks, read_song_url,
+    read_top_artist_cards, read_top_song_tracks, read_user_playlists, track_covers,
+};
+use playback_actions::{
+    enqueue_ncm_track, play_ncm_track, resolve_ncm_track, resolve_ncm_track_supplement,
+};
+use playlists::{list_ncm_playlist_tracks, list_ncm_user_playlists};
+use proxy::{
+    handle_request, parse_bool,
+};
+use search::{search_ncm_playlists, search_ncm_tracks};
+use tracks::{
+    list_ncm_album_tracks, list_ncm_artist_tracks, list_ncm_daily_song_tracks,
+    list_ncm_personal_fm_tracks, list_ncm_song_detail_tracks, trash_ncm_personal_fm_track,
+};
+use types::{
+    ActiveNcmAccountRequest, CloudDeleteRequest, CloudTracksRequest, DiscoverAlbumsRequest,
+    DiscoverArtistsRequest, DiscoverPlaylistsRequest, DiscoverSongsRequest, EntityTracksRequest,
+    HomeFeedRequest, LikelistRequest, NcmAccountPath, NcmAccountStateResponse, NcmHomeFeed,
+    NcmHomeFeedError, NcmTrackResolveError, PersonalFmTrashRequest, PlaylistTracksRequest, ResolveNcmTrackRequest,
+    ResolveNcmTrackSupplementRequest, ResolvedNcmTrack, ResolvedNcmTrackSupplement, SearchTracksRequest,
+    SongDetailTracksRequest, UpsertNcmAccountRequest, UserPlaylistsRequest,
+};
+use types::NcmProfileSnapshot;
+
+#[cfg(test)]
+use accounts::read_profile_snapshot;
+#[cfg(test)]
+use proxy::{
+    apply_query_overrides, build_error_response, build_success_response, extract_merged_query,
+    join_cookie_pairs, normalize_domain_override, normalize_route, route_to_method,
+};
+#[cfg(test)]
+use types::{
+    NcmArtistSummary, NcmHomeTrackCover, NcmPlaylistSummary, NcmTrackDetail, NcmTrackSummary,
+};
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig) {
     routes::configure_routes(cfg);

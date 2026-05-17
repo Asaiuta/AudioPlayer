@@ -7,6 +7,33 @@ use std::path::Path;
 pub const ENV_AUDIO_CACHE_MAX_BYTES: &str = "AUDIO_CACHE_MAX_BYTES";
 pub const DEFAULT_CACHE_MAX_BYTES: u64 = 10 * 1024 * 1024 * 1024;
 
+fn env_flag(name: &str, default: bool) -> bool {
+    env::var(name)
+        .map(|s| s.eq_ignore_ascii_case("true"))
+        .unwrap_or(default)
+}
+
+fn env_parse<T>(name: &str) -> Option<T>
+where
+    T: std::str::FromStr,
+{
+    env::var(name).ok().and_then(|s| s.parse::<T>().ok())
+}
+
+fn env_parse_clamped<T>(name: &str, default: T, min: T, max: T) -> T
+where
+    T: std::str::FromStr + PartialOrd + Copy,
+{
+    let value = env_parse(name).unwrap_or(default);
+    if value < min {
+        min
+    } else if value > max {
+        max
+    } else {
+        value
+    }
+}
+
 // M-4 fix: Import SaturationType from processor module (single source of truth).
 // Previously defined identically in both config.rs and saturation.rs.
 pub use crate::processor::SaturationType;
@@ -329,9 +356,7 @@ impl EngineSettings {
         // Load .env file if it exists
         dotenv::dotenv().ok();
 
-        let target_samplerate = env::var("AUDIO_TARGET_SAMPLERATE")
-            .ok()
-            .and_then(|s| s.parse().ok());
+        let target_samplerate = env_parse("AUDIO_TARGET_SAMPLERATE");
 
         let resample_quality = match env::var("AUDIO_RESAMPLE_QUALITY")
             .unwrap_or_default()
@@ -343,40 +368,27 @@ impl EngineSettings {
             _ => ResampleQuality::High, // Default to High (hq)
         };
 
-        let use_cache = env::var("AUDIO_USE_CACHE")
-            .map(|s| s.to_lowercase() == "true")
-            .unwrap_or(false);
+        let use_cache = env_flag("AUDIO_USE_CACHE", false);
 
-        let preemptive_resample = env::var("AUDIO_PREEMPTIVE_RESAMPLE")
-            .map(|s| s.to_lowercase() == "true")
-            .unwrap_or(true);
+        let preemptive_resample = env_flag("AUDIO_PREEMPTIVE_RESAMPLE", true);
 
-        let use_next_prefetch = env::var("AUDIO_USE_NEXT_PREFETCH")
-            .map(|s| s.to_lowercase() == "true")
-            .unwrap_or(true);
+        let use_next_prefetch = env_flag("AUDIO_USE_NEXT_PREFETCH", true);
 
         let eq_type = env::var("AUDIO_EQ_TYPE").unwrap_or_else(|_| "IIR".to_string());
 
         // Load loudness configuration with range validation (FIX for Defect 29)
         let loudness = LoudnessConfig {
             // target_lufs: typical range -30 to -6 LUFS (EBU R128: -23, streaming: -14 to -16)
-            target_lufs: env::var("AUDIO_TARGET_LUFS")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(-12.0)
-                .clamp(-30.0, -6.0),
+            target_lufs: env_parse_clamped("AUDIO_TARGET_LUFS", -12.0, -30.0, -6.0),
             // true_peak_limit_db: must be <= 0 to prevent clipping, >= -3 for reasonable headroom
-            true_peak_limit_db: env::var("AUDIO_TRUE_PEAK_LIMIT")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(-0.5)
-                .clamp(-3.0, 0.0),
+            true_peak_limit_db: env_parse_clamped("AUDIO_TRUE_PEAK_LIMIT", -0.5, -3.0, 0.0),
             // smoothing_time_ms: minimum 10ms to avoid audio artifacts, max 2000ms
-            smoothing_time_ms: env::var("AUDIO_LOUDNESS_SMOOTHING_MS")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(200.0)
-                .clamp(10.0, 2000.0),
+            smoothing_time_ms: env_parse_clamped(
+                "AUDIO_LOUDNESS_SMOOTHING_MS",
+                200.0,
+                10.0,
+                2000.0,
+            ),
             mode: match env::var("AUDIO_NORMALIZATION_MODE")
                 .unwrap_or_default()
                 .to_lowercase()
@@ -388,14 +400,13 @@ impl EngineSettings {
                 "replaygain_album" | "rg_album" => NormalizationMode::ReplayGainAlbum,
                 _ => NormalizationMode::Track,
             },
-            enabled: env::var("AUDIO_LOUDNESS_NORMALIZATION")
-                .map(|s| s.to_lowercase() == "true")
-                .unwrap_or(true),
-            replaygain_reference_lufs: env::var("AUDIO_REPLAYGAIN_REFERENCE_LUFS")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(-18.0)
-                .clamp(-23.0, -12.0),
+            enabled: env_flag("AUDIO_LOUDNESS_NORMALIZATION", true),
+            replaygain_reference_lufs: env_parse_clamped(
+                "AUDIO_REPLAYGAIN_REFERENCE_LUFS",
+                -18.0,
+                -23.0,
+                -12.0,
+            ),
         };
 
         // Load phase response setting
@@ -421,77 +432,48 @@ impl EngineSettings {
                 _ => SaturationType::Tube, // Default
             },
             // drive: 0.0 (no saturation) to 2.0 (heavy saturation)
-            drive: env::var("AUDIO_SATURATION_DRIVE")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.25)
-                .clamp(0.0, 2.0),
+            drive: env_parse_clamped("AUDIO_SATURATION_DRIVE", 0.25, 0.0, 2.0),
             // threshold: 0.0 to 1.0 (normalized signal level)
-            threshold: env::var("AUDIO_SATURATION_THRESHOLD")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.88)
-                .clamp(0.0, 1.0),
+            threshold: env_parse_clamped("AUDIO_SATURATION_THRESHOLD", 0.88, 0.0, 1.0),
             // mix: 0.0 (dry) to 1.0 (wet)
-            mix: env::var("AUDIO_SATURATION_MIX")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.2)
-                .clamp(0.0, 1.0),
+            mix: env_parse_clamped("AUDIO_SATURATION_MIX", 0.2, 0.0, 1.0),
             // input_gain_db: -20 to +20 dB
-            input_gain_db: env::var("AUDIO_SATURATION_INPUT_GAIN")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.0)
-                .clamp(-20.0, 20.0),
+            input_gain_db: env_parse_clamped(
+                "AUDIO_SATURATION_INPUT_GAIN",
+                0.0,
+                -20.0,
+                20.0,
+            ),
             // output_gain_db: -20 to +20 dB
-            output_gain_db: env::var("AUDIO_SATURATION_OUTPUT_GAIN")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(0.0)
-                .clamp(-20.0, 20.0),
-            enabled: env::var("AUDIO_SATURATION_ENABLED")
-                .map(|s| s.to_lowercase() == "true")
-                .unwrap_or(true), // Enabled by default
+            output_gain_db: env_parse_clamped(
+                "AUDIO_SATURATION_OUTPUT_GAIN",
+                0.0,
+                -20.0,
+                20.0,
+            ),
+            enabled: env_flag("AUDIO_SATURATION_ENABLED", true), // Enabled by default
         };
 
         // Load dynamic loudness compensation configuration
         let dynamic_loudness = DynamicLoudnessConfig {
             // ref_volume_db: -30 to 0 dB (typical: -15 to -20)
-            ref_volume_db: env::var("AUDIO_DYNAMIC_LOUDNESS_REF_DB")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(-15.0)
-                .clamp(-30.0, 0.0),
+            ref_volume_db: env_parse_clamped("AUDIO_DYNAMIC_LOUDNESS_REF_DB", -15.0, -30.0, 0.0),
             // transition_db: 10 to 40 dB (compensation range)
-            transition_db: env::var("AUDIO_DYNAMIC_LOUDNESS_TRANSITION_DB")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(25.0)
-                .clamp(10.0, 40.0),
+            transition_db: env_parse_clamped(
+                "AUDIO_DYNAMIC_LOUDNESS_TRANSITION_DB",
+                25.0,
+                10.0,
+                40.0,
+            ),
             // strength: 0.0 to 1.0
-            strength: env::var("AUDIO_DYNAMIC_LOUDNESS_STRENGTH")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(1.0)
-                .clamp(0.0, 1.0),
+            strength: env_parse_clamped("AUDIO_DYNAMIC_LOUDNESS_STRENGTH", 1.0, 0.0, 1.0),
             // pre_gain_db: -6 to 0 dB (headroom for bass boost)
-            pre_gain_db: env::var("AUDIO_DYNAMIC_LOUDNESS_PRE_GAIN_DB")
-                .ok()
-                .and_then(|s| s.parse::<f64>().ok())
-                .unwrap_or(-3.0)
-                .clamp(-6.0, 0.0),
-            enabled: env::var("AUDIO_DYNAMIC_LOUDNESS_ENABLED")
-                .map(|s| s.to_lowercase() == "true")
-                .unwrap_or(true), // Enabled by default
+            pre_gain_db: env_parse_clamped("AUDIO_DYNAMIC_LOUDNESS_PRE_GAIN_DB", -3.0, -6.0, 0.0),
+            enabled: env_flag("AUDIO_DYNAMIC_LOUDNESS_ENABLED", true), // Enabled by default
         };
 
         // Load output bit depth for noise shaper (M-1 fix)
-        let output_bits = env::var("AUDIO_OUTPUT_BITS")
-            .ok()
-            .and_then(|s| s.parse::<u32>().ok())
-            .map(|b| b.clamp(8, 32))
-            .unwrap_or(24);
+        let output_bits = env_parse_clamped("AUDIO_OUTPUT_BITS", 24_u32, 8_u32, 32_u32);
 
         log::info!("Loaded config: Quality={:?}, Phase={:?}, Cache={}, Preemptive={}, EQ={}, Loudness={} LUFS, DynamicLoudness={} (ref={}dB), Saturation={}",
             resample_quality, phase_response, use_cache, preemptive_resample, eq_type, loudness.target_lufs,
@@ -622,6 +604,10 @@ impl EngineSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EngineSettingsUpdate {
     pub volume: Option<f32>,
+    /// Tri-state PATCH semantics:
+    /// - `None`: leave existing device selection unchanged
+    /// - `Some(Some(id))`: select the given output device
+    /// - `Some(None)`: clear the current device selection
     pub device_id: Option<Option<usize>>,
     pub exclusive_mode: Option<bool>,
     pub eq_type: Option<String>,
@@ -641,6 +627,10 @@ pub struct EngineSettingsUpdate {
     pub crossfeed_mix: Option<f64>,
     pub dynamic_loudness_enabled: Option<bool>,
     pub dynamic_loudness_strength: Option<f64>,
+    /// Tri-state PATCH semantics:
+    /// - `None`: leave current target samplerate unchanged
+    /// - `Some(Some(rate))`: set an explicit target samplerate
+    /// - `Some(None)`: clear the target and follow source / device defaults
     pub target_samplerate: Option<Option<u32>>,
     pub resample_quality: Option<String>,
     pub use_cache: Option<bool>,

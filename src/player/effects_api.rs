@@ -1,10 +1,10 @@
-//! User-facing setters / getters for runtime effect parameters and the small
-//! "legacy snapshot" Mutex<Effect> constructors used by older API surfaces.
+//! User-facing setters / getters for runtime effect parameters.
 //!
-//! Each setter mutates the lock-free `AtomicXParams` Arc on the player so the
-//! audio thread picks up the change without locking; getters either query the
-//! same Atomic struct or build a fresh non-realtime snapshot for callers that
-//! still expect the original Mutex-wrapped effect instance.
+//! Real-time effect changes must flow through the player's lock-free
+//! `AtomicXParams` fields so the audio thread can observe them without
+//! locking. The `*_snapshot()` helpers below build detached `Mutex<Effect>`
+//! values for inspection and tests only; mutating those snapshots does not
+//! affect the active DSP chain.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -18,6 +18,9 @@ use crate::processor::{
 use super::AudioPlayer;
 
 impl AudioPlayer {
+    /// Returns the live loudness normalizer handle used by the runtime DSP
+    /// path. Mutations on this handle update the shared atomic loudness state
+    /// consumed by the audio thread.
     pub fn loudness_normalizer(&self) -> Arc<Mutex<LoudnessNormalizer>> {
         Arc::clone(&self.loudness_normalizer)
     }
@@ -131,13 +134,12 @@ impl AudioPlayer {
         self.dynamic_loudness_telemetry.band_gains()
     }
 
-    // ============ Backward Compatibility Methods ============
-    // These methods provide compatibility with legacy API
+    // ============ Snapshot Helpers ============
 
-    /// Get a snapshot noise shaper instance for backward compatibility.
+    /// Builds a detached noise shaper snapshot for inspection or tests.
     ///
-    /// Note: This instance is NOT wired into the real-time lock-free DSP chain.
-    pub fn noise_shaper(&self) -> Arc<Mutex<crate::processor::NoiseShaper>> {
+    /// Mutating the returned value does not affect the real-time DSP chain.
+    pub fn noise_shaper_snapshot(&self) -> Arc<Mutex<crate::processor::NoiseShaper>> {
         let channels = self.shared_state.channels.load(Ordering::Relaxed).max(1) as usize;
         let sample_rate = self.shared_state.sample_rate.load(Ordering::Relaxed).max(1) as u32;
         let bits = self.get_output_bits();
@@ -161,10 +163,10 @@ impl AudioPlayer {
             .map_err(|e| format!("Failed to send SetNoiseShaperCurve command: {}", e))
     }
 
-    /// Get an EQ snapshot instance for backward compatibility.
+    /// Builds a detached EQ snapshot for inspection or tests.
     ///
-    /// Note: This instance is NOT wired into the real-time lock-free DSP chain.
-    pub fn eq(&self) -> Arc<Mutex<crate::processor::Equalizer>> {
+    /// Mutating the returned value does not affect the real-time DSP chain.
+    pub fn eq_snapshot(&self) -> Arc<Mutex<crate::processor::Equalizer>> {
         let channels = self.shared_state.channels.load(Ordering::Relaxed).max(1) as usize;
         let sample_rate = self.shared_state.sample_rate.load(Ordering::Relaxed).max(1) as f64;
         let snapshot = self.lockfree_eq_params.read();
@@ -175,10 +177,10 @@ impl AudioPlayer {
         Arc::new(Mutex::new(eq))
     }
 
-    /// Get a crossfeed snapshot instance for backward compatibility.
+    /// Builds a detached crossfeed snapshot for inspection or tests.
     ///
-    /// Note: This instance is NOT wired into the real-time lock-free DSP chain.
-    pub fn crossfeed(&self) -> Arc<Mutex<crate::processor::Crossfeed>> {
+    /// Mutating the returned value does not affect the real-time DSP chain.
+    pub fn crossfeed_snapshot(&self) -> Arc<Mutex<crate::processor::Crossfeed>> {
         let sample_rate = self.shared_state.sample_rate.load(Ordering::Relaxed).max(1) as f64;
         let snapshot = self.lockfree_crossfeed_params.read();
 
@@ -189,10 +191,10 @@ impl AudioPlayer {
         Arc::new(Mutex::new(crossfeed))
     }
 
-    /// Get a saturation snapshot instance for backward compatibility.
+    /// Builds a detached saturation snapshot for inspection or tests.
     ///
-    /// Note: This instance is NOT wired into the real-time lock-free DSP chain.
-    pub fn saturation(&self) -> Arc<Mutex<crate::processor::Saturation>> {
+    /// Mutating the returned value does not affect the real-time DSP chain.
+    pub fn saturation_snapshot(&self) -> Arc<Mutex<crate::processor::Saturation>> {
         let sample_rate = self.shared_state.sample_rate.load(Ordering::Relaxed).max(1) as f64;
         let snapshot = self.lockfree_saturation_params.read();
 
