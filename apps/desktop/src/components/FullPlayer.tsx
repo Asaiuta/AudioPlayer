@@ -272,7 +272,7 @@ export function FullPlayer(props: FullPlayerProps) {
     backgroundTimer = window.setTimeout(() => {
       setBackgroundLayers((layers) => layers.slice(0, 1));
       backgroundTimer = undefined;
-    }, 560);
+    }, 540);
   });
 
   onCleanup(() => {
@@ -288,6 +288,157 @@ export function FullPlayer(props: FullPlayerProps) {
     if (lyricStatus() === "error") return lyricError() ?? t("fullPlayer.lyric.error");
     return t("fullPlayer.lyric.placeholder");
   };
+  const controlShellLabels = () => ({
+    close: t("fullPlayer.aria.close"),
+    favorite: t("player.aria.favorite"),
+    addToPlaylist: t("fullPlayer.action.addToPlaylist"),
+    download: t("fullPlayer.action.download"),
+    comment: t("fullPlayer.comment.toggle"),
+    transport: t("player.aria.transport"),
+    prev: t("player.aria.prev"),
+    next: t("player.aria.next"),
+    seek: t("player.aria.seek"),
+    queue: t("sidebar.nav.queue.label"),
+    more: t("player.aria.more"),
+    desktopLyric: t("fullPlayer.action.desktopLyric"),
+    qualityTag: props.currentSongId === null ? t("player.quality.source") : t("settings.ncm.songLevel"),
+    volumeButton: t("player.aria.volumePopover"),
+    volumeDialog: t("player.aria.volume")
+  });
+  const controlShellActions = () => ({
+    showLike: uiSettings.fullPlayerShowLike,
+    isLiked: Boolean(props.isLiked),
+    showAddToPlaylist: uiSettings.fullPlayerShowAddToPlaylist,
+    showDownload: uiSettings.fullPlayerShowDownload,
+    showComments: canShowComments() || showComment(),
+    showCommentCount: uiSettings.fullPlayerShowCommentCount,
+    commentCount: commentCount(),
+    commentActive: showComment(),
+    commentsEnabled: canShowComments(),
+    onClose: props.onClose,
+    onToggleLike: props.onToggleLike,
+    onToggleComment: toggleComment
+  });
+  const controlShellTransport = () => ({
+    shuffleActive: props.shuffleMode === "on",
+    shuffleLabel: shuffleLabel(),
+    canSkipPrev: props.canSkipPrev,
+    canSkipNext: props.canSkipNext,
+    isPlaying: props.isPlaying,
+    playPauseLabel: playPauseLabel(),
+    repeatActive: props.repeatMode !== "off",
+    repeatLabel: repeatLabel(),
+    repeatIcon: RepeatIcon(),
+    canSeek: canSeek(),
+    duration: props.duration,
+    currentTime: props.currentTime,
+    progress: progress(),
+    timeLeft: timeLeft(),
+    timeRight: timeRight(),
+    onToggleShuffle: props.onToggleShuffle,
+    onSkipPrev: props.onSkipPrev,
+    onPlayPause: handlePlayPauseClick,
+    onSkipNext: props.onSkipNext,
+    onCycleRepeat: props.onCycleRepeat,
+    onProgressClick: handleProgressClick,
+    onProgressKeyDown: handleProgressKeyDown
+  });
+  const controlShellUtility = () => ({
+    showPlayerQuality: uiSettings.showPlayerQuality,
+    showDesktopLyric: uiSettings.fullPlayerShowDesktopLyric,
+    showMoreSettings: uiSettings.fullPlayerShowMoreSettings,
+    volumeOpen: volumePopoverOpen(),
+    volumeValue: safeVolume(),
+    volumeIcon: VolumeIcon(),
+    onToggleVolume: () => setVolumePopoverOpen((open) => !open),
+    onVolumeChange: (value: number) => props.onVolumeChange(clamp01(value)),
+    onOpenQueue: props.onOpenQueue,
+    volumeContainerRef: (element: HTMLDivElement) => {
+      fullVolumeRef = element;
+    }
+  });
+  const overlayMenuState = () => ({
+    visible: metaVisible(),
+    canShowPureLyrics: canShowPureLyrics(),
+    pureLyricMode: pureLyricMode(),
+    isFullscreen: isFullscreen()
+  });
+  const overlayMenuLabels = () => ({
+    pureLyric: pureLyricLabel(),
+    fullscreen: fullscreenLabel(),
+    close: t("fullPlayer.aria.close")
+  });
+  const overlayMenuActions = () => ({
+    onTogglePureLyricMode: togglePureLyricMode,
+    onToggleFullscreen: () => void toggleFullscreen(),
+    onClose: props.onClose
+  });
+  const primaryPanelCover = () => ({
+    showCover: !uiSettings.hiddenCovers.player,
+    isPlaying: props.isPlaying,
+    playerType: uiSettings.playerType,
+    coverUrl: props.coverUrl,
+    coverAlt: props.title || t("cover.alt")
+  });
+  const primaryPanelMeta = () => ({
+    showMeta: uiSettings.showPlayMeta,
+    title: displayTitle(),
+    subtitle: displaySubtitle() || t("player.subtitle.empty"),
+    detail: props.detail
+  });
+  const commentsSong = () => ({
+    className: commentPanelClassName(),
+    songClassName: `full-player-comment-song${uiSettings.hiddenCovers.player ? " is-cover-hidden" : ""}`,
+    coverUrl: props.coverUrl,
+    title: props.title || t("player.fallback.empty"),
+    subtitle: props.subtitle || t("player.subtitle.empty"),
+    coverAlt: props.title || t("cover.alt"),
+    backLabel: t("fullPlayer.comment.backToMusic"),
+    showCover: () => !uiSettings.hiddenCovers.player,
+    onClose: closeComment
+  });
+  const commentsContent = () => ({
+    loadingLabel: t("fullPlayer.comment.loading"),
+    emptyLabel: t("fullPlayer.comment.empty"),
+    errorLabel: commentsError(),
+    hotLabel: t("fullPlayer.comment.hot"),
+    allLabel: t("fullPlayer.comment.all"),
+    commentsStatus: commentsState().status,
+    commentCount: commentCount(),
+    hotComments: visibleHotComments(),
+    comments: visibleComments()
+  });
+  const lyricsDisplay = () => ({
+    lyrics: lyrics(),
+    lyricNow: lyricNow(),
+    activeLyricIndex,
+    currentTime
+  });
+  const lyricsSettings = () => ({
+    lyricsBlur: () => uiSettings.lyricsBlur,
+    showWordLyrics: () => uiSettings.showWordLyrics,
+    showTranslation: () => uiSettings.showLyricTranslation,
+    showRomanization: () => uiSettings.showLyricRomanization,
+    swapTranslationRomanization: () => uiSettings.swapLyricTranslationRomanization
+  });
+  const lyricsInteraction = () => ({
+    onSeek: handleLyricSeek,
+    lyricListRef: (element: HTMLDivElement) => {
+      lyricListRef = element;
+    },
+    ariaLabel: t("fullPlayer.lyric.aria"),
+    style: {
+      "--lyric-font-size": `${uiSettings.lyricFontSize}px`,
+      "--lyric-font-weight": String(uiSettings.lyricFontWeight),
+      "--lyric-translation-font-size": `${uiSettings.lyricTranslationFontSize}px`,
+      "--lyric-romanization-font-size": `${uiSettings.lyricRomanizationFontSize}px`,
+      "--lyric-line-align": lyricLineAlign(),
+      "--lyric-text-align": lyricTextAlign(),
+      "--lyric-transform-origin": lyricTransformOrigin(),
+      "--lyric-horizontal-offset": `${uiSettings.lyricHorizontalOffset}px`,
+      "--lyric-blend-mode": uiSettings.lyricsBlendMode
+    }
+  });
 
   return (
     <div
@@ -335,152 +486,35 @@ export function FullPlayer(props: FullPlayerProps) {
       </Show>
 
       <FullPlayerOverlayMenu
-        visible={metaVisible()}
-        canShowPureLyrics={canShowPureLyrics()}
-        pureLyricMode={pureLyricMode()}
-        pureLyricLabel={pureLyricLabel()}
-        isFullscreen={isFullscreen()}
-        fullscreenLabel={fullscreenLabel()}
-        closeLabel={t("fullPlayer.aria.close")}
-        onTogglePureLyricMode={togglePureLyricMode}
-        onToggleFullscreen={() => void toggleFullscreen()}
-        onClose={props.onClose}
+        state={overlayMenuState()}
+        labels={overlayMenuLabels()}
+        actions={overlayMenuActions()}
         onMouseEnter={handleControlEnter}
         onMouseLeave={handleControlLeave}
       />
 
       <div class={layoutClassName()} style={stageStyle()}>
-        <FullPlayerPrimaryPanel
-          showCover={!uiSettings.hiddenCovers.player}
-          isPlaying={props.isPlaying}
-          playerType={uiSettings.playerType}
-          coverUrl={props.coverUrl}
-          coverAlt={props.title || t("cover.alt")}
-          showMeta={uiSettings.showPlayMeta}
-          title={displayTitle()}
-          subtitle={displaySubtitle() || t("player.subtitle.empty")}
-          detail={props.detail}
-        />
+        <FullPlayerPrimaryPanel cover={primaryPanelCover()} meta={primaryPanelMeta()} />
 
         <Show when={showComment()}>
-          <FullPlayerComments
-            className={commentPanelClassName()}
-            songClassName={`full-player-comment-song${uiSettings.hiddenCovers.player ? " is-cover-hidden" : ""}`}
-            coverUrl={props.coverUrl}
-            title={props.title || t("player.fallback.empty")}
-            subtitle={props.subtitle || t("player.subtitle.empty")}
-            coverAlt={props.title || t("cover.alt")}
-            backLabel={t("fullPlayer.comment.backToMusic")}
-            loadingLabel={t("fullPlayer.comment.loading")}
-            emptyLabel={t("fullPlayer.comment.empty")}
-            errorLabel={commentsError()}
-            hotLabel={t("fullPlayer.comment.hot")}
-            allLabel={t("fullPlayer.comment.all")}
-            commentsStatus={commentsState().status}
-            commentCount={commentCount()}
-            hotComments={visibleHotComments()}
-            comments={visibleComments()}
-            showCover={() => !uiSettings.hiddenCovers.player}
-            onClose={closeComment}
-          />
+          <FullPlayerComments song={commentsSong()} content={commentsContent()} />
         </Show>
 
         <FullPlayerLyrics
-          lyrics={lyrics()}
-          lyricNow={lyricNow()}
-          activeLyricIndex={activeLyricIndex}
-          currentTime={currentTime}
-          lyricsBlur={() => uiSettings.lyricsBlur}
-          showWordLyrics={() => uiSettings.showWordLyrics}
-          showTranslation={() => uiSettings.showLyricTranslation}
-          showRomanization={() => uiSettings.showLyricRomanization}
-          swapTranslationRomanization={() => uiSettings.swapLyricTranslationRomanization}
-          onSeek={handleLyricSeek}
-          lyricListRef={(element) => {
-            lyricListRef = element;
-          }}
-          ariaLabel={t("fullPlayer.lyric.aria")}
-          style={{
-            "--lyric-font-size": `${uiSettings.lyricFontSize}px`,
-            "--lyric-font-weight": String(uiSettings.lyricFontWeight),
-            "--lyric-translation-font-size": `${uiSettings.lyricTranslationFontSize}px`,
-            "--lyric-romanization-font-size": `${uiSettings.lyricRomanizationFontSize}px`,
-            "--lyric-line-align": lyricLineAlign(),
-            "--lyric-text-align": lyricTextAlign(),
-            "--lyric-transform-origin": lyricTransformOrigin(),
-            "--lyric-horizontal-offset": `${uiSettings.lyricHorizontalOffset}px`,
-            "--lyric-blend-mode": uiSettings.lyricsBlendMode
-          }}
+          display={lyricsDisplay()}
+          settings={lyricsSettings()}
+          interaction={lyricsInteraction()}
         />
       </div>
 
       <FullPlayerControlShell
         visible={metaVisible()}
-        closeLabel={t("fullPlayer.aria.close")}
-        favoriteLabel={t("player.aria.favorite")}
-        addToPlaylistLabel={t("fullPlayer.action.addToPlaylist")}
-        downloadLabel={t("fullPlayer.action.download")}
-        commentLabel={t("fullPlayer.comment.toggle")}
-        transportLabel={t("player.aria.transport")}
-        prevLabel={t("player.aria.prev")}
-        nextLabel={t("player.aria.next")}
-        seekLabel={t("player.aria.seek")}
-        queueLabel={t("sidebar.nav.queue.label")}
-        moreLabel={t("player.aria.more")}
-        desktopLyricLabel={t("fullPlayer.action.desktopLyric")}
-        qualityTagLabel={
-          props.currentSongId === null ? t("player.quality.source") : t("settings.ncm.songLevel")
-        }
-        volumeButtonLabel={t("player.aria.volumePopover")}
-        volumeDialogLabel={t("player.aria.volume")}
-        showLike={uiSettings.fullPlayerShowLike}
-        isLiked={Boolean(props.isLiked)}
-        showAddToPlaylist={uiSettings.fullPlayerShowAddToPlaylist}
-        showDownload={uiSettings.fullPlayerShowDownload}
-        showComments={canShowComments() || showComment()}
-        showCommentCount={uiSettings.fullPlayerShowCommentCount}
-        commentCount={commentCount()}
-        commentActive={showComment()}
-        commentsEnabled={canShowComments()}
-        showPlayerQuality={uiSettings.showPlayerQuality}
-        showDesktopLyric={uiSettings.fullPlayerShowDesktopLyric}
-        showMoreSettings={uiSettings.fullPlayerShowMoreSettings}
-        shuffleActive={props.shuffleMode === "on"}
-        shuffleLabel={shuffleLabel()}
-        canSkipPrev={props.canSkipPrev}
-        canSkipNext={props.canSkipNext}
-        isPlaying={props.isPlaying}
-        playPauseLabel={playPauseLabel()}
-        repeatActive={props.repeatMode !== "off"}
-        repeatLabel={repeatLabel()}
-        repeatIcon={RepeatIcon()}
-        canSeek={canSeek()}
-        duration={props.duration}
-        currentTime={props.currentTime}
-        progress={progress()}
-        timeLeft={timeLeft()}
-        timeRight={timeRight()}
-        volumeOpen={volumePopoverOpen()}
-        volumeValue={safeVolume()}
-        volumeIcon={VolumeIcon()}
+        labels={controlShellLabels()}
+        actions={controlShellActions()}
+        transport={controlShellTransport()}
+        utility={controlShellUtility()}
         onMouseEnter={handleControlEnter}
         onMouseLeave={handleControlLeave}
-        onClose={props.onClose}
-        onToggleLike={props.onToggleLike}
-        onToggleComment={toggleComment}
-        onToggleShuffle={props.onToggleShuffle}
-        onSkipPrev={props.onSkipPrev}
-        onPlayPause={handlePlayPauseClick}
-        onSkipNext={props.onSkipNext}
-        onCycleRepeat={props.onCycleRepeat}
-        onProgressClick={handleProgressClick}
-        onProgressKeyDown={handleProgressKeyDown}
-        onToggleVolume={() => setVolumePopoverOpen((open) => !open)}
-        onVolumeChange={(value) => props.onVolumeChange(clamp01(value))}
-        onOpenQueue={props.onOpenQueue}
-        volumeContainerRef={(element) => {
-          fullVolumeRef = element;
-        }}
       />
 
       <Show when={uiSettings.showSpectrums && props.spectrum.length > 0}>

@@ -17,23 +17,25 @@ import {
   IconSkipPrev
 } from "../icons";
 
-interface FullPlayerControlShellProps {
-  visible: boolean;
-  closeLabel: string;
-  favoriteLabel: string;
-  addToPlaylistLabel: string;
-  downloadLabel: string;
-  commentLabel: string;
-  transportLabel: string;
-  prevLabel: string;
-  nextLabel: string;
-  seekLabel: string;
-  queueLabel: string;
-  moreLabel: string;
-  desktopLyricLabel: string;
-  qualityTagLabel: string;
-  volumeButtonLabel: string;
-  volumeDialogLabel: string;
+interface FullPlayerShellLabels {
+  close: string;
+  favorite: string;
+  addToPlaylist: string;
+  download: string;
+  comment: string;
+  transport: string;
+  prev: string;
+  next: string;
+  seek: string;
+  queue: string;
+  more: string;
+  desktopLyric: string;
+  qualityTag: string;
+  volumeButton: string;
+  volumeDialog: string;
+}
+
+interface FullPlayerShellActionsSection {
   showLike: boolean;
   isLiked: boolean;
   showAddToPlaylist: boolean;
@@ -43,9 +45,12 @@ interface FullPlayerControlShellProps {
   commentCount: number;
   commentActive: boolean;
   commentsEnabled: boolean;
-  showPlayerQuality: boolean;
-  showDesktopLyric: boolean;
-  showMoreSettings: boolean;
+  onClose: () => void;
+  onToggleLike?: () => void;
+  onToggleComment: () => void;
+}
+
+interface FullPlayerShellTransportSection {
   shuffleActive: boolean;
   shuffleLabel: string;
   canSkipPrev: boolean;
@@ -61,14 +66,6 @@ interface FullPlayerControlShellProps {
   progress: number;
   timeLeft: string;
   timeRight: string;
-  volumeOpen: boolean;
-  volumeValue: number;
-  volumeIcon: Component;
-  onMouseEnter: () => void;
-  onMouseLeave: () => void;
-  onClose: () => void;
-  onToggleLike?: () => void;
-  onToggleComment: () => void;
   onToggleShuffle: () => void;
   onSkipPrev: () => void;
   onPlayPause: () => void;
@@ -76,15 +73,34 @@ interface FullPlayerControlShellProps {
   onCycleRepeat: () => void;
   onProgressClick: (event: MouseEvent) => void;
   onProgressKeyDown: (event: KeyboardEvent) => void;
+}
+
+interface FullPlayerShellUtilitySection {
+  showPlayerQuality: boolean;
+  showDesktopLyric: boolean;
+  showMoreSettings: boolean;
+  volumeOpen: boolean;
+  volumeValue: number;
+  volumeIcon: Component;
   onToggleVolume: () => void;
   onVolumeChange: (value: number) => void;
   onOpenQueue: () => void;
   volumeContainerRef?: (element: HTMLDivElement) => void;
 }
 
+interface FullPlayerControlShellProps {
+  visible: boolean;
+  labels: FullPlayerShellLabels;
+  actions: FullPlayerShellActionsSection;
+  transport: FullPlayerShellTransportSection;
+  utility: FullPlayerShellUtilitySection;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}
+
 export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
-  const RepeatIcon = () => props.repeatIcon;
-  const VolumeIcon = () => props.volumeIcon;
+  const RepeatIcon = () => props.transport.repeatIcon;
+  const VolumeIcon = () => props.utility.volumeIcon;
 
   return (
     <div
@@ -96,61 +112,61 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
         <button
           type="button"
           class="full-player-menu-icon"
-          onClick={props.onClose}
-          aria-label={props.closeLabel}
-          title={props.closeLabel}
+          onClick={props.actions.onClose}
+          aria-label={props.labels.close}
+          title={props.labels.close}
         >
           <IconChevronDown />
         </button>
-        <Show when={props.showLike}>
+        <Show when={props.actions.showLike}>
           <button
             type="button"
-            class={`full-player-menu-icon${props.isLiked ? " is-active" : ""}`}
-            onClick={() => props.onToggleLike?.()}
-            disabled={!props.onToggleLike}
-            aria-label={props.favoriteLabel}
-            aria-pressed={props.isLiked}
-            title={props.favoriteLabel}
+            class={`full-player-menu-icon${props.actions.isLiked ? " is-active" : ""}`}
+            onClick={() => props.actions.onToggleLike?.()}
+            disabled={!props.actions.onToggleLike}
+            aria-label={props.labels.favorite}
+            aria-pressed={props.actions.isLiked}
+            title={props.labels.favorite}
           >
-            <Show when={props.isLiked} fallback={<IconHeart />}>
+            <Show when={props.actions.isLiked} fallback={<IconHeart />}>
               <IconHeartFilled />
             </Show>
           </button>
         </Show>
-        <Show when={props.showAddToPlaylist}>
+        <Show when={props.actions.showAddToPlaylist}>
           <button
             type="button"
             class="full-player-menu-icon"
-            aria-label={props.addToPlaylistLabel}
-            title={props.addToPlaylistLabel}
+            aria-label={props.labels.addToPlaylist}
+            title={props.labels.addToPlaylist}
           >
             <IconPlaylist />
           </button>
         </Show>
-        <Show when={props.showDownload}>
+        <Show when={props.actions.showDownload}>
           <button
             type="button"
             class="full-player-menu-icon"
-            aria-label={props.downloadLabel}
-            title={props.downloadLabel}
+            aria-label={props.labels.download}
+            title={props.labels.download}
           >
             <IconDownload />
           </button>
         </Show>
-        <Show when={props.showComments}>
+        <Show when={props.actions.showComments}>
           <button
             type="button"
-            class={`full-player-menu-icon${props.commentActive ? " is-active" : ""}`}
-            onClick={props.onToggleComment}
-            disabled={!props.commentsEnabled}
-            aria-label={props.commentLabel}
-            aria-pressed={props.commentActive}
-            title={props.commentLabel}
+            class={`full-player-menu-icon${props.actions.commentActive ? " is-active" : ""}`}
+            onClick={props.actions.onToggleComment}
+            disabled={!props.actions.commentsEnabled}
+            aria-label={props.labels.comment}
+            aria-pressed={props.actions.commentActive}
+            title={props.labels.comment}
           >
             <IconMessage />
-            <Show when={props.showCommentCount && props.commentCount > 0}>
+            <Show when={props.actions.showCommentCount && props.actions.commentCount > 0}>
               <span class="full-player-icon-badge">
-                {props.commentCount > 999 ? "999+" : props.commentCount}
+                {props.actions.commentCount > 999 ? "999+" : props.actions.commentCount}
               </span>
             </Show>
           </button>
@@ -158,55 +174,55 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
       </div>
 
       <div class="full-player-control-center">
-        <div class="full-player-transport" role="group" aria-label={props.transportLabel}>
+        <div class="full-player-transport" role="group" aria-label={props.labels.transport}>
           <button
             type="button"
-            class={`transport-button mode-button${props.shuffleActive ? " is-active" : ""}`}
-            onClick={props.onToggleShuffle}
-            aria-label={props.shuffleLabel}
-            aria-pressed={props.shuffleActive}
-            title={props.shuffleLabel}
+            class={`transport-button mode-button${props.transport.shuffleActive ? " is-active" : ""}`}
+            onClick={props.transport.onToggleShuffle}
+            aria-label={props.transport.shuffleLabel}
+            aria-pressed={props.transport.shuffleActive}
+            title={props.transport.shuffleLabel}
           >
             <IconShuffle />
           </button>
           <button
             type="button"
             class="transport-button"
-            onClick={props.onSkipPrev}
-            disabled={!props.canSkipPrev}
-            aria-label={props.prevLabel}
-            title={props.prevLabel}
+            onClick={props.transport.onSkipPrev}
+            disabled={!props.transport.canSkipPrev}
+            aria-label={props.labels.prev}
+            title={props.labels.prev}
           >
             <IconSkipPrev />
           </button>
           <button
             type="button"
             class="transport-button transport-primary"
-            onClick={props.onPlayPause}
-            aria-label={props.playPauseLabel}
-            title={props.playPauseLabel}
+            onClick={props.transport.onPlayPause}
+            aria-label={props.transport.playPauseLabel}
+            title={props.transport.playPauseLabel}
           >
-            <Show when={props.isPlaying} fallback={<IconPlay />}>
+            <Show when={props.transport.isPlaying} fallback={<IconPlay />}>
               <IconPause />
             </Show>
           </button>
           <button
             type="button"
             class="transport-button"
-            onClick={props.onSkipNext}
-            disabled={!props.canSkipNext}
-            aria-label={props.nextLabel}
-            title={props.nextLabel}
+            onClick={props.transport.onSkipNext}
+            disabled={!props.transport.canSkipNext}
+            aria-label={props.labels.next}
+            title={props.labels.next}
           >
             <IconSkipNext />
           </button>
           <button
             type="button"
-            class={`transport-button mode-button${props.repeatActive ? " is-active" : ""}`}
-            onClick={props.onCycleRepeat}
-            aria-label={props.repeatLabel}
-            aria-pressed={props.repeatActive}
-            title={props.repeatLabel}
+            class={`transport-button mode-button${props.transport.repeatActive ? " is-active" : ""}`}
+            onClick={props.transport.onCycleRepeat}
+            aria-label={props.transport.repeatLabel}
+            aria-pressed={props.transport.repeatActive}
+            title={props.transport.repeatLabel}
           >
             {(() => {
               const Icon = RepeatIcon();
@@ -216,68 +232,68 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
         </div>
 
         <div class="full-player-progress-wrap">
-          <span class="full-player-time">{props.timeLeft}</span>
+          <span class="full-player-time">{props.transport.timeLeft}</span>
           <div
-            class={`full-player-progress${props.canSeek ? " is-interactive" : ""}`}
-            role={props.canSeek ? "slider" : "presentation"}
-            aria-label={props.canSeek ? props.seekLabel : undefined}
-            aria-valuemin={props.canSeek ? 0 : undefined}
-            aria-valuemax={props.canSeek ? Math.round(props.duration) : undefined}
-            aria-valuenow={props.canSeek ? Math.round(props.currentTime) : undefined}
-            tabIndex={props.canSeek ? 0 : -1}
-            onClick={props.onProgressClick}
-            onKeyDown={props.onProgressKeyDown}
+            class={`full-player-progress${props.transport.canSeek ? " is-interactive" : ""}`}
+            role={props.transport.canSeek ? "slider" : "presentation"}
+            aria-label={props.transport.canSeek ? props.labels.seek : undefined}
+            aria-valuemin={props.transport.canSeek ? 0 : undefined}
+            aria-valuemax={props.transport.canSeek ? Math.round(props.transport.duration) : undefined}
+            aria-valuenow={props.transport.canSeek ? Math.round(props.transport.currentTime) : undefined}
+            tabIndex={props.transport.canSeek ? 0 : -1}
+            onClick={props.transport.onProgressClick}
+            onKeyDown={props.transport.onProgressKeyDown}
           >
-            <div class="full-player-progress-fill" style={{ width: `${props.progress * 100}%` }} />
+            <div class="full-player-progress-fill" style={{ width: `${props.transport.progress * 100}%` }} />
           </div>
-          <span class="full-player-time">{props.timeRight}</span>
+          <span class="full-player-time">{props.transport.timeRight}</span>
         </div>
       </div>
 
       <div class="full-player-control-side is-right">
-        <Show when={props.showPlayerQuality}>
-          <span class="full-player-quality-tag">{props.qualityTagLabel}</span>
+        <Show when={props.utility.showPlayerQuality}>
+          <span class="full-player-quality-tag">{props.labels.qualityTag}</span>
         </Show>
-        <Show when={props.showDesktopLyric}>
+        <Show when={props.utility.showDesktopLyric}>
           <button
             type="button"
             class="full-player-menu-icon full-player-utility-hidden"
-            aria-label={props.desktopLyricLabel}
-            title={props.desktopLyricLabel}
+            aria-label={props.labels.desktopLyric}
+            title={props.labels.desktopLyric}
           >
             <IconDesktopLyric />
           </button>
         </Show>
-        <Show when={props.showMoreSettings}>
+        <Show when={props.utility.showMoreSettings}>
           <button
             type="button"
             class="full-player-menu-icon full-player-utility-hidden"
-            aria-label={props.moreLabel}
-            title={props.moreLabel}
+            aria-label={props.labels.more}
+            title={props.labels.more}
           >
             <IconControls />
           </button>
         </Show>
-        <div class="full-player-volume" ref={props.volumeContainerRef}>
+        <div class="full-player-volume" ref={props.utility.volumeContainerRef}>
           <PlayerVolumePopover
-            open={props.volumeOpen}
-            value={props.volumeValue}
+            open={props.utility.volumeOpen}
+            value={props.utility.volumeValue}
             icon={VolumeIcon()}
             buttonClass="full-player-menu-icon"
             popoverClass="full-player-volume-popover"
-            buttonLabel={props.volumeButtonLabel}
-            dialogLabel={props.volumeDialogLabel}
-            buttonTitle={props.volumeButtonLabel}
-            onToggle={props.onToggleVolume}
-            onValueChange={props.onVolumeChange}
+            buttonLabel={props.labels.volumeButton}
+            dialogLabel={props.labels.volumeDialog}
+            buttonTitle={props.labels.volumeButton}
+            onToggle={props.utility.onToggleVolume}
+            onValueChange={props.utility.onVolumeChange}
           />
         </div>
         <button
           type="button"
           class="full-player-menu-icon"
-          onClick={props.onOpenQueue}
-          aria-label={props.queueLabel}
-          title={props.queueLabel}
+          onClick={props.utility.onOpenQueue}
+          aria-label={props.labels.queue}
+          title={props.labels.queue}
         >
           <IconPlaylist />
         </button>

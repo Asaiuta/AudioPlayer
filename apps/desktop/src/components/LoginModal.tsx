@@ -5,6 +5,7 @@ import {
   onCleanup,
   Show
 } from "solid-js";
+import { createStore } from "solid-js/store";
 import { Modal } from "./Modal";
 import { SegmentedTabs } from "./page/SegmentedTabs";
 import { IconClose, IconLogo } from "./icons";
@@ -30,7 +31,35 @@ interface LoginModalProps {
   onClose: () => void;
 }
 
+interface LoginModalFormState {
+  phoneCountryCode: string;
+  phoneNumber: string;
+  phoneCaptcha: string;
+  phonePassword: string;
+  phoneMode: "captcha" | "password";
+  isSendingCaptcha: boolean;
+  isSubmittingPhone: boolean;
+  uidValue: string;
+  isSubmittingUid: boolean;
+  cookieValue: string;
+  isSubmittingCookie: boolean;
+}
+
 const CAPTCHA_RESEND_SECONDS = 60;
+
+const buildDefaultFormState = (): LoginModalFormState => ({
+  phoneCountryCode: "86",
+  phoneNumber: "",
+  phoneCaptcha: "",
+  phonePassword: "",
+  phoneMode: "captcha",
+  isSendingCaptcha: false,
+  isSubmittingPhone: false,
+  uidValue: "",
+  isSubmittingUid: false,
+  cookieValue: "",
+  isSubmittingCookie: false
+});
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -64,6 +93,7 @@ export function LoginModal(props: LoginModalProps) {
   const [activeTab, setActiveTab] = createSignal<LoginTab>("qr");
   const [specialMode, setSpecialMode] = createSignal<SpecialLoginMode>(null);
   const [feedback, setFeedback] = createSignal<{ tone: Tone; message: string } | null>(null);
+  const [form, setForm] = createStore<LoginModalFormState>(buildDefaultFormState());
 
   const onCookieCaptured = async (cookie: string, primaryEnvelope?: unknown): Promise<void> => {
     const account = await completeNcmLogin({
@@ -99,18 +129,8 @@ export function LoginModal(props: LoginModalProps) {
     if (!props.open) {
       setFeedback(null);
       qrLogin.reset();
-      setPhoneCountryCode("86");
-      setPhoneNumber("");
-      setPhoneCaptcha("");
-      setPhonePassword("");
-      setPhoneMode("captcha");
+      setForm(buildDefaultFormState());
       setCaptchaCooldown(0);
-      setIsSendingCaptcha(false);
-      setIsSubmittingPhone(false);
-      setUidValue("");
-      setIsSubmittingUid(false);
-      setCookieValue("");
-      setIsSubmittingCookie(false);
       setActiveTab("qr");
       setSpecialMode(null);
     }
@@ -122,14 +142,7 @@ export function LoginModal(props: LoginModalProps) {
   ]);
 
   // ----- Phone tab -----
-  const [phoneCountryCode, setPhoneCountryCode] = createSignal("86");
-  const [phoneNumber, setPhoneNumber] = createSignal("");
-  const [phoneCaptcha, setPhoneCaptcha] = createSignal("");
-  const [phonePassword, setPhonePassword] = createSignal("");
-  const [phoneMode, setPhoneMode] = createSignal<"captcha" | "password">("captcha");
   const [captchaCooldown, setCaptchaCooldown] = createSignal(0);
-  const [isSendingCaptcha, setIsSendingCaptcha] = createSignal(false);
-  const [isSubmittingPhone, setIsSubmittingPhone] = createSignal(false);
 
   // Tick down the resend cooldown.
   createEffect(() => {
@@ -141,14 +154,14 @@ export function LoginModal(props: LoginModalProps) {
   });
 
   const handleSendCaptcha = async () => {
-    const phone = phoneNumber().trim();
+    const phone = form.phoneNumber.trim();
     if (!phone) {
       setFeedback({ tone: "error", message: t("ncm.loginModal.error.captchaPhoneRequired") });
       return;
     }
-    setIsSendingCaptcha(true);
+    setForm("isSendingCaptcha", true);
     try {
-      await sentCaptcha({ phone, ctcode: phoneCountryCode().trim() || "86" });
+      await sentCaptcha({ phone, ctcode: form.phoneCountryCode.trim() || "86" });
       setCaptchaCooldown(CAPTCHA_RESEND_SECONDS);
       setFeedback({
         tone: "success",
@@ -157,32 +170,32 @@ export function LoginModal(props: LoginModalProps) {
     } catch (error) {
       setFeedback({ tone: "error", message: readErrorMessage(error) });
     } finally {
-      setIsSendingCaptcha(false);
+      setForm("isSendingCaptcha", false);
     }
   };
 
   const handlePhoneSubmit = async () => {
-    const phone = phoneNumber().trim();
+    const phone = form.phoneNumber.trim();
     if (!phone) {
       setFeedback({ tone: "error", message: t("ncm.loginModal.error.captchaPhoneRequired") });
       return;
     }
-    if (phoneMode() === "captcha" && !phoneCaptcha().trim()) {
+    if (form.phoneMode === "captcha" && !form.phoneCaptcha.trim()) {
       setFeedback({ tone: "error", message: t("ncm.loginModal.error.captchaCodeRequired") });
       return;
     }
-    if (phoneMode() === "password" && !phonePassword()) {
+    if (form.phoneMode === "password" && !form.phonePassword) {
       setFeedback({ tone: "error", message: t("ncm.loginModal.error.passwordRequired") });
       return;
     }
-    setIsSubmittingPhone(true);
+    setForm("isSubmittingPhone", true);
     try {
       const response = await loginCellphone({
         phone,
-        countrycode: phoneCountryCode().trim() || "86",
-        ...(phoneMode() === "captcha"
-          ? { captcha: phoneCaptcha().trim() }
-          : { password: phonePassword() })
+        countrycode: form.phoneCountryCode.trim() || "86",
+        ...(form.phoneMode === "captcha"
+          ? { captcha: form.phoneCaptcha.trim() }
+          : { password: form.phonePassword })
       });
       const cookie = readString(response.cookie) ?? "";
       if (!cookie) {
@@ -195,22 +208,19 @@ export function LoginModal(props: LoginModalProps) {
     } catch (error) {
       setFeedback({ tone: "error", message: readErrorMessage(error) });
     } finally {
-      setIsSubmittingPhone(false);
+      setForm("isSubmittingPhone", false);
     }
   };
 
   // ----- UID tab -----
-  const [uidValue, setUidValue] = createSignal("");
-  const [isSubmittingUid, setIsSubmittingUid] = createSignal(false);
-
   const handleUidSubmit = async () => {
-    const trimmed = uidValue().trim();
+    const trimmed = form.uidValue.trim();
     const uid = Number.parseInt(trimmed, 10);
     if (!Number.isFinite(uid) || uid <= 0) {
       setFeedback({ tone: "error", message: t("ncm.loginModal.error.uidRequired") });
       return;
     }
-    setIsSubmittingUid(true);
+    setForm("isSubmittingUid", true);
     try {
       // Anonymous probe: pass an empty cookieOverride so the request
       // explicitly opts out of the global active cookie.
@@ -239,21 +249,18 @@ export function LoginModal(props: LoginModalProps) {
     } catch (error) {
       setFeedback({ tone: "error", message: readErrorMessage(error) });
     } finally {
-      setIsSubmittingUid(false);
+      setForm("isSubmittingUid", false);
     }
   };
 
   // ----- Cookie tab -----
-  const [cookieValue, setCookieValue] = createSignal("");
-  const [isSubmittingCookie, setIsSubmittingCookie] = createSignal(false);
-
   const handleCookieSubmit = async () => {
-    const cookie = cookieValue().trim();
+    const cookie = form.cookieValue.trim();
     if (!cookie) {
       setFeedback({ tone: "error", message: t("ncm.loginModal.error.cookieRequired") });
       return;
     }
-    setIsSubmittingCookie(true);
+    setForm("isSubmittingCookie", true);
     try {
       // Validate the cookie before storing it so we don't pollute the backend
       // account store with a dud. The cookie is sent only for this probe.
@@ -275,7 +282,7 @@ export function LoginModal(props: LoginModalProps) {
     } catch (error) {
       setFeedback({ tone: "error", message: readErrorMessage(error) });
     } finally {
-      setIsSubmittingCookie(false);
+      setForm("isSubmittingCookie", false);
     }
   };
 
@@ -401,8 +408,8 @@ export function LoginModal(props: LoginModalProps) {
                 <input
                   type="text"
                   class="text-input"
-                  value={phoneCountryCode()}
-                  onInput={(event) => setPhoneCountryCode(event.currentTarget.value)}
+                  value={form.phoneCountryCode}
+                  onInput={(event) => setForm("phoneCountryCode", event.currentTarget.value)}
                 />
               </label>
               <label class="login-modal-field">
@@ -410,9 +417,9 @@ export function LoginModal(props: LoginModalProps) {
                 <input
                   type="tel"
                   class="text-input"
-                  value={phoneNumber()}
+                  value={form.phoneNumber}
                   placeholder={t("ncm.loginModal.phone.placeholder.phone")}
-                  onInput={(event) => setPhoneNumber(event.currentTarget.value)}
+                  onInput={(event) => setForm("phoneNumber", event.currentTarget.value)}
                 />
               </label>
 
@@ -421,8 +428,8 @@ export function LoginModal(props: LoginModalProps) {
                   <input
                     type="radio"
                     name="phone-mode"
-                    checked={phoneMode() === "captcha"}
-                    onChange={() => setPhoneMode("captcha")}
+                    checked={form.phoneMode === "captcha"}
+                    onChange={() => setForm("phoneMode", "captcha")}
                   />
                   <span>{t("ncm.loginModal.phone.mode.captcha")}</span>
                 </label>
@@ -430,31 +437,31 @@ export function LoginModal(props: LoginModalProps) {
                   <input
                     type="radio"
                     name="phone-mode"
-                    checked={phoneMode() === "password"}
-                    onChange={() => setPhoneMode("password")}
+                    checked={form.phoneMode === "password"}
+                    onChange={() => setForm("phoneMode", "password")}
                   />
                   <span>{t("ncm.loginModal.phone.mode.password")}</span>
                 </label>
               </div>
 
-              <Show when={phoneMode() === "captcha"}>
+              <Show when={form.phoneMode === "captcha"}>
                 <label class="login-modal-field">
                   <span>{t("ncm.loginModal.phone.label.captcha")}</span>
                   <div class="login-modal-row">
                     <input
                       type="text"
                       class="text-input"
-                      value={phoneCaptcha()}
+                      value={form.phoneCaptcha}
                       placeholder={t("ncm.loginModal.phone.placeholder.captcha")}
-                      onInput={(event) => setPhoneCaptcha(event.currentTarget.value)}
+                      onInput={(event) => setForm("phoneCaptcha", event.currentTarget.value)}
                     />
                     <button
                       type="button"
                       class="ghost-button"
                       onClick={() => void handleSendCaptcha()}
-                      disabled={isSendingCaptcha() || captchaCooldown() > 0}
+                      disabled={form.isSendingCaptcha || captchaCooldown() > 0}
                     >
-                      {isSendingCaptcha()
+                      {form.isSendingCaptcha
                         ? t("ncm.loginModal.phone.action.sendingCaptcha")
                         : captchaCooldown() > 0
                           ? t("ncm.loginModal.phone.action.resendCaptcha", {
@@ -466,15 +473,15 @@ export function LoginModal(props: LoginModalProps) {
                 </label>
               </Show>
 
-              <Show when={phoneMode() === "password"}>
+              <Show when={form.phoneMode === "password"}>
                 <label class="login-modal-field">
                   <span>{t("ncm.loginModal.phone.label.password")}</span>
                   <input
                     type="password"
                     class="text-input"
-                    value={phonePassword()}
+                    value={form.phonePassword}
                     placeholder={t("ncm.loginModal.phone.placeholder.password")}
-                    onInput={(event) => setPhonePassword(event.currentTarget.value)}
+                    onInput={(event) => setForm("phonePassword", event.currentTarget.value)}
                   />
                 </label>
               </Show>
@@ -482,9 +489,9 @@ export function LoginModal(props: LoginModalProps) {
               <button
                 type="submit"
                 class="primary-button login-modal-submit"
-                disabled={isSubmittingPhone()}
+                disabled={form.isSubmittingPhone}
               >
-                {isSubmittingPhone()
+                {form.isSubmittingPhone
                   ? t("ncm.loginModal.phone.action.submitting")
                   : t("ncm.loginModal.phone.action.submit")}
               </button>
@@ -508,17 +515,17 @@ export function LoginModal(props: LoginModalProps) {
                   type="text"
                   inputmode="numeric"
                   class="text-input"
-                  value={uidValue()}
+                  value={form.uidValue}
                   placeholder={t("ncm.loginModal.uid.placeholder")}
-                  onInput={(event) => setUidValue(event.currentTarget.value)}
+                  onInput={(event) => setForm("uidValue", event.currentTarget.value)}
                 />
               </label>
               <button
                 type="submit"
                 class="primary-button login-modal-submit"
-                disabled={isSubmittingUid()}
+                disabled={form.isSubmittingUid}
               >
-                {isSubmittingUid()
+                {form.isSubmittingUid
                   ? t("ncm.loginModal.uid.action.submitting")
                   : t("ncm.loginModal.uid.action.submit")}
               </button>
@@ -541,17 +548,17 @@ export function LoginModal(props: LoginModalProps) {
                 <textarea
                   class="text-input login-modal-cookie-input"
                   rows={4}
-                  value={cookieValue()}
+                  value={form.cookieValue}
                   placeholder={t("ncm.loginModal.cookie.placeholder")}
-                  onInput={(event) => setCookieValue(event.currentTarget.value)}
+                  onInput={(event) => setForm("cookieValue", event.currentTarget.value)}
                 />
               </label>
               <button
                 type="submit"
                 class="primary-button login-modal-submit"
-                disabled={isSubmittingCookie()}
+                disabled={form.isSubmittingCookie}
               >
-                {isSubmittingCookie()
+                {form.isSubmittingCookie
                   ? t("ncm.loginModal.cookie.action.submitting")
                   : t("ncm.loginModal.cookie.action.submit")}
               </button>

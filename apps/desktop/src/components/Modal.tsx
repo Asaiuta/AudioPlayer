@@ -1,7 +1,8 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { createEffect, onCleanup, Show } from "solid-js";
 import type { JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useTranslation } from "../shared/i18n";
+import { usePresenceTransition } from "../shared/ui/usePresenceTransition";
 import { IconClose } from "./icons";
 
 interface ModalProps {
@@ -23,9 +24,7 @@ interface ModalProps {
  */
 export function Modal(props: ModalProps) {
   const { t } = useTranslation();
-  const [rendered, setRendered] = createSignal<boolean>(props.open);
-  const [visible, setVisible] = createSignal<boolean>(false);
-  const [closing, setClosing] = createSignal<boolean>(false);
+  const presence = usePresenceTransition(() => props.open);
 
   createEffect(() => {
     if (!props.open) {
@@ -42,37 +41,14 @@ export function Modal(props: ModalProps) {
     onCleanup(() => window.removeEventListener("keydown", handleKey));
   });
 
-  createEffect(() => {
-    let closeTimer: number | undefined;
-    let openFrame: number | undefined;
-
-    if (props.open) {
-      setRendered(true);
-      setClosing(false);
-      openFrame = window.requestAnimationFrame(() => setVisible(true));
-    } else if (rendered()) {
-      setVisible(false);
-      setClosing(true);
-      closeTimer = window.setTimeout(() => {
-        setRendered(false);
-        setClosing(false);
-      }, 140);
-    }
-
-    onCleanup(() => {
-      if (openFrame !== undefined) window.cancelAnimationFrame(openFrame);
-      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
-    });
-  });
-
   const size = () => props.size ?? "md";
   const closeLabel = () => props.closeAriaLabel ?? t("library.modal.manageRoots.close");
 
   return (
-    <Show when={rendered() && typeof document !== "undefined"}>
+    <Show when={presence.rendered() && typeof document !== "undefined"}>
       <Portal mount={document.body}>
         <div
-          class={`modal-backdrop${visible() && !closing() ? " is-open" : ""}${closing() ? " is-closing" : ""}`}
+          class={`modal-backdrop${presence.visible() && !presence.closing() ? " is-open" : ""}${presence.closing() ? " is-closing" : ""}`}
           role="dialog"
           aria-modal="true"
           aria-label={props.title}

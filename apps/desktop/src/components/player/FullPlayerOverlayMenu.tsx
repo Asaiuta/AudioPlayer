@@ -6,37 +6,49 @@ import {
   IconTextPlay
 } from "../icons";
 
-interface FullPlayerOverlayMenuProps {
+interface FullPlayerOverlayMenuState {
   visible: boolean;
   canShowPureLyrics: boolean;
   pureLyricMode: boolean;
-  pureLyricLabel: string;
   isFullscreen: boolean;
-  fullscreenLabel: string;
-  closeLabel: string;
+}
+
+interface FullPlayerOverlayMenuLabels {
+  pureLyric: string;
+  fullscreen: string;
+  close: string;
+}
+
+interface FullPlayerOverlayMenuActions {
   onTogglePureLyricMode: () => void;
   onToggleFullscreen: () => void;
   onClose: () => void;
+}
+
+interface FullPlayerOverlayMenuProps {
+  state: FullPlayerOverlayMenuState;
+  labels: FullPlayerOverlayMenuLabels;
+  actions: FullPlayerOverlayMenuActions;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }
 
 export function FullPlayerOverlayMenu(props: FullPlayerOverlayMenuProps) {
   return (
-    <div class={`full-player-overlay-menu${props.visible ? " is-visible" : ""}`}>
+    <div class={`full-player-overlay-menu${props.state.visible ? " is-visible" : ""}`}>
       <div
         class="full-player-overlay-side"
         onMouseEnter={props.onMouseEnter}
         onMouseLeave={props.onMouseLeave}
       >
-        <Show when={props.canShowPureLyrics}>
+        <Show when={props.state.canShowPureLyrics}>
           <button
             type="button"
-            class={`full-player-menu-icon${props.pureLyricMode ? " is-active" : ""}`}
-            onClick={props.onTogglePureLyricMode}
-            aria-label={props.pureLyricLabel}
-            aria-pressed={props.pureLyricMode}
-            title={props.pureLyricLabel}
+            class={`full-player-menu-icon${props.state.pureLyricMode ? " is-active" : ""}`}
+            onClick={props.actions.onTogglePureLyricMode}
+            aria-label={props.labels.pureLyric}
+            aria-pressed={props.state.pureLyricMode}
+            title={props.labels.pureLyric}
           >
             <IconTextPlay />
           </button>
@@ -51,21 +63,21 @@ export function FullPlayerOverlayMenu(props: FullPlayerOverlayMenuProps) {
         <button
           type="button"
           class="full-player-menu-icon"
-          onClick={props.onToggleFullscreen}
-          aria-label={props.fullscreenLabel}
-          title={props.fullscreenLabel}
+          onClick={props.actions.onToggleFullscreen}
+          aria-label={props.labels.fullscreen}
+          title={props.labels.fullscreen}
         >
-          <Show when={props.isFullscreen} fallback={<IconMaximize />}>
+          <Show when={props.state.isFullscreen} fallback={<IconMaximize />}>
             <IconRestore />
           </Show>
         </button>
-        <Show when={!props.isFullscreen}>
+        <Show when={!props.state.isFullscreen}>
           <button
             type="button"
             class="full-player-menu-icon"
-            onClick={props.onClose}
-            aria-label={props.closeLabel}
-            title={props.closeLabel}
+            onClick={props.actions.onClose}
+            aria-label={props.labels.close}
+            title={props.labels.close}
           >
             <IconChevronDown />
           </button>

@@ -1,24 +1,32 @@
 import { Show } from "solid-js";
 import { CoverArt } from "../CoverArt";
 
-interface FullPlayerPrimaryPanelProps {
+interface FullPlayerPrimaryCoverProps {
   showCover: boolean;
   isPlaying: boolean;
   playerType: string;
   coverUrl: string | null;
   coverAlt: string;
+}
+
+interface FullPlayerPrimaryMetaProps {
   showMeta: boolean;
   title: string;
   subtitle: string;
   detail?: string | null;
 }
 
+interface FullPlayerPrimaryPanelProps {
+  cover: FullPlayerPrimaryCoverProps;
+  meta: FullPlayerPrimaryMetaProps;
+}
+
 export function FullPlayerPrimaryPanel(props: FullPlayerPrimaryPanelProps) {
   return (
     <div class="full-player-primary">
-      <Show when={props.showCover}>
-        <div class={`full-player-cover${props.isPlaying ? " is-playing" : ""}`}>
-          <Show when={props.playerType === "record"}>
+      <Show when={props.cover.showCover}>
+        <div class={`full-player-cover${props.cover.isPlaying ? " is-playing" : ""}`}>
+          <Show when={props.cover.playerType === "record"}>
             <svg
               class="full-player-vinyl-needle"
               viewBox="0 0 100 100"
@@ -43,15 +51,15 @@ export function FullPlayerPrimaryPanel(props: FullPlayerPrimaryPanelProps) {
               <circle cx="92" cy="92" r="2.5" fill="#aa6633" />
             </svg>
           </Show>
-          <CoverArt coverUrl={props.coverUrl} alt={props.coverAlt} />
+          <CoverArt coverUrl={props.cover.coverUrl} alt={props.cover.coverAlt} />
         </div>
       </Show>
 
-      <Show when={props.showMeta}>
+      <Show when={props.meta.showMeta}>
         <div class="full-player-meta">
-          <div class="full-player-title">{props.title}</div>
-          <div class="full-player-subtitle">{props.subtitle}</div>
-          <Show when={props.detail}>
+          <div class="full-player-title">{props.meta.title}</div>
+          <div class="full-player-subtitle">{props.meta.subtitle}</div>
+          <Show when={props.meta.detail}>
             {(detail) => <div class="full-player-detail">{detail()}</div>}
           </Show>
         </div>

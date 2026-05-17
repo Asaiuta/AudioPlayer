@@ -3,56 +3,66 @@ import { CoverArt } from "../CoverArt";
 import { MarqueeText } from "../MarqueeText";
 import { IconExpand, IconHeart, IconHeartFilled, IconList } from "../icons";
 
-interface PlayerBarInfoPanelProps {
+interface PlayerBarInfoCoverProps {
   coverHidden: boolean;
   coverTransitioning: boolean;
   coverUrl: string | null;
   coverAlt: string;
   coverExpandLabel: string;
-  title: string;
-  playbackRateLabel: string | null;
-  favoriteLabel: string;
-  isLiked: boolean;
-  moreLabel: string;
-  moreOpen: boolean;
+  onClick: () => void;
+}
+
+interface PlayerBarInfoMenuProps {
+  label: string;
+  open: boolean;
   copyTitleLabel: string;
   copyArtistLabel: string;
   searchLabel: string;
   shareLabel: string;
-  showSecondaryMeta: boolean;
-  showLyric: boolean;
-  currentLyric: string | null;
-  lyricLiveLabel: string;
-  titleValue: string;
-  artistList: readonly string[];
-  artistLinks?: readonly { id: number; name: string }[];
-  artistFallback: string;
-  onCoverClick: () => void;
-  onToggleLike?: () => void;
-  onToggleMore: () => void;
-  onCloseMore: () => void;
+  onToggle: () => void;
   onCopyTitle: () => void;
   onCopyArtist: () => void;
   onSearch: () => void;
   onShare: () => void;
+  ref?: (element: HTMLDivElement) => void;
+}
+
+interface PlayerBarInfoMetaProps {
+  title: string;
+  playbackRateLabel: string | null;
+  isLiked: boolean;
+  favoriteLabel: string;
+  showSecondaryMeta: boolean;
+  showLyric: boolean;
+  currentLyric: string | null;
+  lyricLiveLabel: string;
+  artistList: readonly string[];
+  artistLinks?: readonly { id: number; name: string }[];
+  artistFallback: string;
+  onToggleLike?: () => void;
   onSelectArtist?: (artistId: number) => void;
-  moreRef?: (element: HTMLDivElement) => void;
+}
+
+interface PlayerBarInfoPanelProps {
+  cover: PlayerBarInfoCoverProps;
+  meta: PlayerBarInfoMetaProps;
+  menu: PlayerBarInfoMenuProps;
 }
 
 export function PlayerBarInfoPanel(props: PlayerBarInfoPanelProps) {
   return (
     <div
-      class={`player-bar-left flex items-center min-w-0 h-full${props.coverHidden ? " is-cover-hidden" : ""}`}
+      class={`player-bar-left flex items-center min-w-0 h-full${props.cover.coverHidden ? " is-cover-hidden" : ""}`}
     >
-      <Show when={!props.coverHidden}>
+      <Show when={!props.cover.coverHidden}>
         <button
           type="button"
-          class={`player-bar-cover relative flex-none w-56px h-56px min-w-56px p-0 overflow-hidden mr-3 cursor-pointer${props.coverTransitioning ? " is-leaving" : ""}`}
-          onClick={props.onCoverClick}
-          aria-label={props.coverExpandLabel}
-          title={props.coverExpandLabel}
+          class={`player-bar-cover relative flex-none w-56px h-56px min-w-56px p-0 overflow-hidden mr-3 cursor-pointer${props.cover.coverTransitioning ? " is-leaving" : ""}`}
+          onClick={props.cover.onClick}
+          aria-label={props.cover.coverExpandLabel}
+          title={props.cover.coverExpandLabel}
         >
-          <CoverArt coverUrl={props.coverUrl} alt={props.coverAlt} />
+          <CoverArt coverUrl={props.cover.coverUrl} alt={props.cover.coverAlt} />
           <span
             class="player-bar-cover-expand absolute inset-0 grid place-items-center opacity-0 pointer-events-none"
             aria-hidden="true"
@@ -65,10 +75,10 @@ export function PlayerBarInfoPanel(props: PlayerBarInfoPanelProps) {
       <div class="player-bar-info player-bar-info-enter flex flex-col min-w-0">
         <div class="player-bar-title-row flex items-center gap-2 min-w-0">
           <MarqueeText
-            text={props.title}
+            text={props.meta.title}
             class="player-bar-title min-w-0 overflow-hidden text-base font-bold"
           />
-          <Show when={props.playbackRateLabel}>
+          <Show when={props.meta.playbackRateLabel}>
             {(label) => (
               <span class="player-inline-tag player-inline-tag-accent inline-flex items-center min-h-22px text-11px font-semibold whitespace-nowrap">
                 {label()}
@@ -77,86 +87,86 @@ export function PlayerBarInfoPanel(props: PlayerBarInfoPanelProps) {
           </Show>
           <button
             type="button"
-            class={`player-inline-icon player-like-icon grid place-items-center w-28px h-28px flex-none${props.isLiked ? " is-liked" : ""}`}
-            aria-label={props.favoriteLabel}
-            title={props.favoriteLabel}
-            onClick={() => props.onToggleLike?.()}
+            class={`player-inline-icon player-like-icon grid place-items-center w-28px h-28px flex-none${props.meta.isLiked ? " is-liked" : ""}`}
+            aria-label={props.meta.favoriteLabel}
+            title={props.meta.favoriteLabel}
+            onClick={() => props.meta.onToggleLike?.()}
           >
-            <Show when={props.isLiked} fallback={<IconHeart />}>
+            <Show when={props.meta.isLiked} fallback={<IconHeart />}>
               <IconHeartFilled />
             </Show>
           </button>
-          <div class="player-inline-menu relative inline-flex items-center" ref={props.moreRef}>
+          <div class="player-inline-menu relative inline-flex items-center" ref={props.menu.ref}>
             <button
               type="button"
               class="player-inline-icon grid place-items-center w-28px h-28px flex-none"
-              aria-label={props.moreLabel}
-              title={props.moreLabel}
-              aria-expanded={props.moreOpen}
+              aria-label={props.menu.label}
+              title={props.menu.label}
+              aria-expanded={props.menu.open}
               aria-haspopup="menu"
-              onClick={props.onToggleMore}
+              onClick={props.menu.onToggle}
             >
               <IconList />
             </button>
-            <Show when={props.moreOpen}>
+            <Show when={props.menu.open}>
               <div
                 class="player-inline-menu-popover absolute left-0 flex min-w-168px flex-col gap-1"
                 role="menu"
-                aria-label={props.moreLabel}
+                aria-label={props.menu.label}
               >
                 <button
                   type="button"
                   class="player-menu-item flex items-center min-h-34px text-left"
                   role="menuitem"
-                  onClick={props.onCopyTitle}
+                  onClick={props.menu.onCopyTitle}
                 >
-                  {props.copyTitleLabel}
+                  {props.menu.copyTitleLabel}
                 </button>
                 <button
                   type="button"
                   class="player-menu-item flex items-center min-h-34px text-left"
                   role="menuitem"
-                  onClick={props.onCopyArtist}
+                  onClick={props.menu.onCopyArtist}
                 >
-                  {props.copyArtistLabel}
+                  {props.menu.copyArtistLabel}
                 </button>
                 <button
                   type="button"
                   class="player-menu-item flex items-center min-h-34px text-left"
                   role="menuitem"
-                  onClick={props.onSearch}
+                  onClick={props.menu.onSearch}
                 >
-                  {props.searchLabel}
+                  {props.menu.searchLabel}
                 </button>
                 <button
                   type="button"
                   class="player-menu-item flex items-center min-h-34px text-left"
                   role="menuitem"
-                  onClick={props.onShare}
+                  onClick={props.menu.onShare}
                 >
-                  {props.shareLabel}
+                  {props.menu.shareLabel}
                 </button>
               </div>
             </Show>
           </div>
         </div>
 
-        <Show when={props.showSecondaryMeta}>
+        <Show when={props.meta.showSecondaryMeta}>
           <div class="player-info-secondary relative min-w-0 overflow-hidden flex items-center text-xs">
             <Show
-              when={props.showLyric}
+              when={props.meta.showLyric}
               fallback={
                 <ArtistList
-                  artistList={props.artistList}
-                  artistLinks={props.artistLinks}
-                  fallbackText={props.artistFallback}
-                  onSelectArtist={props.onSelectArtist}
+                  artistList={props.meta.artistList}
+                  artistLinks={props.meta.artistLinks}
+                  fallbackText={props.meta.artistFallback}
+                  onSelectArtist={props.meta.onSelectArtist}
                 />
               }
             >
               <MarqueeText
-                text={props.currentLyric ?? ""}
-                title={props.lyricLiveLabel}
+                text={props.meta.currentLyric ?? ""}
+                title={props.meta.lyricLiveLabel}
                 speed={30}
                 class="player-info-secondary-item player-lyric-line"
               />

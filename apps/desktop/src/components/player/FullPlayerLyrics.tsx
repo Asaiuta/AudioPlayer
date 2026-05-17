@@ -3,20 +3,32 @@ import type { Accessor } from "solid-js";
 import type { NcmLyricLine, NcmLyricWord } from "../../features/online/ncmPlayback";
 import { clamp01 } from "./time";
 
-interface FullPlayerLyricsProps {
+interface FullPlayerLyricsDisplayProps {
   lyrics: readonly NcmLyricLine[];
   lyricNow: string;
   activeLyricIndex: Accessor<number>;
   currentTime: Accessor<number>;
+}
+
+interface FullPlayerLyricsSettingsProps {
   lyricsBlur: Accessor<boolean>;
   showWordLyrics: Accessor<boolean>;
   showTranslation: Accessor<boolean>;
   showRomanization: Accessor<boolean>;
   swapTranslationRomanization: Accessor<boolean>;
+}
+
+interface FullPlayerLyricsInteractionProps {
   onSeek: (line: NcmLyricLine) => void;
   lyricListRef: (element: HTMLDivElement) => void;
   ariaLabel: string;
   style: Record<string, string>;
+}
+
+interface FullPlayerLyricsProps {
+  display: FullPlayerLyricsDisplayProps;
+  settings: FullPlayerLyricsSettingsProps;
+  interaction: FullPlayerLyricsInteractionProps;
 }
 
 const lyricLineProgress = (line: NcmLyricLine, currentTime: number): number => {
@@ -39,34 +51,34 @@ const timedWords = (line: NcmLyricLine) =>
 
 export function FullPlayerLyrics(props: FullPlayerLyricsProps) {
   return (
-    <div class="full-player-lyric-panel" style={props.style}>
-      <div class="full-player-lyric-now">{props.lyricNow}</div>
+    <div class="full-player-lyric-panel" style={props.interaction.style}>
+      <div class="full-player-lyric-now">{props.display.lyricNow}</div>
       <div
-        ref={props.lyricListRef}
+        ref={props.interaction.lyricListRef}
         class="full-player-lyric-list"
-        aria-label={props.ariaLabel}
+        aria-label={props.interaction.ariaLabel}
       >
         <Show
-          when={props.lyrics.length > 0}
+          when={props.display.lyrics.length > 0}
           fallback={
             <div class="full-player-lyric-line is-active is-placeholder">
-              <span class="full-player-lyric-text">{props.lyricNow}</span>
+              <span class="full-player-lyric-text">{props.display.lyricNow}</span>
             </div>
           }
         >
-          <For each={props.lyrics}>
+          <For each={props.display.lyrics}>
             {(line, index) => (
               <LyricLine
                 line={line}
                 index={index}
-                activeIndex={props.activeLyricIndex}
-                currentTime={props.currentTime}
-                lyricsBlur={props.lyricsBlur}
-                showWordLyrics={props.showWordLyrics}
-                showTranslation={props.showTranslation}
-                showRomanization={props.showRomanization}
-                swapTranslationRomanization={props.swapTranslationRomanization}
-                onSeek={props.onSeek}
+                activeIndex={props.display.activeLyricIndex}
+                currentTime={props.display.currentTime}
+                lyricsBlur={props.settings.lyricsBlur}
+                showWordLyrics={props.settings.showWordLyrics}
+                showTranslation={props.settings.showTranslation}
+                showRomanization={props.settings.showRomanization}
+                swapTranslationRomanization={props.settings.swapTranslationRomanization}
+                onSeek={props.interaction.onSeek}
               />
             )}
           </For>

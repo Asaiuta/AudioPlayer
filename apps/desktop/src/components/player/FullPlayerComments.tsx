@@ -4,7 +4,7 @@ import type { NcmSongComment } from "../../shared/api/ncm/comment";
 import { CoverArt } from "../CoverArt";
 import { IconPlay } from "../icons";
 
-interface FullPlayerCommentsProps {
+interface FullPlayerCommentsSongProps {
   className: string;
   songClassName: string;
   coverUrl: string | null;
@@ -12,6 +12,11 @@ interface FullPlayerCommentsProps {
   subtitle: string;
   coverAlt: string;
   backLabel: string;
+  showCover: Accessor<boolean>;
+  onClose: () => void;
+}
+
+interface FullPlayerCommentsContentProps {
   loadingLabel: string;
   emptyLabel: string;
   errorLabel: string;
@@ -21,59 +26,62 @@ interface FullPlayerCommentsProps {
   commentCount: number;
   hotComments: readonly NcmSongComment[];
   comments: readonly NcmSongComment[];
-  showCover: Accessor<boolean>;
-  onClose: () => void;
+}
+
+interface FullPlayerCommentsProps {
+  song: FullPlayerCommentsSongProps;
+  content: FullPlayerCommentsContentProps;
 }
 
 export function FullPlayerComments(props: FullPlayerCommentsProps) {
   return (
-    <div class={props.className}>
-      <div class={props.songClassName}>
-        <Show when={props.showCover()}>
-          <CoverArt coverUrl={props.coverUrl} alt={props.coverAlt} />
+    <div class={props.song.className}>
+      <div class={props.song.songClassName}>
+        <Show when={props.song.showCover()}>
+          <CoverArt coverUrl={props.song.coverUrl} alt={props.song.coverAlt} />
         </Show>
         <div class="full-player-comment-song-info">
-          <span class="full-player-comment-song-title">{props.title}</span>
-          <span class="full-player-comment-song-artist">{props.subtitle}</span>
+          <span class="full-player-comment-song-title">{props.song.title}</span>
+          <span class="full-player-comment-song-artist">{props.song.subtitle}</span>
         </div>
         <button
           type="button"
           class="full-player-comment-close"
-          onClick={props.onClose}
-          aria-label={props.backLabel}
-          title={props.backLabel}
+          onClick={props.song.onClose}
+          aria-label={props.song.backLabel}
+          title={props.song.backLabel}
         >
           <IconPlay />
         </button>
       </div>
 
       <div class="full-player-comment-scroll">
-        <Show when={props.commentsStatus === "loading"}>
-          <div class="full-player-comment-placeholder">{props.loadingLabel}</div>
+        <Show when={props.content.commentsStatus === "loading"}>
+          <div class="full-player-comment-placeholder">{props.content.loadingLabel}</div>
         </Show>
-        <Show when={props.commentsStatus === "error"}>
-          <div class="full-player-comment-placeholder">{props.errorLabel}</div>
+        <Show when={props.content.commentsStatus === "error"}>
+          <div class="full-player-comment-placeholder">{props.content.errorLabel}</div>
         </Show>
-        <Show when={props.commentsStatus === "success" && props.commentCount === 0}>
-          <div class="full-player-comment-placeholder">{props.emptyLabel}</div>
+        <Show when={props.content.commentsStatus === "success" && props.content.commentCount === 0}>
+          <div class="full-player-comment-placeholder">{props.content.emptyLabel}</div>
         </Show>
-        <Show when={props.hotComments.length > 0}>
+        <Show when={props.content.hotComments.length > 0}>
           <section class="full-player-comment-section">
-            <h3>{props.hotLabel}</h3>
-            <For each={props.hotComments}>
+            <h3>{props.content.hotLabel}</h3>
+            <For each={props.content.hotComments}>
               {(comment) => <CommentItem comment={comment} />}
             </For>
           </section>
         </Show>
-        <Show when={props.comments.length > 0}>
+        <Show when={props.content.comments.length > 0}>
           <section class="full-player-comment-section">
             <h3>
-              {props.allLabel}
-              <Show when={props.commentCount > 0}>
-                <span>{props.commentCount}</span>
+              {props.content.allLabel}
+              <Show when={props.content.commentCount > 0}>
+                <span>{props.content.commentCount}</span>
               </Show>
             </h3>
-            <For each={props.comments}>
+            <For each={props.content.comments}>
               {(comment) => <CommentItem comment={comment} />}
             </For>
           </section>

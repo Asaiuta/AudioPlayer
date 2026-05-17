@@ -1,11 +1,12 @@
 import { createEffect, createSignal, onCleanup, onMount, type JSX } from "solid-js";
 import type { RouteAnimation } from "../shared/state/useUISettings";
+import type { ActivePage } from "../shared/ui/navigation";
 
 interface PageTransitionProps {
-  activePage: string;
+  activePage: ActivePage;
   animation: RouteAnimation;
   /** Render function — receives the displayed page signal, which only updates after leave completes */
-  children: (displayedPage: () => string) => JSX.Element;
+  children: (displayedPage: () => ActivePage) => JSX.Element;
 }
 
 /**

@@ -1,4 +1,5 @@
 import { Show } from "solid-js";
+import type { JSX } from "solid-js";
 import type { PlayerState, RepeatMode, RequestState, ShuffleMode } from "../shared/api/types";
 import { useTranslation } from "../shared/i18n";
 import { useUISearch } from "../shared/state/UISearchContext";
@@ -246,6 +247,109 @@ export function PlayerBar(props: PlayerBarProps) {
     }
     props.onSelectQuality?.(level);
   };
+  const utilityQuality = () => ({
+    open: qualityOpen(),
+    buttonValue: isOnlineNcmTrack() ? ncmQuality.selectedLabel() : qualityLabel(),
+    buttonLabel: t("player.aria.qualityPopover"),
+    dialogLabel: t("player.quality.title"),
+    mode: isOnlineNcmTrack() ? "online" as const : "output" as const,
+    options: ncmQuality.state().options,
+    selectedLevel: isOnlineNcmTrack() ? uiSettings.ncmSongLevel : null,
+    loading: ncmQuality.state().status === "loading",
+    error: ncmQuality.state().error,
+    targetLabel: t("player.quality.target"),
+    targetValue: qualityTargetValue(),
+    resamplerLabel: t("player.quality.resampler"),
+    resamplerValue: qualityResamplerValue(),
+    outputBitsLabel: t("player.quality.outputBits"),
+    outputBitsValue: qualityOutputBitsValue(),
+    exclusiveLabel: t("player.quality.exclusive"),
+    exclusiveValue: qualityExclusiveValue(),
+    ditherLabel: t("player.quality.dither"),
+    ditherValue: qualityDitherValue(),
+    loudnessLabel: t("player.quality.loudness"),
+    loudnessValue: qualityLoudnessValue(),
+    hintLabel: t("player.quality.hint"),
+    onToggle: handleToggleQuality,
+    onSelectLevel: handleSelectQuality,
+    ref: setQualityRef
+  });
+  const utilityControls = () => ({
+    open: controlsOpen(),
+    buttonLabel: t("player.aria.controlsPopover"),
+    menuLabel: t("player.controls.title"),
+    equalizerLabel: t("player.controls.equalizer"),
+    autoCloseLabel: t("player.controls.autoClose"),
+    abLoopLabel: t("player.controls.abLoop"),
+    playbackRateLabel: t("player.controls.playbackRate"),
+    unavailableDetail: t("player.controls.unavailable"),
+    unavailableSuffix: t("player.controls.unavailableSuffix"),
+    onToggle: toggleControls,
+    onClose: closeControls,
+    ref: setControlsRef
+  });
+  const utilityVolume = () => ({
+    open: volumePopoverOpen(),
+    value: sliderVolume(),
+    icon: VolumeIcon(),
+    buttonLabel: t("player.aria.volumePopover"),
+    dialogLabel: t("player.aria.volume"),
+    sliderDisabled: props.request.status !== "success",
+    sliderStyle: { "--volume-fill": sliderVolume().toString() },
+    onToggle: toggleVolumePopover,
+    onChange: props.onVolumeChange,
+    onWheel: ((event: WheelEvent) => {
+      event.preventDefault();
+      const delta = event.deltaY > 0 ? -0.05 : 0.05;
+      const next = Math.max(0, Math.min(1, sliderVolume() + delta));
+      props.onVolumeChange(next);
+    }) as JSX.EventHandlerUnion<HTMLButtonElement, WheelEvent>,
+    ref: setVolumeRef
+  });
+  const utilityQueue = () => ({
+    label: t("sidebar.nav.queue.label"),
+    active: props.queueOpen,
+    showCount: uiSettings.showPlaylistCount,
+    length: props.queueLength,
+    onOpen: props.onOpenQueue
+  });
+  const infoCover = () => ({
+    coverHidden: uiSettings.hiddenCovers.player,
+    coverTransitioning: coverTransitioning(),
+    coverUrl: props.coverUrl,
+    coverAlt: coverAlt(),
+    coverExpandLabel: t("player.aria.coverExpand"),
+    onClick: props.onCoverClick
+  });
+  const infoMeta = () => ({
+    title: title(),
+    playbackRateLabel: playbackRateLabel(),
+    favoriteLabel: t("player.aria.favorite"),
+    isLiked: Boolean(props.isLiked),
+    showSecondaryMeta: showSecondaryMeta(),
+    showLyric: showLyric(),
+    currentLyric: currentLyric(),
+    lyricLiveLabel: t("player.meta.lyricLive"),
+    artistList: artistList(),
+    artistLinks: props.artistLinks,
+    artistFallback: artistFallback(),
+    onToggleLike: props.onToggleLike,
+    onSelectArtist: handleSelectArtist
+  });
+  const infoMenu = () => ({
+    label: t("player.aria.more"),
+    open: moreOpen(),
+    copyTitleLabel: t("player.menu.copyTitle"),
+    copyArtistLabel: t("player.menu.copyArtist"),
+    searchLabel: t("player.menu.searchTitle"),
+    shareLabel: t("player.menu.share"),
+    onToggle: toggleMore,
+    onCopyTitle: handleCopyTitle,
+    onCopyArtist: handleCopyArtist,
+    onSearch: handleSearch,
+    onShare: handleShare,
+    ref: setMoreRef
+  });
 
   return (
     <>
@@ -281,39 +385,9 @@ export function PlayerBar(props: PlayerBarProps) {
         />
 
         <PlayerBarInfoPanel
-          coverHidden={uiSettings.hiddenCovers.player}
-          coverTransitioning={coverTransitioning()}
-          coverUrl={props.coverUrl}
-          coverAlt={coverAlt()}
-          coverExpandLabel={t("player.aria.coverExpand")}
-          title={title()}
-          playbackRateLabel={playbackRateLabel()}
-          favoriteLabel={t("player.aria.favorite")}
-          isLiked={Boolean(props.isLiked)}
-          moreLabel={t("player.aria.more")}
-          moreOpen={moreOpen()}
-          copyTitleLabel={t("player.menu.copyTitle")}
-          copyArtistLabel={t("player.menu.copyArtist")}
-          searchLabel={t("player.menu.searchTitle")}
-          shareLabel={t("player.menu.share")}
-          showSecondaryMeta={showSecondaryMeta()}
-          showLyric={showLyric()}
-          currentLyric={currentLyric()}
-          lyricLiveLabel={t("player.meta.lyricLive")}
-          titleValue={title()}
-          artistList={artistList()}
-          artistLinks={props.artistLinks}
-          artistFallback={artistFallback()}
-          onCoverClick={props.onCoverClick}
-          onToggleLike={props.onToggleLike}
-          onToggleMore={toggleMore}
-          onCloseMore={closeMore}
-          onCopyTitle={handleCopyTitle}
-          onCopyArtist={handleCopyArtist}
-          onSearch={handleSearch}
-          onShare={handleShare}
-          onSelectArtist={handleSelectArtist}
-          moreRef={setMoreRef}
+          cover={infoCover()}
+          meta={infoMeta()}
+          menu={infoMenu()}
         />
 
         <div class="player-bar-center flex items-center justify-center h-full">
@@ -348,66 +422,12 @@ export function PlayerBar(props: PlayerBarProps) {
           onCycleTimeFormat={cycleTimeFormat}
           utilitiesLabel={t("player.aria.more")}
           showPlayerQuality={uiSettings.showPlayerQuality}
-          qualityOpen={qualityOpen()}
-          qualityButtonValue={isOnlineNcmTrack() ? ncmQuality.selectedLabel() : qualityLabel()}
-          qualityButtonLabel={t("player.aria.qualityPopover")}
-          qualityDialogLabel={t("player.quality.title")}
-          qualityMode={isOnlineNcmTrack() ? "online" : "output"}
-          qualityOptions={ncmQuality.state().options}
-          qualitySelectedLevel={isOnlineNcmTrack() ? uiSettings.ncmSongLevel : null}
-          qualityLoading={ncmQuality.state().status === "loading"}
-          qualityError={ncmQuality.state().error}
-          qualityTargetLabel={t("player.quality.target")}
-          qualityTargetValue={qualityTargetValue()}
-          qualityResamplerLabel={t("player.quality.resampler")}
-          qualityResamplerValue={qualityResamplerValue()}
-          qualityOutputBitsLabel={t("player.quality.outputBits")}
-          qualityOutputBitsValue={qualityOutputBitsValue()}
-          qualityExclusiveLabel={t("player.quality.exclusive")}
-          qualityExclusiveValue={qualityExclusiveValue()}
-          qualityDitherLabel={t("player.quality.dither")}
-          qualityDitherValue={qualityDitherValue()}
-          qualityLoudnessLabel={t("player.quality.loudness")}
-          qualityLoudnessValue={qualityLoudnessValue()}
-          qualityHintLabel={t("player.quality.hint")}
+          quality={utilityQuality()}
           desktopLyricLabel={t("player.aria.desktopLyric")}
           showDesktopLyric={uiSettings.fullPlayerShowDesktopLyric}
-          controlsOpen={controlsOpen()}
-          controlsButtonLabel={t("player.aria.controlsPopover")}
-          controlsMenuLabel={t("player.controls.title")}
-          controlsEqualizerLabel={t("player.controls.equalizer")}
-          controlsAutoCloseLabel={t("player.controls.autoClose")}
-          controlsAbLoopLabel={t("player.controls.abLoop")}
-          controlsPlaybackRateLabel={t("player.controls.playbackRate")}
-          controlsUnavailableDetail={t("player.controls.unavailable")}
-          controlsUnavailableSuffix={t("player.controls.unavailableSuffix")}
-          volumeOpen={volumePopoverOpen()}
-          volumeValue={sliderVolume()}
-          volumeIcon={VolumeIcon()}
-          volumeButtonLabel={t("player.aria.volumePopover")}
-          volumeDialogLabel={t("player.aria.volume")}
-          volumeSliderDisabled={props.request.status !== "success"}
-          volumeSliderStyle={{ "--volume-fill": sliderVolume().toString() }}
-          queueLabel={t("sidebar.nav.queue.label")}
-          queueActive={props.queueOpen}
-          showPlaylistCount={uiSettings.showPlaylistCount}
-          queueLength={props.queueLength}
-          onToggleQuality={handleToggleQuality}
-          onSelectQuality={handleSelectQuality}
-          onToggleControls={toggleControls}
-          onOpenQueue={props.onOpenQueue}
-          onCloseControls={closeControls}
-          onToggleVolume={toggleVolumePopover}
-          onVolumeChange={props.onVolumeChange}
-          onVolumeWheel={(event) => {
-            event.preventDefault();
-            const delta = event.deltaY > 0 ? -0.05 : 0.05;
-            const next = Math.max(0, Math.min(1, sliderVolume() + delta));
-            props.onVolumeChange(next);
-          }}
-          qualityRef={setQualityRef}
-          controlsRef={setControlsRef}
-          volumeRef={setVolumeRef}
+          controls={utilityControls()}
+          volume={utilityVolume()}
+          queue={utilityQueue()}
         />
       </footer>
     </>

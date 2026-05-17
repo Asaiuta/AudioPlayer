@@ -1,5 +1,6 @@
 import { Match, Show, Switch, createEffect, createSignal, onCleanup } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
+import { usePresenceTransition } from "../../shared/ui/usePresenceTransition";
 import { IconClose } from "../../components/icons";
 import { SettingsCategoryNav, type SettingsCategoryKey } from "./components/SettingsCategoryNav";
 import { SettingsSearchBox } from "./components/SettingsSearchBox";
@@ -55,9 +56,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation();
   const [activeCategory, setActiveCategory] = createSignal<SettingsCategoryKey>("appearance");
   const [highlightId, setHighlightId] = createSignal<string | null>(null);
-  const [rendered, setRendered] = createSignal<boolean>(props.isOpen);
-  const [visible, setVisible] = createSignal<boolean>(false);
-  const [closing, setClosing] = createSignal<boolean>(false);
+  const presence = usePresenceTransition(() => props.isOpen);
   let contentRef: HTMLDivElement | undefined;
   let highlightTimer: number | undefined;
 
@@ -83,29 +82,6 @@ export function SettingsPage(props: SettingsPageProps) {
     };
     window.addEventListener("keydown", onKey);
     onCleanup(() => window.removeEventListener("keydown", onKey));
-  });
-
-  createEffect(() => {
-    let closeTimer: number | undefined;
-    let openFrame: number | undefined;
-
-    if (props.isOpen) {
-      setRendered(true);
-      setClosing(false);
-      openFrame = window.requestAnimationFrame(() => setVisible(true));
-    } else if (rendered()) {
-      setVisible(false);
-      setClosing(true);
-      closeTimer = window.setTimeout(() => {
-        setRendered(false);
-        setClosing(false);
-      }, 140);
-    }
-
-    onCleanup(() => {
-      if (openFrame !== undefined) window.cancelAnimationFrame(openFrame);
-      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
-    });
   });
 
   const handleSelect = (key: SettingsCategoryKey) => {
@@ -138,9 +114,9 @@ export function SettingsPage(props: SettingsPageProps) {
   };
 
   return (
-    <Show when={rendered()}>
+    <Show when={presence.rendered()}>
       <div
-        class={`${settingsModalClass}${visible() && !closing() ? " is-open" : ""}${closing() ? " is-closing" : ""}`}
+        class={`${settingsModalClass}${presence.visible() && !presence.closing() ? " is-open" : ""}${presence.closing() ? " is-closing" : ""}`}
         role="dialog"
         aria-label={t("settings.nav.title")}
         aria-modal="true"

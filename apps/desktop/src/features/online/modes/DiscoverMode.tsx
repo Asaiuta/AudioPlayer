@@ -1,10 +1,11 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
+import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
 import { Portal } from "solid-js/web";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { SegmentedTabs } from "../../../components/page/SegmentedTabs";
 import { useTranslation } from "../../../shared/i18n";
 import { createApiClient } from "../../../shared/api/client";
+import { usePresenceTransition } from "../../../shared/ui/usePresenceTransition";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
@@ -45,6 +46,14 @@ const api = createApiClient();
 
 interface CatEntry { name: string; category: number; hot: boolean }
 
+type DiscoverDetailView =
+  | { kind: "daily" }
+  | { kind: "liked" }
+  | { kind: "album" }
+  | { kind: "artist" }
+  | { kind: "playlist" }
+  | { kind: "browse" };
+
 export interface DiscoverModeProps {
   loginProfile: Accessor<NcmProfile | null>;
   globalQuery: Accessor<string>;
@@ -78,12 +87,10 @@ export function DiscoverMode(props: DiscoverModeProps) {
 
   const [catName, setCatName] = createSignal(ALL_PLAYLIST_CATEGORY);
   const [catModalOpen, setCatModalOpen] = createSignal(false);
-  const [catModalRendered, setCatModalRendered] = createSignal(false);
-  const [catModalVisible, setCatModalVisible] = createSignal(false);
-  const [catModalClosing, setCatModalClosing] = createSignal(false);
   const [catTypes, setCatTypes] = createSignal<Record<number, string>>({});
   const [catEntries, setCatEntries] = createSignal<CatEntry[]>([]);
   const [hqCatNames, setHqCatNames] = createSignal<Set<string>>(new Set());
+  const catModalPresence = usePresenceTransition(catModalOpen);
 
   const detailNav = useDetailNavigation({
     t,
@@ -301,6 +308,15 @@ export function DiscoverMode(props: DiscoverModeProps) {
     return hqCatNames().has(catName());
   });
 
+  const detailView = createMemo<DiscoverDetailView>(() => {
+    if (detailNav.selectedDailySongs()) return { kind: "daily" };
+    if (detailNav.selectedLikedSongs()) return { kind: "liked" };
+    if (detailNav.selectedAlbum()) return { kind: "album" };
+    if (detailNav.selectedArtist()) return { kind: "artist" };
+    if (detailNav.selectedPlaylist()) return { kind: "playlist" };
+    return { kind: "browse" };
+  });
+
   const catTypesList = createMemo(() => {
     const types = catTypes();
     return Object.entries(types).map(([key, label]) => ({ key: Number(key), label }));
@@ -308,30 +324,6 @@ export function DiscoverMode(props: DiscoverModeProps) {
 
 
   const pageTitle = () => t("ncm.title.discover");
-
-  createEffect(() => {
-    let closeTimer: number | undefined;
-    let openFrame: number | undefined;
-
-    if (catModalOpen()) {
-      setCatModalRendered(true);
-      setCatModalClosing(false);
-      openFrame = window.requestAnimationFrame(() => setCatModalVisible(true));
-    } else if (catModalRendered()) {
-      setCatModalVisible(false);
-      setCatModalClosing(true);
-      closeTimer = window.setTimeout(() => {
-        setCatModalRendered(false);
-        setCatModalClosing(false);
-      }, 140);
-    }
-
-    onCleanup(() => {
-      if (openFrame !== undefined) window.cancelAnimationFrame(openFrame);
-      if (closeTimer !== undefined) window.clearTimeout(closeTimer);
-    });
-  });
-
   createEffect(() => {
     if (!catModalOpen()) return;
 
@@ -358,10 +350,10 @@ export function DiscoverMode(props: DiscoverModeProps) {
           }
         />
       </Show>
-      <Show when={catModalRendered() && typeof document !== "undefined"}>
+      <Show when={catModalPresence.rendered() && typeof document !== "undefined"}>
         <Portal mount={document.body}>
           <div
-            class={`cat-modal-overlay${catModalVisible() && !catModalClosing() ? " is-open" : ""}${catModalClosing() ? " is-closing" : ""}`}
+            class={`cat-modal-overlay${catModalPresence.visible() && !catModalPresence.closing() ? " is-open" : ""}${catModalPresence.closing() ? " is-closing" : ""}`}
             onClick={() => {
               if (catModalOpen()) setCatModalOpen(false);
             }}
@@ -405,179 +397,163 @@ export function DiscoverMode(props: DiscoverModeProps) {
         </Portal>
       </Show>
 
-      <Show
-        when={detailNav.selectedDailySongs()}
-        fallback={
-          <Show
-            when={detailNav.selectedLikedSongs()}
-            fallback={
-              <Show
-                when={detailNav.selectedAlbum()}
-                fallback={
-                  <Show
-                    when={detailNav.selectedArtist()}
-                    fallback={
-                      <Show
-                        when={detailNav.selectedPlaylist()}
-                        fallback={
-                          <div class="online-discover-view">
-                            <Show when={discoverTab() === "playlists"}>
-                              <DiscoverPlaylistShowcase
-                                catName={catName()}
-                                hasHqPlaylist={hasHqPlaylist()}
-                                discoverPlaylistKind={discoverPlaylistKind()}
-                                setDiscoverPlaylistKind={setDiscoverPlaylistKind}
-                                setCatModalOpen={setCatModalOpen}
-                                discoverSectionTitle={discoverSectionTitle()}
-                                discoverSectionSubtitle={discoverSectionSubtitle()}
-                                allPlaylists={playlistCards.items()}
-                                isLoadingPlaylists={playlistCards.isLoading()}
-                                hasMorePlaylists={playlistCards.hasMore()}
-                                onLoadPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
-                                onLoadMore={() => { void playlistCards.loadMore(); }}
-                              />
-                            </Show>
-                            <Show when={discoverTab() === "toplists"}>
-                              <DiscoverToplistShowcase
-                                discoverToplists={discoverToplists}
-                                onLoadPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
-                              />
-                            </Show>
-                            <Show when={discoverTab() === "artists"}>
-                              <DiscoverArtistShowcase
-                                artistInitials={DISCOVER_ARTIST_INITIALS}
-                                artistAreas={DISCOVER_ARTIST_AREAS}
-                                discoverArtistInitial={discoverArtistInitial()}
-                                setDiscoverArtistInitial={setDiscoverArtistInitial}
-                                discoverArtistAreaIndex={discoverArtistAreaIndex()}
-                                setDiscoverArtistAreaIndex={setDiscoverArtistAreaIndex}
-                                discoverSectionTitle={discoverSectionTitle()}
-                                discoverSectionSubtitle={discoverSectionSubtitle()}
-                                discoverArtists={discoverArtists}
-                                onLoadArtist={(artist) =>
-                                  void detailNav.loadArtistTracks({
-                                    ...artist,
-                                    playCount: null,
-                                    description: null
-                                  })
-                                }
-                              />
-                            </Show>
-                            <Show when={discoverTab() === "new"}>
-                              <DiscoverNewShowcase
-                                newAreas={DISCOVER_NEW_AREAS}
-                                discoverNewKind={discoverNewKind()}
-                                setDiscoverNewKind={setDiscoverNewKind}
-                                discoverNewAreaIndex={discoverNewAreaIndex()}
-                                setDiscoverNewAreaIndex={setDiscoverNewAreaIndex}
-                                discoverSectionTitle={discoverSectionTitle()}
-                                discoverSectionSubtitle={discoverSectionSubtitle()}
-                                allAlbums={albumCards.items()}
-                                discoverSongs={discoverSongs}
-                                isLoadingAlbums={albumCards.isLoading()}
-                                hasMoreAlbums={albumCards.hasMore()}
-                                onLoadMoreAlbums={() => { void albumCards.loadMore(); }}
-                                playback={props.playback}
-                                currentTrackPath={props.currentTrackPath}
-                                currentSongId={props.currentSongId}
-                                isPlaying={props.isPlaying}
-                              />
-                            </Show>
-                            <Show when={shouldShowDiscoverResults()}>
-                              <SearchMode
-                                searchTab={searchTab()}
-                                songResults={songResults()}
-                                playlistResults={playlistResults()}
-                                globalQuery={props.globalQuery}
-                                parentMode="discover"
-                                selectedPlaylist={detailNav.selectedPlaylist()}
-                                playlistTracks={detailNav.playlistTracksState()}
-                                isLoadingPlaylistTracks={detailNav.isLoadingPlaylistTracks()}
-                                onSelectPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
-                                discoverSectionSubtitle={discoverSectionSubtitle()}
-                                playback={props.playback}
-                                currentTrackPath={props.currentTrackPath}
-                                currentSongId={props.currentSongId}
-                                isPlaying={props.isPlaying}
-                              />
-                            </Show>
-                          </div>
-                        }
-                      >
-                        <PlaylistDetail
-                          playlist={detailNav.selectedPlaylist()}
-                          tracks={detailNav.filteredPlaylistTracks()}
-                          trackCount={detailNav.playlistTrackCount()}
-                          metaText={detailNav.playlistMetaText()}
-                          subtitleText={pageTitle()}
-                          isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
-                          isScrolled={detailNav.isPlaylistDetailScrolled()}
-                          filter={detailNav.playlistFilter()}
-                          detailTab={detailNav.playlistDetailTab()}
-                          setFilter={detailNav.setPlaylistFilter}
-                          setDetailTab={detailNav.setPlaylistDetailTab}
-                          onBack={detailNav.handleBackToPlaylists}
-                          onPlayAll={detailNav.playAllPlaylistTracks}
-                          onScroll={detailNav.handlePlaylistTrackScroll}
-                          playback={props.playback}
-                          currentTrackPath={props.currentTrackPath}
-                          currentSongId={props.currentSongId}
-                          isPlaying={props.isPlaying}
-                        />
-                      </Show>
-                    }
-                  >
-                    <ArtistDetail
-                      artist={detailNav.selectedArtist()}
-                      tracks={detailNav.artistTracksState()}
-                      isLoading={detailNav.isLoadingArtistTracks()}
-                      onBack={detailNav.exitArtist}
-                      playback={props.playback}
-                      currentTrackPath={props.currentTrackPath}
-                      currentSongId={props.currentSongId}
-                      isPlaying={props.isPlaying}
-                    />
-                  </Show>
+      <Switch>
+        <Match when={detailView().kind === "daily"}>
+          <DailySongsDetail
+            loginProfile={props.loginProfile()}
+            tracks={detailNav.dailySongsState()}
+            isLoading={detailNav.isLoadingDailySongs()}
+            onBack={detailNav.exitDailySongs}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailView().kind === "liked"}>
+          <LikedSongsDetail
+            loginProfile={props.loginProfile()}
+            tracks={detailNav.likedSongsState()}
+            total={detailNav.likedSongsTotal()}
+            isLoading={detailNav.isLoadingLikedSongs()}
+            onBack={detailNav.exitLikedSongs}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailView().kind === "album"}>
+          <AlbumDetail
+            album={detailNav.selectedAlbum()}
+            tracks={detailNav.albumTracksState()}
+            isLoading={detailNav.isLoadingAlbumTracks()}
+            onBack={detailNav.exitAlbum}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailView().kind === "artist"}>
+          <ArtistDetail
+            artist={detailNav.selectedArtist()}
+            tracks={detailNav.artistTracksState()}
+            isLoading={detailNav.isLoadingArtistTracks()}
+            onBack={detailNav.exitArtist}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailView().kind === "playlist"}>
+          <PlaylistDetail
+            playlist={detailNav.selectedPlaylist()}
+            tracks={detailNav.filteredPlaylistTracks()}
+            trackCount={detailNav.playlistTrackCount()}
+            metaText={detailNav.playlistMetaText()}
+            subtitleText={pageTitle()}
+            isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
+            isScrolled={detailNav.isPlaylistDetailScrolled()}
+            filter={detailNav.playlistFilter()}
+            detailTab={detailNav.playlistDetailTab()}
+            setFilter={detailNav.setPlaylistFilter}
+            setDetailTab={detailNav.setPlaylistDetailTab}
+            onBack={detailNav.handleBackToPlaylists}
+            onPlayAll={detailNav.playAllPlaylistTracks}
+            onScroll={detailNav.handlePlaylistTrackScroll}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailView().kind === "browse"}>
+          <div class="online-discover-view">
+            <Show when={discoverTab() === "playlists"}>
+              <DiscoverPlaylistShowcase
+                catName={catName()}
+                hasHqPlaylist={hasHqPlaylist()}
+                discoverPlaylistKind={discoverPlaylistKind()}
+                setDiscoverPlaylistKind={setDiscoverPlaylistKind}
+                setCatModalOpen={setCatModalOpen}
+                discoverSectionTitle={discoverSectionTitle()}
+                discoverSectionSubtitle={discoverSectionSubtitle()}
+                allPlaylists={playlistCards.items()}
+                isLoadingPlaylists={playlistCards.isLoading()}
+                hasMorePlaylists={playlistCards.hasMore()}
+                onLoadPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
+                onLoadMore={() => { void playlistCards.loadMore(); }}
+              />
+            </Show>
+            <Show when={discoverTab() === "toplists"}>
+              <DiscoverToplistShowcase
+                discoverToplists={discoverToplists}
+                onLoadPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
+              />
+            </Show>
+            <Show when={discoverTab() === "artists"}>
+              <DiscoverArtistShowcase
+                artistInitials={DISCOVER_ARTIST_INITIALS}
+                artistAreas={DISCOVER_ARTIST_AREAS}
+                discoverArtistInitial={discoverArtistInitial()}
+                setDiscoverArtistInitial={setDiscoverArtistInitial}
+                discoverArtistAreaIndex={discoverArtistAreaIndex()}
+                setDiscoverArtistAreaIndex={setDiscoverArtistAreaIndex}
+                discoverSectionTitle={discoverSectionTitle()}
+                discoverSectionSubtitle={discoverSectionSubtitle()}
+                discoverArtists={discoverArtists}
+                onLoadArtist={(artist) =>
+                  void detailNav.loadArtistTracks({
+                    ...artist,
+                    playCount: null,
+                    description: null
+                  })
                 }
-              >
-                <AlbumDetail
-                  album={detailNav.selectedAlbum()}
-                  tracks={detailNav.albumTracksState()}
-                  isLoading={detailNav.isLoadingAlbumTracks()}
-                  onBack={detailNav.exitAlbum}
-                  playback={props.playback}
-                  currentTrackPath={props.currentTrackPath}
-                  currentSongId={props.currentSongId}
-                  isPlaying={props.isPlaying}
-                />
-              </Show>
-            }
-          >
-            <LikedSongsDetail
-              loginProfile={props.loginProfile()}
-              tracks={detailNav.likedSongsState()}
-              total={detailNav.likedSongsTotal()}
-              isLoading={detailNav.isLoadingLikedSongs()}
-              onBack={detailNav.exitLikedSongs}
-              playback={props.playback}
-              currentTrackPath={props.currentTrackPath}
-              currentSongId={props.currentSongId}
-              isPlaying={props.isPlaying}
-            />
-          </Show>
-        }
-      >
-        <DailySongsDetail
-          loginProfile={props.loginProfile()}
-          tracks={detailNav.dailySongsState()}
-          isLoading={detailNav.isLoadingDailySongs()}
-          onBack={detailNav.exitDailySongs}
-          playback={props.playback}
-          currentTrackPath={props.currentTrackPath}
-          currentSongId={props.currentSongId}
-          isPlaying={props.isPlaying}
-        />
-      </Show>
+              />
+            </Show>
+            <Show when={discoverTab() === "new"}>
+              <DiscoverNewShowcase
+                newAreas={DISCOVER_NEW_AREAS}
+                discoverNewKind={discoverNewKind()}
+                setDiscoverNewKind={setDiscoverNewKind}
+                discoverNewAreaIndex={discoverNewAreaIndex()}
+                setDiscoverNewAreaIndex={setDiscoverNewAreaIndex}
+                discoverSectionTitle={discoverSectionTitle()}
+                discoverSectionSubtitle={discoverSectionSubtitle()}
+                allAlbums={albumCards.items()}
+                discoverSongs={discoverSongs}
+                isLoadingAlbums={albumCards.isLoading()}
+                hasMoreAlbums={albumCards.hasMore()}
+                onLoadMoreAlbums={() => { void albumCards.loadMore(); }}
+                playback={props.playback}
+                currentTrackPath={props.currentTrackPath}
+                currentSongId={props.currentSongId}
+                isPlaying={props.isPlaying}
+              />
+            </Show>
+            <Show when={shouldShowDiscoverResults()}>
+              <SearchMode
+                searchTab={searchTab()}
+                songResults={songResults()}
+                playlistResults={playlistResults()}
+                globalQuery={props.globalQuery}
+                parentMode="discover"
+                selectedPlaylist={detailNav.selectedPlaylist()}
+                playlistTracks={detailNav.playlistTracksState()}
+                isLoadingPlaylistTracks={detailNav.isLoadingPlaylistTracks()}
+                onSelectPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
+                discoverSectionSubtitle={discoverSectionSubtitle()}
+                playback={props.playback}
+                currentTrackPath={props.currentTrackPath}
+                currentSongId={props.currentSongId}
+                isPlaying={props.isPlaying}
+              />
+            </Show>
+          </div>
+        </Match>
+      </Switch>
     </>
   );
 }
