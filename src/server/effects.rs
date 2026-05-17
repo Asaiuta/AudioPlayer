@@ -1,6 +1,7 @@
 use super::*;
 use actix_web::{web, HttpResponse};
 use std::sync::Arc;
+use crate::config::normalize_eq_bands;
 use crate::server::state_helpers::eq_band_name_to_index;
 
 fn not_implemented_error(err: &str) -> bool {
@@ -91,6 +92,11 @@ fn persist_noise_shaper_config(data: &web::Data<Arc<AppState>>, player: &AudioPl
 
 async fn set_eq(data: web::Data<Arc<AppState>>, body: web::Json<SetEqRequest>) -> HttpResponse {
     let mut player = data.player.lock();
+    let normalized_bands = body.bands.as_ref().map(|bands| {
+        normalize_eq_bands(bands.clone(), |unknown| {
+            log::warn!("Unknown EQ band name: '{}'", unknown);
+        })
+    });
 
     let is_fir = player.is_fir_eq_enabled();
 
@@ -101,7 +107,7 @@ async fn set_eq(data: web::Data<Arc<AppState>>, body: web::Json<SetEqRequest>) -
             }
         }
 
-        if let Some(ref bands) = body.bands {
+        if let Some(ref bands) = normalized_bands {
             let mut gains = [0.0_f64; 10];
             let mut any_set = false;
 
@@ -131,12 +137,10 @@ async fn set_eq(data: web::Data<Arc<AppState>>, body: web::Json<SetEqRequest>) -
         player.lockfree_eq_params.set_enabled(enabled);
     }
 
-    if let Some(ref bands) = body.bands {
+    if let Some(ref bands) = normalized_bands {
         for (name, &gain) in bands {
             if let Some(idx) = eq_band_name_to_index(name.as_str()) {
                 player.lockfree_eq_params.set_band_gain(idx, gain);
-            } else {
-                log::warn!("Unknown EQ band name: '{}'", name);
             }
         }
     }

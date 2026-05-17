@@ -12,8 +12,6 @@ use std::sync::Arc;
 type IndexedPaths = Arc<std::sync::Mutex<Vec<String>>>;
 
 const UNKNOWN_SONG_TITLE: &str = "Unknown Song";
-const UNKNOWN_ARTIST_NAME: &str = "Unknown Artist";
-const UNKNOWN_ALBUM_TITLE: &str = "Unknown Album";
 
 pub(super) struct LibraryScanOutcome {
     pub(super) scanned_files: u64,
@@ -215,14 +213,14 @@ pub(super) fn scan_local_library(
             .as_deref()
             .map_or(true, |a| a.trim().is_empty())
         {
-            metadata.artist = Some(UNKNOWN_ARTIST_NAME.to_string());
+            metadata.artist = None;
         }
         if metadata
             .album
             .as_deref()
             .map_or(true, |a| a.trim().is_empty())
         {
-            metadata.album = Some(UNKNOWN_ALBUM_TITLE.to_string());
+            metadata.album = None;
         }
 
         if metadata.cover_art.is_none() {
@@ -613,7 +611,10 @@ pub(super) fn scan_webdav_library(
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_supported_local_media_paths, external_cover_for_media, metadata_with_external_cover};
+    use super::{
+        collect_supported_local_media_paths, external_cover_for_media, metadata_with_external_cover,
+        UNKNOWN_SONG_TITLE,
+    };
     use std::fs;
     use std::path::Path;
 
@@ -673,6 +674,42 @@ mod tests {
         assert_eq!(paths, vec![track_path]);
 
         let _ = fs::remove_dir_all(temp_dir);
+    }
+
+    #[test]
+    fn missing_library_metadata_keeps_artist_and_album_empty() {
+        let track_path = Path::new("D:/music/Example Song.flac");
+        let mut metadata = crate::decoder::TrackMetadata::default();
+
+        let file_stem = track_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(UNKNOWN_SONG_TITLE);
+        if metadata
+            .title
+            .as_deref()
+            .map_or(true, |title| title.trim().is_empty())
+        {
+            metadata.title = Some(file_stem.to_string());
+        }
+        if metadata
+            .artist
+            .as_deref()
+            .map_or(true, |artist| artist.trim().is_empty())
+        {
+            metadata.artist = None;
+        }
+        if metadata
+            .album
+            .as_deref()
+            .map_or(true, |album| album.trim().is_empty())
+        {
+            metadata.album = None;
+        }
+
+        assert_eq!(metadata.title.as_deref(), Some("Example Song"));
+        assert_eq!(metadata.artist, None);
+        assert_eq!(metadata.album, None);
     }
 
     #[cfg(unix)]

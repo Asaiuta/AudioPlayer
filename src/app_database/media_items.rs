@@ -418,16 +418,35 @@ fn update_media_identity_references(
     }
 
     let updates = [
-        ("cover_art_cache", "media_id"),
-        ("playback_sessions", "media_id"),
-        ("playback_history", "media_id"),
-        ("playback_queue_entries", "media_id"),
-        ("local_playlists", "cover_media_id"),
+        (
+            "cover_art_cache",
+            "media_id",
+            "UPDATE cover_art_cache SET media_id = ?1 WHERE media_id = ?2",
+        ),
+        (
+            "playback_sessions",
+            "media_id",
+            "UPDATE playback_sessions SET media_id = ?1 WHERE media_id = ?2",
+        ),
+        (
+            "playback_history",
+            "media_id",
+            "UPDATE playback_history SET media_id = ?1 WHERE media_id = ?2",
+        ),
+        (
+            "playback_queue_entries",
+            "media_id",
+            "UPDATE playback_queue_entries SET media_id = ?1 WHERE media_id = ?2",
+        ),
+        (
+            "local_playlists",
+            "cover_media_id",
+            "UPDATE local_playlists SET cover_media_id = ?1 WHERE cover_media_id = ?2",
+        ),
     ];
 
-    for (table, column) in updates {
-        let sql = format!("UPDATE {table} SET {column} = ?1 WHERE {column} = ?2");
-        conn.execute(&sql, params![new_media_id, old_media_id])
+    for (table, column, sql) in updates {
+        conn.execute(sql, params![new_media_id, old_media_id])
             .map_err(|e| {
                 format!(
                     "Failed to update {}.{} from '{}' to '{}': {}",

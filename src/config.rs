@@ -34,6 +34,60 @@ where
     }
 }
 
+fn env_string(name: &str) -> Option<String> {
+    env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn env_string_or(name: &str, default: &str) -> String {
+    env_string(name).unwrap_or_else(|| default.to_string())
+}
+
+fn env_parse_or<T>(name: &str, default: T) -> T
+where
+    T: std::str::FromStr + Copy,
+{
+    env_parse(name).unwrap_or(default)
+}
+
+const CANONICAL_EQ_BAND_NAMES: [&str; 10] = [
+    "31", "62", "125", "250", "500", "1000", "2000", "4000", "8000", "16000",
+];
+
+fn canonicalize_eq_band_name(name: &str) -> Option<&'static str> {
+    match name {
+        "31" => Some("31"),
+        "62" => Some("62"),
+        "125" => Some("125"),
+        "250" => Some("250"),
+        "500" => Some("500"),
+        "1000" | "1k" => Some("1000"),
+        "2000" | "2k" => Some("2000"),
+        "4000" | "4k" => Some("4000"),
+        "8000" | "8k" => Some("8000"),
+        "16000" | "16k" => Some("16000"),
+        _ => None,
+    }
+}
+
+pub fn normalize_eq_bands(
+    bands: HashMap<String, f64>,
+    on_unknown: impl FnMut(&str),
+) -> HashMap<String, f64> {
+    let mut on_unknown = on_unknown;
+    let mut normalized = HashMap::with_capacity(CANONICAL_EQ_BAND_NAMES.len());
+    for (name, gain) in bands {
+        if let Some(canonical) = canonicalize_eq_band_name(name.as_str()) {
+            normalized.insert(canonical.to_string(), gain);
+        } else {
+            on_unknown(name.as_str());
+        }
+    }
+    normalized
+}
+
 // M-4 fix: Import SaturationType from processor module (single source of truth).
 // Previously defined identically in both config.rs and saturation.rs.
 pub use crate::processor::SaturationType;
@@ -358,15 +412,8 @@ impl EngineSettings {
 
         let target_samplerate = env_parse("AUDIO_TARGET_SAMPLERATE");
 
-        let resample_quality = match env::var("AUDIO_RESAMPLE_QUALITY")
-            .unwrap_or_default()
-            .as_str()
-        {
-            "low" => ResampleQuality::Low,
-            "std" => ResampleQuality::Standard,
-            "uhq" => ResampleQuality::UltraHigh,
-            _ => ResampleQuality::High, // Default to High (hq)
-        };
+        let resample_quality =
+            parse_resample_quality(env_string_or("AUDIO_RESAMPLE_QUALITY", "hq").as_str());
 
         let use_cache = env_flag("AUDIO_USE_CACHE", false);
 
@@ -374,7 +421,7 @@ impl EngineSettings {
 
         let use_next_prefetch = env_flag("AUDIO_USE_NEXT_PREFETCH", true);
 
-        let eq_type = env::var("AUDIO_EQ_TYPE").unwrap_or_else(|_| "IIR".to_string());
+        let eq_type = env_string_or("AUDIO_EQ_TYPE", "IIR");
 
         // Load loudness configuration with range validation (FIX for Defect 29)
         let loudness = LoudnessConfig {
@@ -389,17 +436,9 @@ impl EngineSettings {
                 10.0,
                 2000.0,
             ),
-            mode: match env::var("AUDIO_NORMALIZATION_MODE")
-                .unwrap_or_default()
-                .to_lowercase()
-                .as_str()
-            {
-                "album" => NormalizationMode::Album,
-                "streaming" => NormalizationMode::Streaming,
-                "replaygain_track" | "rg_track" => NormalizationMode::ReplayGainTrack,
-                "replaygain_album" | "rg_album" => NormalizationMode::ReplayGainAlbum,
-                _ => NormalizationMode::Track,
-            },
+            mode: parse_normalization_mode(
+                env_string_or("AUDIO_NORMALIZATION_MODE", "track").as_str(),
+            ),
             enabled: env_flag("AUDIO_LOUDNESS_NORMALIZATION", true),
             replaygain_reference_lufs: env_parse_clamped(
                 "AUDIO_REPLAYGAIN_REFERENCE_LUFS",
@@ -410,27 +449,13 @@ impl EngineSettings {
         };
 
         // Load phase response setting
-        let phase_response = match env::var("AUDIO_PHASE_RESPONSE")
-            .unwrap_or_default()
-            .to_lowercase()
-            .as_str()
-        {
-            "minimum" | "min" => PhaseResponse::Minimum,
-            "maximum" | "max" => PhaseResponse::Maximum,
-            _ => PhaseResponse::Linear, // Default
-        };
+        let phase_response = parse_phase_response(env_string_or("AUDIO_PHASE_RESPONSE", "linear").as_str());
 
         // Load saturation configuration with range validation (FIX for Defect 29)
         let saturation = SaturationConfig {
-            sat_type: match env::var("AUDIO_SATURATION_TYPE")
-                .unwrap_or_default()
-                .to_lowercase()
-                .as_str()
-            {
-                "tape" => SaturationType::Tape,
-                "transistor" => SaturationType::Transistor,
-                _ => SaturationType::Tube, // Default
-            },
+            sat_type: parse_saturation_type(
+                env_string_or("AUDIO_SATURATION_TYPE", "tube").as_str(),
+            ),
             // drive: 0.0 (no saturation) to 2.0 (heavy saturation)
             drive: env_parse_clamped("AUDIO_SATURATION_DRIVE", 0.25, 0.0, 2.0),
             // threshold: 0.0 to 1.0 (normalized signal level)
@@ -519,6 +544,9 @@ impl EngineSettings {
         self.dynamic_loudness.transition_db = self.dynamic_loudness.transition_db.clamp(10.0, 40.0);
         self.dynamic_loudness.strength = self.dynamic_loudness.strength.clamp(0.0, 1.0);
         self.dynamic_loudness.pre_gain_db = self.dynamic_loudness.pre_gain_db.clamp(-6.0, 0.0);
+        if let Some(eq_bands) = self.eq_bands.take() {
+            self.eq_bands = Some(normalize_eq_bands(eq_bands, |_| {}));
+        }
         self
     }
 
@@ -536,7 +564,7 @@ impl EngineSettings {
             self.eq_type = eq_type;
         }
         if let Some(eq_bands) = update.eq_bands {
-            self.eq_bands = Some(eq_bands);
+            self.eq_bands = Some(normalize_eq_bands(eq_bands, |_| {}));
         }
         if let Some(fir_taps) = update.fir_taps {
             self.fir_taps = Some(fir_taps);
@@ -740,17 +768,11 @@ impl ResolvedConfig {
 }
 
 fn read_env_usize(key: &str, default: usize) -> usize {
-    env::var(key)
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(default)
+    env_parse_or(key, default)
 }
 
 fn read_env_u64(key: &str, default: u64) -> u64 {
-    env::var(key)
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-        .unwrap_or(default)
+    env_parse_or(key, default)
 }
 
 fn configured_allowed_origins_from_env() -> Vec<String> {
@@ -800,6 +822,22 @@ pub fn parse_resample_quality(value: &str) -> ResampleQuality {
         "std" | "standard" => ResampleQuality::Standard,
         "uhq" | "ultrahigh" | "ultra_high" => ResampleQuality::UltraHigh,
         _ => ResampleQuality::High,
+    }
+}
+
+pub fn parse_phase_response(value: &str) -> PhaseResponse {
+    match value.to_lowercase().as_str() {
+        "minimum" | "min" => PhaseResponse::Minimum,
+        "maximum" | "max" => PhaseResponse::Maximum,
+        _ => PhaseResponse::Linear,
+    }
+}
+
+pub fn parse_saturation_type(value: &str) -> SaturationType {
+    match value.to_lowercase().as_str() {
+        "tape" => SaturationType::Tape,
+        "transistor" => SaturationType::Transistor,
+        _ => SaturationType::Tube,
     }
 }
 
@@ -994,5 +1032,40 @@ mod tests {
         assert!(settings.use_next_prefetch);
         assert!(settings.crossfeed.enabled);
         assert!(settings.dynamic_loudness.enabled);
+    }
+
+    #[test]
+    fn normalize_eq_bands_maps_legacy_aliases_to_canonical_names() {
+        let bands = HashMap::from([
+            ("1k".to_string(), 1.5),
+            ("2k".to_string(), -0.5),
+            ("16000".to_string(), 0.75),
+        ]);
+
+        let normalized = normalize_eq_bands(bands, |_| {});
+
+        assert_eq!(normalized.get("1000"), Some(&1.5));
+        assert_eq!(normalized.get("2000"), Some(&-0.5));
+        assert_eq!(normalized.get("16000"), Some(&0.75));
+        assert!(!normalized.contains_key("1k"));
+        assert!(!normalized.contains_key("2k"));
+    }
+
+    #[test]
+    fn engine_settings_normalized_rewrites_eq_band_aliases() {
+        let settings = EngineSettings {
+            eq_bands: Some(HashMap::from([
+                ("1k".to_string(), 2.0),
+                ("4k".to_string(), -1.0),
+            ])),
+            ..EngineSettings::default()
+        }
+        .normalized();
+
+        let bands = settings.eq_bands.expect("eq bands should remain present");
+        assert_eq!(bands.get("1000"), Some(&2.0));
+        assert_eq!(bands.get("4000"), Some(&-1.0));
+        assert!(!bands.contains_key("1k"));
+        assert!(!bands.contains_key("4k"));
     }
 }

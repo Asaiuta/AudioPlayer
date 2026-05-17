@@ -25,6 +25,131 @@ use atomic_float::AtomicF64;
 
 use super::traits::LockfreeParams;
 
+#[inline]
+fn mark_dirty_flag(dirty: &AtomicBool) {
+    dirty.store(true, Ordering::Release);
+}
+
+#[inline]
+fn clear_dirty_flag_relaxed(dirty: &AtomicBool) {
+    dirty.store(false, Ordering::Relaxed);
+}
+
+#[inline]
+fn clear_dirty_flag_release(dirty: &AtomicBool) {
+    dirty.store(false, Ordering::Release);
+}
+
+#[inline]
+fn is_dirty_flag_set(dirty: &AtomicBool) -> bool {
+    dirty.load(Ordering::Acquire)
+}
+
+#[inline]
+fn load_enabled_flag(enabled: &AtomicBool) -> bool {
+    enabled.load(Ordering::Acquire)
+}
+
+#[inline]
+fn store_bool_and_mark_dirty(target: &AtomicBool, value: bool, dirty: &AtomicBool) {
+    target.store(value, Ordering::Release);
+    mark_dirty_flag(dirty);
+}
+
+#[inline]
+fn store_f64_and_mark_dirty(target: &AtomicF64, value: f64, dirty: &AtomicBool) {
+    target.store(value, Ordering::Release);
+    mark_dirty_flag(dirty);
+}
+
+#[inline]
+fn store_clamped_f64_and_mark_dirty(
+    target: &AtomicF64,
+    value: f64,
+    min: f64,
+    max: f64,
+    dirty: &AtomicBool,
+) {
+    target.store(value.clamp(min, max), Ordering::Release);
+    mark_dirty_flag(dirty);
+}
+
+#[inline]
+fn store_u8_and_mark_dirty(target: &AtomicU8, value: u8, dirty: &AtomicBool) {
+    target.store(value, Ordering::Release);
+    mark_dirty_flag(dirty);
+}
+
+macro_rules! impl_default_via_new {
+    ($type:ty) => {
+        impl Default for $type {
+            fn default() -> Self {
+                Self::new()
+            }
+        }
+    };
+}
+
+macro_rules! impl_lockfree_params {
+    ($type:ty, $name:literal) => {
+        impl LockfreeParams for $type {
+            fn processor_name(&self) -> &'static str {
+                $name
+            }
+
+            fn mark_dirty(&self) {
+                mark_dirty_flag(&self.dirty);
+            }
+
+            fn clear_dirty(&self) {
+                clear_dirty_flag_release(&self.dirty);
+            }
+
+            fn is_dirty(&self) -> bool {
+                is_dirty_flag_set(&self.dirty)
+            }
+        }
+    };
+}
+
+macro_rules! impl_has_update_accessor {
+    () => {
+        #[inline]
+        pub fn has_update(&self) -> bool {
+            is_dirty_flag_set(&self.dirty)
+        }
+    };
+}
+
+macro_rules! impl_dirty_accessors {
+    () => {
+        impl_has_update_accessor!();
+
+        #[inline]
+        pub fn clear_dirty(&self) {
+            clear_dirty_flag_relaxed(&self.dirty);
+        }
+    };
+}
+
+macro_rules! impl_set_enabled_accessor {
+    () => {
+        #[inline]
+        pub fn set_enabled(&self, enabled: bool) {
+            store_bool_and_mark_dirty(&self.enabled, enabled, &self.dirty);
+        }
+    };
+}
+
+macro_rules! impl_enabled_reader {
+    () => {
+        #[inline]
+        pub fn is_enabled(&self) -> bool {
+            load_enabled_flag(&self.enabled)
+        }
+    };
+}
+
 // ============================================================================
 // EQ Parameters (SeqLock Pattern)
 // ============================================================================
@@ -103,7 +228,7 @@ impl AtomicEqParams {
         self.version.store(v + 2, Ordering::Relaxed);
 
         // Mark dirty for fast polling
-        self.dirty.store(true, Ordering::Release);
+        mark_dirty_flag(&self.dirty);
     }
 
     /// Read all EQ parameters via SeqLock optimistic read.
@@ -126,18 +251,15 @@ impl AtomicEqParams {
 
             let v2 = self.version.load(Ordering::Relaxed);
             if v1 == v2 {
-                self.dirty.store(false, Ordering::Relaxed);
+                clear_dirty_flag_relaxed(&self.dirty);
                 return EqParamsSnapshot { gains, enabled };
             }
             // Version changed during read — retry
         }
     }
 
-    /// Quick check if parameters have been updated (read-only, does not clear)
-    #[inline]
-    pub fn has_update(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
+    // Quick check if parameters have been updated (read-only, does not clear).
+    impl_has_update_accessor!();
 
     /// Update a single band gain (main thread).
     /// MUST go through full SeqLock to preserve consistency with read().
@@ -171,40 +293,15 @@ impl AtomicEqParams {
 
     /// Set enabled state (main thread)
     pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_bool_and_mark_dirty(&self.enabled, enabled, &self.dirty);
     }
 
-    /// Quick read of enabled state only
-    #[inline]
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Acquire)
-    }
+    // Quick read of enabled state only.
+    impl_enabled_reader!();
 }
 
-impl Default for AtomicEqParams {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl LockfreeParams for AtomicEqParams {
-    fn processor_name(&self) -> &'static str {
-        "Equalizer"
-    }
-
-    fn mark_dirty(&self) {
-        self.dirty.store(true, Ordering::Release);
-    }
-
-    fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Release);
-    }
-
-    fn is_dirty(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
-}
+impl_default_via_new!(AtomicEqParams);
+impl_lockfree_params!(AtomicEqParams, "Equalizer");
 
 // ============================================================================
 // Saturation Parameters (Simple Atomic)
@@ -250,6 +347,31 @@ impl From<SaturationTypeValue> for crate::processor::SaturationType {
             SaturationTypeValue::Tape => Self::Tape,
             SaturationTypeValue::Tube => Self::Tube,
             SaturationTypeValue::Transistor => Self::Transistor,
+        }
+    }
+}
+
+impl From<super::dsp::NoiseShaperCurve> for u8 {
+    fn from(curve: super::dsp::NoiseShaperCurve) -> Self {
+        match curve {
+            super::dsp::NoiseShaperCurve::Lipshitz5 => 0,
+            super::dsp::NoiseShaperCurve::FWeighted9 => 1,
+            super::dsp::NoiseShaperCurve::ModifiedE9 => 2,
+            super::dsp::NoiseShaperCurve::ImprovedE9 => 3,
+            super::dsp::NoiseShaperCurve::TpdfOnly => 4,
+        }
+    }
+}
+
+impl From<u8> for super::dsp::NoiseShaperCurve {
+    fn from(value: u8) -> Self {
+        match value {
+            0 => super::dsp::NoiseShaperCurve::Lipshitz5,
+            1 => super::dsp::NoiseShaperCurve::FWeighted9,
+            2 => super::dsp::NoiseShaperCurve::ModifiedE9,
+            3 => super::dsp::NoiseShaperCurve::ImprovedE9,
+            4 => super::dsp::NoiseShaperCurve::TpdfOnly,
+            _ => super::dsp::NoiseShaperCurve::Lipshitz5,
         }
     }
 }
@@ -320,67 +442,52 @@ impl AtomicSaturationParams {
     /// Set drive amount (0.0 - 2.0)
     #[inline]
     pub fn set_drive(&self, drive: f64) {
-        self.drive.store(drive.clamp(0.0, 2.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.drive, drive, 0.0, 2.0, &self.dirty);
     }
 
     /// Set threshold (0.0 - 1.0)
     #[inline]
     pub fn set_threshold(&self, threshold: f64) {
-        self.threshold
-            .store(threshold.clamp(0.0, 1.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.threshold, threshold, 0.0, 1.0, &self.dirty);
     }
 
     /// Set mix amount (0.0 - 1.0)
     #[inline]
     pub fn set_mix(&self, mix: f64) {
-        self.mix.store(mix.clamp(0.0, 1.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.mix, mix, 0.0, 1.0, &self.dirty);
     }
 
     /// Set saturation type
     #[inline]
     pub fn set_sat_type(&self, sat_type: SaturationTypeValue) {
-        self.sat_type.store(sat_type as u8, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_u8_and_mark_dirty(&self.sat_type, sat_type as u8, &self.dirty);
     }
 
     /// Set input gain (dB)
     #[inline]
     pub fn set_input_gain(&self, gain_db: f64) {
-        self.input_gain_db.store(gain_db, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_f64_and_mark_dirty(&self.input_gain_db, gain_db, &self.dirty);
     }
 
     /// Set output gain (dB)
     #[inline]
     pub fn set_output_gain(&self, gain_db: f64) {
-        self.output_gain_db.store(gain_db, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_f64_and_mark_dirty(&self.output_gain_db, gain_db, &self.dirty);
     }
 
     /// Set highpass mode
     #[inline]
     pub fn set_highpass_mode(&self, enabled: bool) {
-        self.highpass_mode.store(enabled, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_bool_and_mark_dirty(&self.highpass_mode, enabled, &self.dirty);
     }
 
     /// Set highpass cutoff frequency
     #[inline]
     pub fn set_highpass_cutoff(&self, hz: f64) {
-        self.highpass_cutoff
-            .store(hz.clamp(1000.0, 12000.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.highpass_cutoff, hz, 1000.0, 12000.0, &self.dirty);
     }
 
-    /// Set enabled state
-    #[inline]
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
-    }
+    impl_set_enabled_accessor!();
 
     /// Read all parameters into a snapshot
     #[inline]
@@ -398,64 +505,32 @@ impl AtomicSaturationParams {
         }
     }
 
-    /// Check for updates (read-only, does not clear dirty flag)
-    #[inline]
-    pub fn has_update(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
+    // `has_update()` checks for pending updates without clearing the dirty flag.
+    // `clear_dirty()` clears it after the caller consumes a snapshot.
+    impl_dirty_accessors!();
 
-    /// Clear dirty flag after reading params
-    #[inline]
-    pub fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Relaxed);
-    }
-
-    /// Quick check if enabled
-    #[inline]
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Acquire)
-    }
+    // Quick check if enabled.
+    impl_enabled_reader!();
 
     /// Get settings as SaturationSettings (for backward compatibility)
     pub fn get_settings(&self) -> crate::processor::SaturationSettings {
-        let sat_type_value = SaturationTypeValue::from(self.sat_type.load(Ordering::Acquire));
+        let snapshot = self.read();
         crate::processor::SaturationSettings {
-            sat_type: crate::processor::SaturationType::from(sat_type_value),
-            drive: self.drive.load(Ordering::Acquire),
-            threshold: self.threshold.load(Ordering::Acquire),
-            mix: self.mix.load(Ordering::Acquire),
-            input_gain_db: self.input_gain_db.load(Ordering::Acquire),
-            output_gain_db: self.output_gain_db.load(Ordering::Acquire),
-            enabled: self.enabled.load(Ordering::Acquire),
-            highpass_mode: self.highpass_mode.load(Ordering::Acquire),
-            highpass_cutoff: self.highpass_cutoff.load(Ordering::Acquire),
+            sat_type: crate::processor::SaturationType::from(snapshot.sat_type),
+            drive: snapshot.drive,
+            threshold: snapshot.threshold,
+            mix: snapshot.mix,
+            input_gain_db: snapshot.input_gain_db,
+            output_gain_db: snapshot.output_gain_db,
+            enabled: snapshot.enabled,
+            highpass_mode: snapshot.highpass_mode,
+            highpass_cutoff: snapshot.highpass_cutoff,
         }
     }
 }
 
-impl Default for AtomicSaturationParams {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl LockfreeParams for AtomicSaturationParams {
-    fn processor_name(&self) -> &'static str {
-        "Saturation"
-    }
-
-    fn mark_dirty(&self) {
-        self.dirty.store(true, Ordering::Release);
-    }
-
-    fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Release);
-    }
-
-    fn is_dirty(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
-}
+impl_default_via_new!(AtomicSaturationParams);
+impl_lockfree_params!(AtomicSaturationParams, "Saturation");
 
 // ============================================================================
 // Crossfeed Parameters
@@ -499,22 +574,15 @@ impl AtomicCrossfeedParams {
 
     #[inline]
     pub fn set_mix(&self, mix: f64) {
-        self.mix.store(mix.clamp(0.0, 1.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.mix, mix, 0.0, 1.0, &self.dirty);
     }
 
     #[inline]
     pub fn set_cutoff(&self, hz: f64) {
-        self.cutoff_hz
-            .store(hz.clamp(200.0, 2000.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.cutoff_hz, hz, 200.0, 2000.0, &self.dirty);
     }
 
-    #[inline]
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
-    }
+    impl_set_enabled_accessor!();
 
     #[inline]
     pub fn read(&self) -> CrossfeedParamsSnapshot {
@@ -525,54 +593,22 @@ impl AtomicCrossfeedParams {
         }
     }
 
-    #[inline]
-    pub fn has_update(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
+    impl_dirty_accessors!();
 
-    /// Clear dirty flag after reading params
-    #[inline]
-    pub fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Relaxed);
-    }
-
-    #[inline]
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Acquire)
-    }
+    impl_enabled_reader!();
 
     /// Get settings as CrossfeedSettings (for backward compatibility)
     pub fn get_settings(&self) -> crate::processor::CrossfeedSettings {
+        let snapshot = self.read();
         crate::processor::CrossfeedSettings {
-            mix: self.mix.load(Ordering::Acquire),
-            enabled: self.enabled.load(Ordering::Acquire),
+            mix: snapshot.mix,
+            enabled: snapshot.enabled,
         }
     }
 }
 
-impl Default for AtomicCrossfeedParams {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl LockfreeParams for AtomicCrossfeedParams {
-    fn processor_name(&self) -> &'static str {
-        "Crossfeed"
-    }
-
-    fn mark_dirty(&self) {
-        self.dirty.store(true, Ordering::Release);
-    }
-
-    fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Release);
-    }
-
-    fn is_dirty(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
-}
+impl_default_via_new!(AtomicCrossfeedParams);
+impl_lockfree_params!(AtomicCrossfeedParams, "Crossfeed");
 
 // ============================================================================
 // Peak Limiter Parameters
@@ -616,23 +652,15 @@ impl AtomicPeakLimiterParams {
 
     #[inline]
     pub fn set_threshold(&self, db: f64) {
-        self.threshold_db
-            .store(db.clamp(-20.0, 0.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.threshold_db, db, -20.0, 0.0, &self.dirty);
     }
 
     #[inline]
     pub fn set_release(&self, ms: f64) {
-        self.release_ms
-            .store(ms.clamp(10.0, 1000.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.release_ms, ms, 10.0, 1000.0, &self.dirty);
     }
 
-    #[inline]
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
-    }
+    impl_set_enabled_accessor!();
 
     #[inline]
     pub fn read(&self) -> PeakLimiterParamsSnapshot {
@@ -643,28 +671,13 @@ impl AtomicPeakLimiterParams {
         }
     }
 
-    #[inline]
-    pub fn has_update(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
+    impl_dirty_accessors!();
 
-    /// Clear dirty flag after reading params
-    #[inline]
-    pub fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Relaxed);
-    }
-
-    #[inline]
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Acquire)
-    }
+    impl_enabled_reader!();
 }
 
-impl Default for AtomicPeakLimiterParams {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl_default_via_new!(AtomicPeakLimiterParams);
+impl_lockfree_params!(AtomicPeakLimiterParams, "PeakLimiter");
 
 // ============================================================================
 // Volume Parameters
@@ -705,15 +718,13 @@ impl AtomicVolumeParams {
     /// Set volume (0.0 = silence, 1.0 = full)
     #[inline]
     pub fn set_volume(&self, vol: f64) {
-        self.volume.store(vol.clamp(0.0, 1.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.volume, vol, 0.0, 1.0, &self.dirty);
     }
 
     /// Set mute state
     #[inline]
     pub fn set_muted(&self, muted: bool) {
-        self.muted.store(muted, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_bool_and_mark_dirty(&self.muted, muted, &self.dirty);
     }
 
     /// Read current state
@@ -735,23 +746,11 @@ impl AtomicVolumeParams {
         }
     }
 
-    #[inline]
-    pub fn has_update(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
-
-    /// Clear dirty flag after reading params
-    #[inline]
-    pub fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Relaxed);
-    }
+    impl_dirty_accessors!();
 }
 
-impl Default for AtomicVolumeParams {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl_default_via_new!(AtomicVolumeParams);
+impl_lockfree_params!(AtomicVolumeParams, "Volume");
 
 // ============================================================================
 // Noise Shaper Parameters
@@ -793,65 +792,31 @@ impl AtomicNoiseShaperParams {
         }
     }
 
-    #[inline]
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
-    }
+    impl_set_enabled_accessor!();
 
     #[inline]
     pub fn set_bits(&self, bits: u32) {
         let clamped = bits.clamp(8, 32) as u8;
-        self.bits.store(clamped, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_u8_and_mark_dirty(&self.bits, clamped, &self.dirty);
     }
 
     #[inline]
     pub fn set_curve(&self, curve: super::dsp::NoiseShaperCurve) {
-        let curve_value = match curve {
-            super::dsp::NoiseShaperCurve::Lipshitz5 => 0,
-            super::dsp::NoiseShaperCurve::FWeighted9 => 1,
-            super::dsp::NoiseShaperCurve::ModifiedE9 => 2,
-            super::dsp::NoiseShaperCurve::ImprovedE9 => 3,
-            super::dsp::NoiseShaperCurve::TpdfOnly => 4,
-        };
-        self.curve.store(curve_value, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_u8_and_mark_dirty(&self.curve, u8::from(curve), &self.dirty);
     }
 
     #[inline]
     pub fn read(&self) -> NoiseShaperParamsSnapshot {
-        let curve = match self.curve.load(Ordering::Acquire) {
-            0 => super::dsp::NoiseShaperCurve::Lipshitz5,
-            1 => super::dsp::NoiseShaperCurve::FWeighted9,
-            2 => super::dsp::NoiseShaperCurve::ModifiedE9,
-            3 => super::dsp::NoiseShaperCurve::ImprovedE9,
-            4 => super::dsp::NoiseShaperCurve::TpdfOnly,
-            _ => super::dsp::NoiseShaperCurve::Lipshitz5,
-        };
-
         NoiseShaperParamsSnapshot {
             enabled: self.enabled.load(Ordering::Acquire),
             bits: self.bits.load(Ordering::Acquire) as u32,
-            curve,
+            curve: super::dsp::NoiseShaperCurve::from(self.curve.load(Ordering::Acquire)),
         }
     }
 
-    #[inline]
-    pub fn has_update(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
+    impl_dirty_accessors!();
 
-    /// Clear dirty flag after reading params
-    #[inline]
-    pub fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Relaxed);
-    }
-
-    #[inline]
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Acquire)
-    }
+    impl_enabled_reader!();
 
     #[inline]
     pub fn bits(&self) -> u32 {
@@ -864,11 +829,8 @@ impl AtomicNoiseShaperParams {
     }
 }
 
-impl Default for AtomicNoiseShaperParams {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl_default_via_new!(AtomicNoiseShaperParams);
+impl_lockfree_params!(AtomicNoiseShaperParams, "NoiseShaper");
 
 // ============================================================================
 // Dynamic Loudness Parameters
@@ -910,16 +872,11 @@ impl AtomicDynamicLoudnessParams {
         }
     }
 
-    #[inline]
-    pub fn set_enabled(&self, enabled: bool) {
-        self.enabled.store(enabled, Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
-    }
+    impl_set_enabled_accessor!();
 
     #[inline]
     pub fn set_volume(&self, vol: f64) {
-        self.volume.store(vol.clamp(0.0, 1.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.volume, vol, 0.0, 1.0, &self.dirty);
     }
 
     /// Alias for set_volume - for API compatibility
@@ -933,9 +890,7 @@ impl AtomicDynamicLoudnessParams {
     /// Set strength (0.0 - 1.0)
     #[inline]
     pub fn set_strength(&self, strength: f64) {
-        self.strength
-            .store(strength.clamp(0.0, 1.0), Ordering::Release);
-        self.dirty.store(true, Ordering::Release);
+        store_clamped_f64_and_mark_dirty(&self.strength, strength, 0.0, 1.0, &self.dirty);
     }
 
     #[inline]
@@ -947,21 +902,9 @@ impl AtomicDynamicLoudnessParams {
         }
     }
 
-    #[inline]
-    pub fn has_update(&self) -> bool {
-        self.dirty.load(Ordering::Acquire)
-    }
+    impl_dirty_accessors!();
 
-    /// Clear dirty flag after reading params
-    #[inline]
-    pub fn clear_dirty(&self) {
-        self.dirty.store(false, Ordering::Relaxed);
-    }
-
-    #[inline]
-    pub fn is_enabled(&self) -> bool {
-        self.enabled.load(Ordering::Acquire)
-    }
+    impl_enabled_reader!();
 
     /// Get strength (0.0 - 1.0)
     #[inline]
@@ -970,11 +913,8 @@ impl AtomicDynamicLoudnessParams {
     }
 }
 
-impl Default for AtomicDynamicLoudnessParams {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl_default_via_new!(AtomicDynamicLoudnessParams);
+impl_lockfree_params!(AtomicDynamicLoudnessParams, "DynamicLoudness");
 
 /// Real-time dynamic loudness telemetry published by audio thread.
 ///
@@ -1012,11 +952,7 @@ impl AtomicDynamicLoudnessTelemetry {
     }
 }
 
-impl Default for AtomicDynamicLoudnessTelemetry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+impl_default_via_new!(AtomicDynamicLoudnessTelemetry);
 
 #[cfg(test)]
 mod tests {

@@ -16,7 +16,7 @@ use crate::player::{AudioPlayer, PlayerState};
 
 use super::{AppState, ScanTaskRecord, StateResponse};
 
-const EQ_BAND_INDEXES: [(&str, usize); 15] = [
+const EQ_BAND_INDEXES: [(&str, usize); 10] = [
     ("31", 0),
     ("62", 1),
     ("125", 2),
@@ -27,12 +27,6 @@ const EQ_BAND_INDEXES: [(&str, usize); 15] = [
     ("4000", 7),
     ("8000", 8),
     ("16000", 9),
-    // Legacy aliases accepted for persisted older frontend payloads.
-    ("1k", 5),
-    ("2k", 6),
-    ("4k", 7),
-    ("8k", 8),
-    ("16k", 9),
 ];
 
 pub(crate) fn eq_band_name_to_index(name: &str) -> Option<usize> {
