@@ -1,4 +1,5 @@
 import { createEffect, createSignal, onCleanup, Show } from "solid-js";
+import { isVideoArtworkUrl } from "../shared/ui/mediaArtwork";
 
 interface BackgroundLayerProps {
   coverUrl: string | null;
@@ -60,40 +61,37 @@ export function BackgroundLayer(props: BackgroundLayerProps) {
   const maskColor = () => isLight()
     ? `rgba(255, 255, 255, ${maskOpacity()})`
     : `rgba(0, 0, 0, ${maskOpacity()})`;
+  const layerStyle = () => ({
+    filter: `blur(${blur()}px) brightness(${brightness()})`,
+    opacity: 1
+  });
+  const exitingLayerStyle = () => ({
+    filter: `blur(${blur()}px) brightness(${brightness()})`,
+    opacity: fading() ? 1 : 0
+  });
 
   return (
     <div class="bg-layer" aria-hidden="true">
       <Show when={hasLayer()}>
         <Show when={previousUrl()}>
-          {(url) => (
-            <img
-              class="bg-layer-image bg-layer-image--exit"
-              src={url()}
-              alt=""
-              draggable={false}
-              style={{
-                filter: `blur(${blur()}px) brightness(${brightness()})`,
-                opacity: fading() ? 1 : 0
-              }}
-            />
-          )}
+          {(url) => <BackgroundMedia url={url()} className="bg-layer-image bg-layer-image--exit" style={exitingLayerStyle()} />}
         </Show>
         <Show when={currentUrl()}>
-          {(url) => (
-            <img
-              class="bg-layer-image"
-              src={url()}
-              alt=""
-              draggable={false}
-              style={{
-                filter: `blur(${blur()}px) brightness(${brightness()})`,
-                opacity: 1
-              }}
-            />
-          )}
+          {(url) => <BackgroundMedia url={url()} className="bg-layer-image" style={layerStyle()} />}
         </Show>
         <div class="bg-layer-mask" style={{ background: maskColor() }} />
       </Show>
     </div>
+  );
+}
+
+function BackgroundMedia(props: { url: string; className: string; style: Record<string, string | number> }) {
+  return (
+    <Show
+      when={isVideoArtworkUrl(props.url)}
+      fallback={<img class={props.className} src={props.url} alt="" draggable={false} style={props.style} />}
+    >
+      <video class={props.className} src={props.url} autoplay loop muted playsinline style={props.style} />
+    </Show>
   );
 }

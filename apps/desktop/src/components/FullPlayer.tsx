@@ -18,6 +18,7 @@ import {
   getRootStyle,
   getStageStyle
 } from "./player/fullPlayerLayout";
+import { isVideoArtworkUrl } from "../shared/ui/mediaArtwork";
 import { FullPlayerOverlayMenu } from "./player/FullPlayerOverlayMenu";
 import { FullPlayerPrimaryPanel } from "./player/FullPlayerPrimaryPanel";
 import { stripBracketedContent } from "./player/metadata";
@@ -43,6 +44,7 @@ interface FullPlayerProps {
   subtitle: string;
   detail?: string | null;
   currentSongId: number | null;
+  currentMediaId?: string | null;
   duration: number;
   currentTime: number;
   isPlaying: boolean;
@@ -67,6 +69,43 @@ interface FullPlayerProps {
   bgBlur: number;
   isLiked?: boolean;
   onToggleLike?: () => void;
+  onOpenLyricSettings?: () => void;
+}
+
+const LYRIC_OFFSET_STORAGE_KEY = "ui.lyric.songOffsets";
+const LYRIC_OFFSET_STEP_MS = 500;
+
+function readLyricOffsetMap(): Record<string, number> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(LYRIC_OFFSET_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, number] => typeof entry[1] === "number")
+        .filter(([, value]) => Number.isFinite(value) && value !== 0)
+        .map(([key, value]) => [key, Math.trunc(value)])
+    );
+  } catch (error) {
+    console.warn("[FullPlayer] failed to read lyric offsets", error);
+    return {};
+  }
+}
+
+function writeLyricOffsetMap(offsets: Record<string, number>) {
+  if (typeof window === "undefined") return;
+  try {
+    const entries = Object.entries(offsets).filter(([, value]) => value !== 0);
+    if (entries.length === 0) {
+      window.localStorage.removeItem(LYRIC_OFFSET_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(LYRIC_OFFSET_STORAGE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch (error) {
+    console.warn("[FullPlayer] failed to persist lyric offsets", error);
+  }
 }
 
 export function FullPlayer(props: FullPlayerProps) {
@@ -74,6 +113,7 @@ export function FullPlayer(props: FullPlayerProps) {
   const uiSettings = useUISettings();
   const [volumePopoverOpen, setVolumePopoverOpen] = createSignal(false);
   const [backgroundLayers, setBackgroundLayers] = createSignal<readonly string[]>([]);
+  const [lyricOffsets, setLyricOffsets] = createSignal<Record<string, number>>(readLyricOffsetMap());
   let lyricListRef: HTMLDivElement | undefined;
   let rootRef: HTMLDivElement | undefined;
   let fullVolumeRef: HTMLDivElement | undefined;
@@ -176,7 +216,19 @@ export function FullPlayer(props: FullPlayerProps) {
     }
     props.onPlay();
   };
-  const currentTime = () => props.currentTime;
+  const lyricOffsetKey = createMemo(() => {
+    if (props.currentSongId !== null) return `ncm:${props.currentSongId}`;
+    if (props.currentMediaId !== null && props.currentMediaId !== undefined) {
+      return `local:${props.currentMediaId}`;
+    }
+    return null;
+  });
+  const lyricOffsetMs = createMemo(() => {
+    const key = lyricOffsetKey();
+    return key ? lyricOffsets()[key] ?? 0 : 0;
+  });
+  const lyricOffsetSeconds = createMemo(() => lyricOffsetMs() / 1000);
+  const currentTime = () => props.currentTime + lyricOffsetSeconds();
   const activeLyricIndex = createMemo(() => findActiveLyricIndex(lyrics(), currentTime()));
   const compactLyric = createMemo(() => {
     const index = activeLyricIndex();
@@ -288,11 +340,47 @@ export function FullPlayer(props: FullPlayerProps) {
     if (lyricStatus() === "error") return lyricError() ?? t("fullPlayer.lyric.error");
     return t("fullPlayer.lyric.placeholder");
   };
+  const copyCurrentLyric = () => {
+    const current = compactLyric()?.trim();
+    if (!current || typeof navigator === "undefined" || !navigator.clipboard) {
+      return;
+    }
+    void navigator.clipboard.writeText(current).catch((error) => {
+      console.warn("[FullPlayer] clipboard writeText failed", error);
+    });
+  };
+  const formatLyricOffset = () => {
+    const offset = lyricOffsetMs();
+    if (offset === 0) return "0s";
+    const seconds = Number((offset / 1000).toFixed(2));
+    return offset > 0 ? `+${seconds}s` : `${seconds}s`;
+  };
+  const setCurrentLyricOffset = (nextOffset: number) => {
+    const key = lyricOffsetKey();
+    if (!key) return;
+    const normalized = Math.trunc(nextOffset);
+    setLyricOffsets((current) => {
+      const next = { ...current };
+      if (normalized === 0) {
+        delete next[key];
+      } else {
+        next[key] = normalized;
+      }
+      writeLyricOffsetMap(next);
+      return next;
+    });
+  };
+  const changeLyricOffset = (deltaMs: number) => {
+    setCurrentLyricOffset(lyricOffsetMs() + deltaMs);
+  };
   const controlShellLabels = () => ({
     close: t("fullPlayer.aria.close"),
     favorite: t("player.aria.favorite"),
     addToPlaylist: t("fullPlayer.action.addToPlaylist"),
     download: t("fullPlayer.action.download"),
+    copyLyric: t("fullPlayer.action.copyLyric"),
+    lyricOffset: t("fullPlayer.action.lyricOffset"),
+    lyricSettings: t("fullPlayer.action.lyricSettings"),
     comment: t("fullPlayer.comment.toggle"),
     transport: t("player.aria.transport"),
     prev: t("player.aria.prev"),
@@ -310,6 +398,12 @@ export function FullPlayer(props: FullPlayerProps) {
     isLiked: Boolean(props.isLiked),
     showAddToPlaylist: uiSettings.fullPlayerShowAddToPlaylist,
     showDownload: uiSettings.fullPlayerShowDownload,
+    showCopyLyric: uiSettings.fullPlayerShowCopyLyric,
+    canCopyLyric: Boolean(compactLyric()?.trim()),
+    showLyricOffset: uiSettings.fullPlayerShowLyricOffset,
+    canAdjustLyricOffset: Boolean(lyricOffsetKey()) && hasLyrics(),
+    lyricOffsetValue: formatLyricOffset(),
+    showLyricSettings: uiSettings.fullPlayerShowLyricSettings,
     showComments: canShowComments() || showComment(),
     showCommentCount: uiSettings.fullPlayerShowCommentCount,
     commentCount: commentCount(),
@@ -317,6 +411,11 @@ export function FullPlayer(props: FullPlayerProps) {
     commentsEnabled: canShowComments(),
     onClose: props.onClose,
     onToggleLike: props.onToggleLike,
+    onCopyLyric: copyCurrentLyric,
+    onDecreaseLyricOffset: () => changeLyricOffset(-LYRIC_OFFSET_STEP_MS),
+    onIncreaseLyricOffset: () => changeLyricOffset(LYRIC_OFFSET_STEP_MS),
+    onResetLyricOffset: () => setCurrentLyricOffset(0),
+    onOpenLyricSettings: props.onOpenLyricSettings,
     onToggleComment: toggleComment
   });
   const controlShellTransport = () => ({
@@ -458,8 +557,12 @@ export function FullPlayer(props: FullPlayerProps) {
             {(url, index) => (
               <div
                 class={`full-player-fluid${index() === 0 ? " is-current" : " is-previous"}`}
-                style={getCoverBackgroundStyle(url)}
-              />
+                style={isVideoArtworkUrl(url) ? undefined : getCoverBackgroundStyle(url)}
+              >
+                <Show when={isVideoArtworkUrl(url)}>
+                  <video class="full-player-fluid-media" src={url} autoplay loop muted playsinline />
+                </Show>
+              </div>
             )}
           </For>
         </div>

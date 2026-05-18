@@ -50,6 +50,14 @@ pub(in crate::server::netease) fn read_song_detail(
     })
 }
 
+pub(in crate::server::netease) fn read_song_dynamic_cover_url(payload: &Value) -> Option<String> {
+    payload
+        .get("data")
+        .and_then(|data| data.get("videoPlayUrl"))
+        .and_then(read_non_empty_string)
+        .or_else(|| payload.get("videoPlayUrl").and_then(read_non_empty_string))
+}
+
 pub(in crate::server::netease) fn read_search_tracks(payload: &Value) -> Vec<NcmTrackSummary> {
     payload
         .get("result")

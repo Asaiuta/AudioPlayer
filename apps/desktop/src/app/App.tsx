@@ -15,6 +15,7 @@ import { NeteasePage } from "../features/online/NeteasePage";
 import { NeteaseRadioPage } from "../features/online/NeteaseRadioPage";
 import { QueueDrawer } from "../features/queue/QueueDrawer";
 import { SettingsPage } from "../features/settings/SettingsPage";
+import type { SettingsCategoryKey } from "../features/settings/components/SettingsCategoryNav";
 import { createApiClient } from "../shared/api/client";
 import { useTranslation } from "../shared/i18n";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
@@ -42,6 +43,8 @@ function AppContent() {
   const { td } = useTranslation();
   const accountStore = useNcmAccount();
   const [isNcmLoginOpen, setIsNcmLoginOpen] = createSignal<boolean>(false);
+  const [settingsInitialCategory, setSettingsInitialCategory] =
+    createSignal<SettingsCategoryKey | undefined>(undefined);
   const neteaseMode = createMemo<NeteasePageMode | null>(() => {
     const page = controller.activePage();
     return isNeteasePageMode(page) ? page : null;
@@ -54,6 +57,10 @@ function AppContent() {
   };
   const requireNcmLogin = () => setIsNcmLoginOpen(true);
   const isNcmLoggedIn = () => accountStore.activeAccount() !== null;
+  const openSettings = (category?: SettingsCategoryKey) => {
+    setSettingsInitialCategory(category);
+    controller.setSettingsOpen(true);
+  };
 
   return (
     <>
@@ -77,7 +84,7 @@ function AppContent() {
               canGoForward={controller.canGoForward()}
               onGoBack={controller.handleGoBack}
               onGoForward={controller.handleGoForward}
-              onOpenSettings={() => controller.setSettingsOpen(true)}
+              onOpenSettings={() => openSettings()}
               onRequireNcmLogin={requireNcmLogin}
               windowControls={<WindowControls visible={controller.uiSettings.customChrome} />}
             />
@@ -120,7 +127,7 @@ function AppContent() {
               onToggleLike={controller.handleToggleLike}
               onCoverClick={() => controller.setFullPlayerOpen(true)}
               onOpenQueue={controller.handleToggleQueue}
-              onOpenSettings={() => controller.setSettingsOpen(true)}
+              onOpenSettings={() => openSettings()}
               onNavigate={controller.handleActivePageChange}
               onSelectArtist={(artist) => controller.handleNavigateToArtistDetail({
                 id: artist.id,
@@ -168,6 +175,7 @@ function AppContent() {
                       onSelectedPlaylistChange={controller.handleSelectedPlaylistChange}
                       onNavigate={controller.handleActivePageChange}
                       onNavigateToDiscover={controller.handleNavigateToDiscover}
+                      onNavigateToRadioDetail={controller.handleNavigateToRadioDetail}
                       discoverTabRequest={controller.discoverTabRequest()}
                       artistDetailRequest={controller.artistDetailRequest()}
                       onRequireNcmLogin={requireNcmLogin}
@@ -196,7 +204,14 @@ function AppContent() {
                   />
                 </Match>
                 <Match when={displayedPage() === "radio"}>
-                  <NeteaseRadioPage />
+                  <NeteaseRadioPage
+                    radioDetailRequest={controller.radioDetailRequest()}
+                    onStateRefresh={refreshPlayback}
+                    currentTrackPath={controller.currentTrackPath()}
+                    currentSongId={controller.currentNcmSongId()}
+                    isPlaying={Boolean(controller.player()?.is_playing)}
+                    onRegisterPlayback={controller.registerNcmPlayback}
+                  />
                 </Match>
                 <Match when={controller.isPlaceholderPage(displayedPage())}>
                   <div class="panel panel-placeholder">
@@ -219,6 +234,7 @@ function AppContent() {
           subtitle={controller.fullPlayerSubtitle()}
           detail={controller.fullPlayerDetail()}
           currentSongId={controller.currentNcmSongId()}
+          currentMediaId={controller.currentMediaId()}
           duration={controller.player()?.duration ?? 0}
           currentTime={controller.livePosition() ?? controller.player()?.current_time ?? 0}
           isPlaying={Boolean(controller.player()?.is_playing)}
@@ -243,6 +259,7 @@ function AppContent() {
           onOpenQueue={controller.handleOpenQueueFromFullPlayer}
           isLiked={controller.currentIsLiked()}
           onToggleLike={controller.handleToggleLike}
+          onOpenLyricSettings={() => openSettings("lyrics")}
         />
         <QueueDrawer
           open={controller.queueDrawerOpen()}
@@ -258,6 +275,7 @@ function AppContent() {
           isOpen={controller.settingsOpen()}
           onClose={() => controller.setSettingsOpen(false)}
           onStateRefresh={controller.refreshState}
+          initialCategory={settingsInitialCategory()}
         />
         <LoginModal open={isNcmLoginOpen()} onClose={() => setIsNcmLoginOpen(false)} />
       </UISearchProvider>

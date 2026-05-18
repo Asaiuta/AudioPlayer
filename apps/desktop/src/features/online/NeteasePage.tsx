@@ -33,8 +33,9 @@ interface NeteasePageProps {
   onRegisterPlayback: (track: NcmTrackReference) => void;
   selectedPlaylistId?: number | null;
   onSelectedPlaylistChange?: (playlistId: number | null) => void;
-  onNavigate?: (page: "recommend" | "discover") => void;
+  onNavigate?: (page: "recommend" | "discover" | "radio") => void;
   onNavigateToDiscover?: (tab: string) => void;
+  onNavigateToRadioDetail?: (radio: FeedCardItem) => void;
   discoverTabRequest?: { tab: string; version: number };
   artistDetailRequest?: { artist: FeedCardItem | null; version: number };
   onRequireNcmLogin: () => void;
@@ -114,6 +115,7 @@ export function NeteasePage(props: NeteasePageProps) {
             onSelectedPlaylistChange={props.onSelectedPlaylistChange}
             onNavigate={props.onNavigate}
             onNavigateToDiscover={props.onNavigateToDiscover}
+            onNavigateToRadioDetail={props.onNavigateToRadioDetail}
             onMarkPendingDiscoverSearch={() => setPendingDiscoverSearch(true)}
             setFeedback={setRawFeedback}
             playback={playback}

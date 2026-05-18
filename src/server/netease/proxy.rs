@@ -249,6 +249,9 @@ proxy_route_group!(DJ_PROXY_METHODS, dispatch_dj_route, |client, query| {
 
 proxy_route_group!(MV_PROXY_METHODS, dispatch_mv_route, |client, query| {
     "mv_first" => client.mv_first(query).await,
+    "mv_detail" => client.mv_detail(query).await,
+    "mv_detail_info" => client.mv_detail_info(query).await,
+    "mv_url" => client.mv_url(query).await,
 });
 
 const PROXY_METHOD_REGISTRY: &[(ProxyRouteGroup, &[&str])] = &[

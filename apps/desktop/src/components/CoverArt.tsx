@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { useTranslation } from "../shared/i18n";
 import { DEFAULT_COVER_ART_URL } from "../shared/ui/artwork";
+import { isVideoArtworkUrl } from "../shared/ui/mediaArtwork";
 
 interface CoverArtProps {
   coverUrl: string | null;
@@ -25,15 +26,33 @@ function CoverPlaceholder() {
 function CoverLayer(props: { url: string; alt: string }) {
   const [loaded, setLoaded] = createSignal(false);
   const [failed, setFailed] = createSignal(false);
+  const isVideo = () => isVideoArtworkUrl(props.url);
   return (
     <Show when={!failed()}>
-      <img
-        class={`cover-art-image${loaded() ? " is-loaded" : ""}`}
-        src={props.url}
-        alt={props.alt}
-        onLoad={() => setLoaded(true)}
-        onError={() => setFailed(true)}
-      />
+      <Show
+        when={isVideo()}
+        fallback={
+          <img
+            class={`cover-art-image${loaded() ? " is-loaded" : ""}`}
+            src={props.url}
+            alt={props.alt}
+            onLoad={() => setLoaded(true)}
+            onError={() => setFailed(true)}
+          />
+        }
+      >
+        <video
+          class={`cover-art-image${loaded() ? " is-loaded" : ""}`}
+          src={props.url}
+          aria-label={props.alt}
+          autoplay
+          loop
+          muted
+          playsinline
+          onCanPlay={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+        />
+      </Show>
     </Show>
   );
 }

@@ -13,11 +13,17 @@ export interface ArtistDetailRequest {
   version: number;
 }
 
+export interface RadioDetailRequest {
+  radio: FeedCardItem | null;
+  version: number;
+}
+
 export interface NavigationController {
   activePage: Accessor<ActivePage>;
   selectedPlaylistId: Accessor<number | null>;
   discoverTabRequest: Accessor<DiscoverTabRequest>;
   artistDetailRequest: Accessor<ArtistDetailRequest>;
+  radioDetailRequest: Accessor<RadioDetailRequest>;
   canGoBack: Accessor<boolean>;
   canGoForward: Accessor<boolean>;
   handleActivePageChange: (page: ActivePage) => void;
@@ -25,6 +31,7 @@ export interface NavigationController {
   handleSelectedPlaylistChange: (playlistId: number | null) => void;
   handleNavigateToDiscover: (tab: string) => void;
   handleNavigateToArtistDetail: (artist: FeedCardItem) => void;
+  handleNavigateToRadioDetail: (radio: FeedCardItem) => void;
   handleGoBack: () => void;
   handleGoForward: () => void;
 }
@@ -48,6 +55,10 @@ export function useNavigationController(): NavigationController {
   });
   const [artistDetailRequest, setArtistDetailRequest] = createSignal<ArtistDetailRequest>({
     artist: null,
+    version: 0
+  });
+  const [radioDetailRequest, setRadioDetailRequest] = createSignal<RadioDetailRequest>({
+    radio: null,
     version: 0
   });
   const [historyStack, setHistoryStack] = createSignal<ActivePage[]>(["recommend"]);
@@ -103,6 +114,11 @@ export function useNavigationController(): NavigationController {
     pushNavigation("discover");
   };
 
+  const handleNavigateToRadioDetail = (radio: FeedCardItem) => {
+    setRadioDetailRequest((prev) => ({ radio, version: prev.version + 1 }));
+    pushNavigation("radio");
+  };
+
   const handleGoBack = () => {
     const nextIndex = historyIndex() - 1;
     if (nextIndex < 0) return;
@@ -128,6 +144,7 @@ export function useNavigationController(): NavigationController {
     selectedPlaylistId,
     discoverTabRequest,
     artistDetailRequest,
+    radioDetailRequest,
     canGoBack,
     canGoForward,
     handleActivePageChange,
@@ -135,6 +152,7 @@ export function useNavigationController(): NavigationController {
     handleSelectedPlaylistChange,
     handleNavigateToDiscover,
     handleNavigateToArtistDetail,
+    handleNavigateToRadioDetail,
     handleGoBack,
     handleGoForward
   };

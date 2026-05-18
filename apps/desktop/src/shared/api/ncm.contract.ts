@@ -61,7 +61,12 @@ export type NcmApiMethodContract = [
   Expect<Equal<ApiClient["resolveNcmTrack"], (input: ResolveNcmTrackInput) => Promise<ResolvedNcmTrack>>>,
   Expect<Equal<ApiClient["playNcmTrack"], (input: ResolveNcmTrackInput) => Promise<NcmTrackPlaybackResult>>>,
   Expect<Equal<ApiClient["enqueueNcmTrack"], (input: ResolveNcmTrackInput) => Promise<NcmTrackQueueResult>>>,
-  Expect<Equal<ApiClient["resolveNcmTrackSupplement"], (songId: number) => Promise<ResolvedNcmTrackSupplement>>>,
+  Expect<
+    Equal<
+      ApiClient["resolveNcmTrackSupplement"],
+      (songId: number, options?: { dynamicCover?: boolean }) => Promise<ResolvedNcmTrackSupplement>
+    >
+  >,
   Expect<Equal<ApiClient["getNcmAccounts"], () => Promise<NcmAccountState>>>,
   Expect<Equal<ApiClient["upsertNcmAccount"], (input: NcmAccountUpsertInput) => Promise<NcmAccountState>>>,
   Expect<Equal<ApiClient["setActiveNcmAccount"], (userId: number) => Promise<NcmAccountState>>>,

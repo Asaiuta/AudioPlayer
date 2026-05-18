@@ -160,7 +160,7 @@ export function CloudPage(props: CloudPageProps) {
   };
 
   const handleContextAction = (action: MediaContextAction, item: OnlineTrackItem) => {
-    if (action === "delete") {
+    if (action === "delete-from-cloud" || action === "delete") {
       void deleteCloudTrack(item);
     }
   };
@@ -264,7 +264,7 @@ export function CloudPage(props: CloudPageProps) {
           onPlay={(item) => void playback.playOnlineTrack(item)}
           onEnqueue={(item) => void playback.enqueueOnlineTrack(item)}
           onContextAction={handleContextAction}
-          contextActions={["play", "enqueue", "delete"]}
+          contextActions={["play", "enqueue", "search", "copy-name", "copy-id", "share-link", "delete-from-cloud"]}
           deleteActionLabel={t("ncm.cloud.deleteAction")}
           isLoading={isLoading()}
           emptyState={

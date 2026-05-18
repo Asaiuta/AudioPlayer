@@ -38,7 +38,7 @@ use parsers::{
     read_personal_fm_tracks, read_personalized_dj_cards, read_personalized_mv_cards,
     read_personalized_playlist_cards, read_playlist_tracks,
     read_radar_playlist_card, read_recommend_resource_cards, read_search_playlists,
-    read_search_tracks, read_song_detail, read_song_detail_tracks, read_song_url,
+    read_search_tracks, read_song_detail, read_song_detail_tracks, read_song_dynamic_cover_url, read_song_url,
     read_top_artist_cards, read_top_song_tracks, read_user_playlists, track_covers,
 };
 use playback_actions::{
@@ -251,6 +251,9 @@ mod tests {
             ("/dj/sub", "dj_sub"),
             ("/dj/toplist", "dj_toplist"),
             ("/mv/first", "mv_first"),
+            ("/mv/detail", "mv_detail"),
+            ("/mv/detail/info", "mv_detail_info"),
+            ("/mv/url", "mv_url"),
         ];
         for (path, expected) in cases {
             let normalized = normalize_route(path);

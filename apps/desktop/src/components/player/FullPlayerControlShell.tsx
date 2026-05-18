@@ -3,7 +3,10 @@ import type { Component } from "solid-js";
 import { PlayerVolumePopover } from "./PlayerVolumePopover";
 import {
   IconChevronDown,
+  IconChevronLeft,
+  IconChevronRight,
   IconControls,
+  IconCopy,
   IconDesktopLyric,
   IconDownload,
   IconHeart,
@@ -22,6 +25,9 @@ interface FullPlayerShellLabels {
   favorite: string;
   addToPlaylist: string;
   download: string;
+  copyLyric: string;
+  lyricOffset: string;
+  lyricSettings: string;
   comment: string;
   transport: string;
   prev: string;
@@ -40,6 +46,12 @@ interface FullPlayerShellActionsSection {
   isLiked: boolean;
   showAddToPlaylist: boolean;
   showDownload: boolean;
+  showCopyLyric: boolean;
+  canCopyLyric: boolean;
+  showLyricOffset: boolean;
+  canAdjustLyricOffset: boolean;
+  lyricOffsetValue: string;
+  showLyricSettings: boolean;
   showComments: boolean;
   showCommentCount: boolean;
   commentCount: number;
@@ -47,6 +59,11 @@ interface FullPlayerShellActionsSection {
   commentsEnabled: boolean;
   onClose: () => void;
   onToggleLike?: () => void;
+  onCopyLyric: () => void;
+  onDecreaseLyricOffset: () => void;
+  onIncreaseLyricOffset: () => void;
+  onResetLyricOffset: () => void;
+  onOpenLyricSettings?: () => void;
   onToggleComment: () => void;
 }
 
@@ -153,6 +170,64 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
             <IconDownload />
           </button>
         </Show>
+        <Show when={props.actions.showCopyLyric}>
+          <button
+            type="button"
+            class="full-player-menu-icon"
+            onClick={props.actions.onCopyLyric}
+            disabled={!props.actions.canCopyLyric}
+            aria-label={props.labels.copyLyric}
+            title={props.labels.copyLyric}
+          >
+            <IconCopy />
+          </button>
+        </Show>
+        <Show when={props.actions.showLyricOffset}>
+          <div class="full-player-lyric-offset-control" role="group" aria-label={props.labels.lyricOffset}>
+            <button
+              type="button"
+              class="full-player-menu-icon"
+              onClick={props.actions.onDecreaseLyricOffset}
+              disabled={!props.actions.canAdjustLyricOffset}
+              aria-label={`${props.labels.lyricOffset} -500ms`}
+              title={`${props.labels.lyricOffset} -500ms`}
+            >
+              <IconChevronLeft />
+            </button>
+            <button
+              type="button"
+              class="full-player-lyric-offset-value"
+              onClick={props.actions.onResetLyricOffset}
+              disabled={!props.actions.canAdjustLyricOffset || props.actions.lyricOffsetValue === "0s"}
+              aria-label={`${props.labels.lyricOffset} ${props.actions.lyricOffsetValue}`}
+              title={props.labels.lyricOffset}
+            >
+              {props.actions.lyricOffsetValue}
+            </button>
+            <button
+              type="button"
+              class="full-player-menu-icon"
+              onClick={props.actions.onIncreaseLyricOffset}
+              disabled={!props.actions.canAdjustLyricOffset}
+              aria-label={`${props.labels.lyricOffset} +500ms`}
+              title={`${props.labels.lyricOffset} +500ms`}
+            >
+              <IconChevronRight />
+            </button>
+          </div>
+        </Show>
+        <Show when={props.actions.showLyricSettings}>
+          <button
+            type="button"
+            class="full-player-menu-icon"
+            onClick={() => props.actions.onOpenLyricSettings?.()}
+            aria-label={props.labels.lyricSettings}
+            title={props.labels.lyricSettings}
+            disabled={!props.actions.onOpenLyricSettings}
+          >
+            <IconControls />
+          </button>
+        </Show>
         <Show when={props.actions.showComments}>
           <button
             type="button"
@@ -257,9 +332,10 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
         <Show when={props.utility.showDesktopLyric}>
           <button
             type="button"
-            class="full-player-menu-icon full-player-utility-hidden"
+            class="full-player-menu-icon full-player-utility-disabled"
             aria-label={props.labels.desktopLyric}
             title={props.labels.desktopLyric}
+            disabled
           >
             <IconDesktopLyric />
           </button>
@@ -267,9 +343,10 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
         <Show when={props.utility.showMoreSettings}>
           <button
             type="button"
-            class="full-player-menu-icon full-player-utility-hidden"
+            class="full-player-menu-icon full-player-utility-disabled"
             aria-label={props.labels.more}
             title={props.labels.more}
+            disabled
           >
             <IconControls />
           </button>

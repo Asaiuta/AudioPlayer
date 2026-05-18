@@ -4,7 +4,6 @@ import { DailySongsCard, type DailySongsCardCover } from "../../components/Daily
 import { HorizontalCardRow } from "../../components/HorizontalCardRow";
 import { IconAlbum, IconArtist, IconPause, IconPlay, IconPlaylist, IconSkipNext, IconThumbDown } from "../../components/icons";
 import { createApiClient, type NcmHomeFeed } from "../../shared/api/client";
-import { ncmMvPageUrl, ncmProgramPageUrl } from "../../shared/api/ncm/urls";
 import { useTranslation } from "../../shared/i18n";
 import { cacheFetch } from "../../shared/state/cacheFetch";
 import { useUISettings, type CoverHiddenKey, type HomeSectionKey } from "../../shared/state/useUISettings";
@@ -40,6 +39,8 @@ interface NeteaseHomeFeedProps {
   isPlaying?: boolean;
   onSelectAlbum?: (album: FeedCardItem) => void;
   onSelectArtist?: (artist: FeedCardItem) => void;
+  onSelectVideo?: (video: FeedCardItem) => void;
+  onSelectRadio?: (radio: FeedCardItem) => void;
   onNavigateToDiscover?: (tab: DiscoverTab) => void;
 }
 
@@ -247,7 +248,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     coverVisible={showCover("home")}
                     playCount={item.playCount}
                     description={item.description}
-                    onClick={() => window.open(ncmMvPageUrl(item.id), "_blank")}
+                    onClick={() => props.onSelectVideo?.(item)}
                   />
                 )}
               </For>
@@ -267,7 +268,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     coverVisible={showCover("home")}
                     playCount={item.playCount}
                     description={item.description}
-                    onClick={() => window.open(ncmProgramPageUrl(item.id), "_blank")}
+                    onClick={() => props.onSelectRadio?.(item)}
                   />
                 )}
               </For>

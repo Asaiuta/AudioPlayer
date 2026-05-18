@@ -1,7 +1,8 @@
 use super::{
-    active_ncm_cookie, ncm_upstream_error_response, read_song_detail, read_song_url, AppState,
-    NcmTrackResolveError, ResolveNcmTrackRequest, ResolveNcmTrackSupplementRequest,
-    ResolvedNcmTrack, ResolvedNcmTrackSupplement,
+    active_ncm_cookie, ncm_upstream_error_response, read_song_detail,
+    read_song_dynamic_cover_url, read_song_url, AppState, NcmTrackResolveError,
+    ResolveNcmTrackRequest, ResolveNcmTrackSupplementRequest, ResolvedNcmTrack,
+    ResolvedNcmTrackSupplement,
 };
 use actix_web::{web, HttpResponse};
 use ncm_api_rs::Query;
@@ -223,15 +224,26 @@ pub(super) async fn resolve_ncm_track_supplement(
         .or_else(|| active_ncm_cookie(&data));
     let mut detail_query = Query::new().param("ids", &request.song_id.to_string());
     let mut lyrics_query = Query::new().param("id", &request.song_id.to_string());
+    let mut dynamic_cover_query = Query::new().param("id", &request.song_id.to_string());
     if let Some(cookie) = cookie.as_deref() {
         detail_query.cookie = Some(cookie.to_string());
         lyrics_query.cookie = Some(cookie.to_string());
+        dynamic_cover_query.cookie = Some(cookie.to_string());
     }
 
     let start = std::time::Instant::now();
-    let (detail_result, lyrics_result) = tokio::join!(
+    let dynamic_cover_enabled = request.dynamic_cover.unwrap_or(false);
+    let dynamic_cover_future = async {
+        if dynamic_cover_enabled {
+            Some(data.ncm_client.song_dynamic_cover(&dynamic_cover_query).await)
+        } else {
+            None
+        }
+    };
+    let (detail_result, lyrics_result, dynamic_cover_result) = tokio::join!(
         data.ncm_client.song_detail(&detail_query),
-        data.ncm_client.lyric_new(&lyrics_query)
+        data.ncm_client.lyric_new(&lyrics_query),
+        dynamic_cover_future
     );
 
     let (detail, detail_error) = match detail_result {
@@ -261,6 +273,20 @@ pub(super) async fn resolve_ncm_track_supplement(
         }
     };
     let detail = detail.unwrap_or_default();
+    let (dynamic_cover_url, dynamic_cover_error) = match dynamic_cover_result {
+        Some(Ok(response)) => (read_song_dynamic_cover_url(&response.body), None),
+        Some(Err(err)) => {
+            let message = err.to_string();
+            log::warn!(
+                "NCM supplement track {} dynamic cover -> ERROR: {} ({:.1?})",
+                request.song_id,
+                message,
+                start.elapsed()
+            );
+            (None, Some(message))
+        }
+        None => (None, None),
+    };
 
     log::info!(
         "NCM supplement track {} -> OK ({:.1?})",
@@ -277,9 +303,11 @@ pub(super) async fn resolve_ncm_track_supplement(
             artists: detail.artists,
             album: detail.album,
             cover_url: detail.cover_url,
+            dynamic_cover_url,
             lyrics,
             detail_error,
             lyrics_error,
+            dynamic_cover_error,
         }
     }))
 }

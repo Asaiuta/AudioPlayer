@@ -119,9 +119,11 @@ export const parseResolvedNcmTrackSupplementResponse = (value: unknown): Resolve
     !Array.isArray(supplement.artists) ||
     !isNullableString(supplement.album) ||
     !isNullableString(supplement.cover_url) ||
+    !isNullableString(supplement.dynamic_cover_url) ||
     !Array.isArray(supplement.lyrics) ||
     !isNullableString(supplement.detail_error) ||
-    !isNullableString(supplement.lyrics_error)
+    !isNullableString(supplement.lyrics_error) ||
+    !isNullableString(supplement.dynamic_cover_error)
   ) {
     throw new Error("Invalid NCM supplement payload");
   }
@@ -149,9 +151,11 @@ export const parseResolvedNcmTrackSupplementResponse = (value: unknown): Resolve
     artists,
     album: supplement.album,
     coverUrl: supplement.cover_url,
+    dynamicCoverUrl: supplement.dynamic_cover_url,
     lyrics,
     detailError: supplement.detail_error,
-    lyricsError: supplement.lyrics_error
+    lyricsError: supplement.lyrics_error,
+    dynamicCoverError: supplement.dynamic_cover_error
   };
 };
 

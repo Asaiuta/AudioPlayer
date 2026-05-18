@@ -54,6 +54,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
   const [selectedArtist, setSelectedArtist] = createSignal<FeedCardItem | null>(null);
   const [artistTracksState, setArtistTracksState] = createSignal<OnlineTrackItem[]>([]);
   const [isLoadingArtistTracks, setIsLoadingArtistTracks] = createSignal(false);
+  const [selectedVideo, setSelectedVideo] = createSignal<FeedCardItem | null>(null);
 
   const clearAllDetailViews = () => {
     setSelectedPlaylist(null);
@@ -64,6 +65,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     setAlbumTracksState([]);
     setSelectedArtist(null);
     setArtistTracksState([]);
+    setSelectedVideo(null);
     onSelectedPlaylistChange?.(null);
   };
 
@@ -233,6 +235,15 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     setArtistTracksState([]);
   };
 
+  const enterVideo = (videoItem: FeedCardItem) => {
+    clearAllDetailViews();
+    setSelectedVideo(videoItem);
+  };
+
+  const exitVideo = () => {
+    setSelectedVideo(null);
+  };
+
   createEffect(on(loginProfile, (profile, prev) => {
     if (prev !== undefined && prev !== null && profile === null) {
       clearAllDetailViews();
@@ -259,6 +270,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     selectedArtist,
     artistTracksState,
     isLoadingArtistTracks,
+    selectedVideo,
 
     setSelectedPlaylist,
     setPlaylistTracksState,
@@ -268,6 +280,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     loadPlaylistTracks,
     loadAlbumTracks,
     loadArtistTracks,
+    enterVideo,
 
     enterDailySongs,
     enterLikedSongs,
@@ -275,6 +288,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     exitLikedSongs,
     exitAlbum,
     exitArtist,
+    exitVideo,
     handleBackToPlaylists,
     clearAllDetailViews,
     handlePlaylistTrackScroll,

@@ -40,6 +40,7 @@ interface NcmTrackEnrichmentDeps {
   player: Accessor<PlayerState | null>;
   livePosition: Accessor<number | null>;
   coverUrl: Accessor<string | null>;
+  dynamicCoverEnabled?: Accessor<boolean>;
 }
 
 interface SupplementRequest {
@@ -49,6 +50,7 @@ interface SupplementRequest {
   artist: string | null;
   album: string | null;
   coverUrl: string | null;
+  dynamicCover: boolean;
 }
 
 type CurrentNcmSupplement = NcmTrackSupplement & {
@@ -71,6 +73,7 @@ const sameSupplementRequest = (
  */
 export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnrichment {
   const { api, player, livePosition, coverUrl } = deps;
+  const dynamicCoverEnabled = deps.dynamicCoverEnabled ?? (() => false);
   const accountStore = useNcmAccount();
 
   const [ncmTrackRefs, setNcmTrackRefs] = createSignal<Record<string, NcmTrackReference>>({});
@@ -140,8 +143,10 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       const artist = firstNonEmpty(trackRef?.artist, currentPlayerArtist());
       const album = firstNonEmpty(trackRef?.album, currentPlayerAlbum());
       const requestCoverUrl = firstNonEmpty(trackRef?.coverUrl, currentPlayerCoverUrl());
+      const dynamicCover = Boolean(trackRef) && dynamicCoverEnabled();
       const key = [
         trackRef ? `ncm:${trackRef.songId}` : `media:${mediaKey}`,
+        dynamicCover ? "dynamic-cover" : "static-cover",
         currentPlayerIsLoading() ? "loading" : "ready",
         title ?? "",
         artist ?? "",
@@ -155,7 +160,8 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
         title,
         artist,
         album,
-        coverUrl: requestCoverUrl
+        coverUrl: requestCoverUrl,
+        dynamicCover
       };
     },
     null,
@@ -171,7 +177,8 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       supplementRequest(),
       currentNcmSupplement(),
       currentPlayerCoverUrl(),
-      null
+      null,
+      { preferDynamicCover: false }
     )
   );
   const resolvedCoverUrl = createMemo(() =>
@@ -240,13 +247,16 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       artists: [],
       album: request.album,
       coverUrl: request.coverUrl,
+      dynamicCoverUrl: null,
       lyrics: [],
       error: null
     });
 
     const fetchSupplement = request.trackRef
       ? Promise.allSettled([
-          api.resolveNcmTrackSupplement(request.trackRef.songId),
+          api.resolveNcmTrackSupplement(request.trackRef.songId, {
+            dynamicCover: request.dynamicCover
+          }),
           api.getCurrentLyrics()
         ])
       : Promise.allSettled([api.getCurrentLyrics()]);
@@ -276,6 +286,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
             ? readErrorMessage(supplementResult.reason)
             : supplementResult.value.detailError ??
               supplementResult.value.lyricsError ??
+              supplementResult.value.dynamicCoverError ??
               (localLyricResult.status === "rejected"
                 ? readErrorMessage(localLyricResult.reason)
                 : null);
@@ -295,6 +306,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
           artists: resolvedSupplement?.artists ?? [],
           album: resolvedSupplement?.album ?? request.trackRef.album,
           coverUrl: resolvedSupplement?.coverUrl ?? request.trackRef.coverUrl,
+          dynamicCoverUrl: resolvedSupplement?.dynamicCoverUrl ?? null,
           lyrics,
           error
         });
@@ -319,6 +331,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
         artists: [],
         album: request.album,
         coverUrl: request.coverUrl,
+        dynamicCoverUrl: null,
         lyrics: localLyrics,
         error
       });

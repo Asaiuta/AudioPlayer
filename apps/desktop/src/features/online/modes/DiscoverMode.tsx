@@ -26,6 +26,7 @@ import type { PlaybackController } from "../shared/playback";
 import type {
   DiscoverNewKind,
   DiscoverPlaylistKind,
+  DiscoverCardItem,
   DiscoverTab,
   FeedCardItem,
   NcmProfile,
@@ -43,6 +44,15 @@ import {
 import { SearchMode } from "./SearchMode";
 
 const api = createApiClient();
+
+const toFeedCardItem = (item: DiscoverCardItem): FeedCardItem => ({
+  id: item.id,
+  title: item.title,
+  subtitle: item.subtitle,
+  coverUrl: item.coverUrl,
+  playCount: null,
+  description: null
+});
 
 interface CatEntry { name: string; category: number; hot: boolean }
 
@@ -140,12 +150,35 @@ export function DiscoverMode(props: DiscoverModeProps) {
     }
   );
 
+  const artistCards = createPagedDiscoverCards(
+    async ({ offset }) => {
+      const area = selectedArtistArea();
+      const items = await api.listNcmDiscoverArtists({
+        type: area.type,
+        area: area.area,
+        initial: discoverArtistInitial(),
+        limit: DISCOVER_PAGE_LIMIT,
+        offset
+      });
+      return {
+        items,
+        hasMore: items.length >= DISCOVER_PAGE_LIMIT
+      };
+    },
+    {
+      pageSize: DISCOVER_PAGE_LIMIT,
+      onError: (error) => console.warn("[NeteasePage] discover artists fetch failed", error)
+    }
+  );
+
   const shouldShowPlaylistCards = () => discoverTab() === "playlists";
   const shouldShowAlbumCards = () => discoverTab() === "new" && discoverNewKind() === "albums";
+  const shouldShowArtistCards = () => discoverTab() === "artists";
 
   createEffect(() => {
     if (shouldShowPlaylistCards()) void playlistCards.ensureLoaded();
     if (shouldShowAlbumCards()) void albumCards.ensureLoaded();
+    if (shouldShowArtistCards()) void artistCards.ensureLoaded();
   });
 
   createEffect(on(
@@ -163,27 +196,17 @@ export function DiscoverMode(props: DiscoverModeProps) {
     { defer: true }
   ));
 
+  createEffect(on(
+    () => [discoverArtistInitial(), selectedArtistArea().type, selectedArtistArea().area] as const,
+    () => {
+      if (!artistCards.hasLoaded() && !shouldShowArtistCards()) return;
+      void artistCards.reset();
+    },
+    { defer: true }
+  ));
+
   const [discoverToplists] = createResource(() =>
     safeLoadDiscover(() => api.listNcmDiscoverToplists(), [])
-  );
-  const [discoverArtists] = createResource(
-    () => ({
-      initial: discoverArtistInitial(),
-      type: selectedArtistArea().type,
-      area: selectedArtistArea().area
-    }),
-    (query) =>
-      safeLoadDiscover(
-        () =>
-          api.listNcmDiscoverArtists({
-            type: query.type,
-            area: query.area,
-            initial: query.initial,
-            limit: DISCOVER_PAGE_LIMIT,
-            offset: 0
-          }),
-        []
-      )
   );
   const [discoverSongs] = createResource(
     () => selectedNewArea().songType,
@@ -503,14 +526,11 @@ export function DiscoverMode(props: DiscoverModeProps) {
                 setDiscoverArtistAreaIndex={setDiscoverArtistAreaIndex}
                 discoverSectionTitle={discoverSectionTitle()}
                 discoverSectionSubtitle={discoverSectionSubtitle()}
-                discoverArtists={discoverArtists}
-                onLoadArtist={(artist) =>
-                  void detailNav.loadArtistTracks({
-                    ...artist,
-                    playCount: null,
-                    description: null
-                  })
-                }
+                allArtists={artistCards.items()}
+                isLoadingArtists={artistCards.isLoading()}
+                hasMoreArtists={artistCards.hasMore()}
+                onLoadArtist={(artist) => void detailNav.loadArtistTracks(toFeedCardItem(artist))}
+                onLoadMore={() => { void artistCards.loadMore(); }}
               />
             </Show>
             <Show when={discoverTab() === "new"}>
@@ -527,6 +547,7 @@ export function DiscoverMode(props: DiscoverModeProps) {
                 isLoadingAlbums={albumCards.isLoading()}
                 hasMoreAlbums={albumCards.hasMore()}
                 onLoadMoreAlbums={() => { void albumCards.loadMore(); }}
+                onLoadAlbum={(album) => void detailNav.loadAlbumTracks(toFeedCardItem(album))}
                 playback={props.playback}
                 currentTrackPath={props.currentTrackPath}
                 currentSongId={props.currentSongId}

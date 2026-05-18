@@ -40,9 +40,11 @@ export interface ResolvedNcmTrackSupplement {
   artists: NcmArtistSummary[];
   album: string | null;
   coverUrl: string | null;
+  dynamicCoverUrl: string | null;
   lyrics: LyricLine[];
   detailError: string | null;
   lyricsError: string | null;
+  dynamicCoverError: string | null;
 }
 
 export interface NcmArtistSummary {

@@ -21,6 +21,7 @@ export interface NcmTrackSupplement {
   artists: NcmArtistSummary[];
   album: string | null;
   coverUrl: string | null;
+  dynamicCoverUrl: string | null;
   lyrics: NcmLyricLine[];
   error: string | null;
 }

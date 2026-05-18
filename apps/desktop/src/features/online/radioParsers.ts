@@ -1,4 +1,5 @@
 import type { FeedCardItem } from "./shared/types";
+import type { OnlineTrackItem } from "./shared/types";
 
 export interface RadioCategory {
   id: number;
@@ -32,6 +33,16 @@ const readNestedCreator = (value: unknown): string | null => {
   return readString(value.nickname) ?? readString(value.name);
 };
 
+const readArtists = (value: unknown): string | null => {
+  const artists = readArray(value)
+    .map((item) => (isRecord(item) ? readString(item.name) : null))
+    .filter((name): name is string => name !== null);
+  return artists.length > 0 ? artists.join(" / ") : null;
+};
+
+const readSongAlbum = (value: unknown): Record<string, unknown> | null =>
+  isRecord(value) ? value : null;
+
 export const parseRadioCard = (value: unknown): FeedCardItem | null => {
   if (!isRecord(value)) return null;
   const id = readNumber(value.id ?? value.radioId ?? value.rid);
@@ -53,6 +64,50 @@ export const parseRadioCard = (value: unknown): FeedCardItem | null => {
     playCount: readNumber(value.playCount ?? value.listenerCount ?? value.subCount),
     description: readString(value.desc ?? value.description)
   };
+};
+
+export const parseRadioDetailCard = (payload: unknown): FeedCardItem | null => {
+  if (!isRecord(payload)) return null;
+  return parseRadioCard(payload.data ?? payload.djRadio ?? payload.radio ?? payload);
+};
+
+const parseProgramTrack = (value: unknown): OnlineTrackItem | null => {
+  if (!isRecord(value)) return null;
+  const song = isRecord(value.mainSong) ? value.mainSong : value;
+  const songId = readNumber(song.id);
+  const title = readString(song.name);
+  if (songId === null || title === null) return null;
+
+  const album = readSongAlbum(song.al) ?? readSongAlbum(song.album);
+  const albumTitle = album ? readString(album.name) : null;
+  const artworkUrl =
+    (album ? readString(album.picUrl) : null) ??
+    readString(song.picUrl) ??
+    readString(value.coverUrl);
+  const durationMs = readNumber(song.dt ?? song.duration);
+  const radio = isRecord(value.radio) ? value.radio : null;
+
+  return {
+    id: `ncm-radio-program-${readNumber(value.id) ?? songId}`,
+    songId,
+    source_path: `https://music.163.com/#/song?id=${songId}`,
+    title,
+    artist:
+      readArtists(song.ar) ??
+      readArtists(song.artists) ??
+      (isRecord(song.artist) ? readString(song.artist.name) : null),
+    album: albumTitle ?? (radio ? readString(radio.name) : null),
+    duration_secs: durationMs === null ? null : durationMs / 1000,
+    artworkUrl,
+    size_bytes: readNumber(song.size)
+  };
+};
+
+export const parseRadioProgramTracks = (payload: unknown): OnlineTrackItem[] => {
+  if (!isRecord(payload)) return [];
+  return readArray(payload.programs)
+    .map(parseProgramTrack)
+    .filter((item): item is OnlineTrackItem => item !== null);
 };
 
 export const parseRadioCategories = (payload: unknown): RadioCategory[] => {

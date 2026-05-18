@@ -27,6 +27,7 @@ pub(super) struct ResolveNcmTrackRequest {
 pub(super) struct ResolveNcmTrackSupplementRequest {
     pub(super) song_id: i64,
     pub(super) cookie: Option<String>,
+    pub(super) dynamic_cover: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -160,9 +161,11 @@ pub(super) struct ResolvedNcmTrackSupplement {
     pub(super) artists: Vec<NcmArtistSummary>,
     pub(super) album: Option<String>,
     pub(super) cover_url: Option<String>,
+    pub(super) dynamic_cover_url: Option<String>,
     pub(super) lyrics: Vec<LyricLine>,
     pub(super) detail_error: Option<String>,
     pub(super) lyrics_error: Option<String>,
+    pub(super) dynamic_cover_error: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

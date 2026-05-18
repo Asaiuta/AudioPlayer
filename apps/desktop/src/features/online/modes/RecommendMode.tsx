@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal, on } from "solid-js";
+import { Match, Show, Switch, createEffect, createMemo, createSignal, on } from "solid-js";
 import type { Accessor } from "solid-js";
 import { useTranslation } from "../../../shared/i18n";
 import { createApiClient } from "../../../shared/api/client";
@@ -9,9 +9,10 @@ import { ArtistDetail } from "../details/ArtistDetail";
 import { DailySongsDetail } from "../details/DailySongsDetail";
 import { LikedSongsDetail } from "../details/LikedSongsDetail";
 import { PlaylistDetail } from "../details/PlaylistDetail";
+import { VideoDetail } from "../details/VideoDetail";
 import { createErrorMessageReader, type FeedbackSetter } from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
-import type { NcmProfile } from "../shared/types";
+import type { FeedCardItem, NcmProfile } from "../shared/types";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
 export interface RecommendModeProps {
@@ -19,8 +20,9 @@ export interface RecommendModeProps {
   globalQuery: Accessor<string>;
   submitNonce: Accessor<number>;
   onSelectedPlaylistChange?: (playlistId: number | null) => void;
-  onNavigate?: (page: "recommend" | "discover") => void;
+  onNavigate?: (page: "recommend" | "discover" | "radio") => void;
   onNavigateToDiscover?: (tab: string) => void;
+  onNavigateToRadioDetail?: (radio: FeedCardItem) => void;
   onMarkPendingDiscoverSearch: () => void;
   setFeedback: FeedbackSetter;
   playback: PlaybackController;
@@ -61,6 +63,38 @@ export function RecommendMode(props: RecommendModeProps) {
   const pageTitle = () => t("ncm.title.recommend");
 
   const readErrorMessage = createErrorMessageReader(t);
+
+  const hasDetailView = createMemo<boolean>(() =>
+    detailNav.selectedDailySongs() ||
+    detailNav.selectedLikedSongs() ||
+    detailNav.selectedAlbum() !== null ||
+    detailNav.selectedArtist() !== null ||
+    detailNav.selectedPlaylist() !== null ||
+    detailNav.selectedVideo() !== null
+  );
+
+  const renderHomeFeed = () => (
+    <section class="online-recommend-stage">
+      <NeteaseHomeFeed
+        isLoggedIn={props.loginProfile() !== null}
+        userId={props.loginProfile()?.userId ?? null}
+        onSelectPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
+        onSelectDailySongs={detailNav.enterDailySongs}
+        onSelectLikedSongs={detailNav.enterLikedSongs}
+        onPlayPersonalFm={() => void playPersonalFmRadio()}
+        onPlay={() => void props.onPlay()}
+        onPause={() => void props.onPause()}
+        onSkipNext={() => void props.onSkipNext()}
+        onDislikePersonalFm={(songId) => void dislikePersonalFmTrack(songId)}
+        isPlaying={props.isPlaying}
+        onSelectAlbum={(item) => void detailNav.loadAlbumTracks(item)}
+        onSelectArtist={(item) => void detailNav.loadArtistTracks(item)}
+        onSelectVideo={(item) => detailNav.enterVideo(item)}
+        onNavigateToDiscover={(tab) => handleNavigateToDiscover(tab)}
+        onSelectRadio={(item) => props.onNavigateToRadioDetail?.(item)}
+      />
+    </section>
+  );
 
   const playPersonalFmRadio = async () => {
     if (isPlayingPersonalFm()) return;
@@ -112,94 +146,24 @@ export function RecommendMode(props: RecommendModeProps) {
 
   return (
     <>
-      <Show when={!detailNav.selectedPlaylist()}>
+      <Show when={!hasDetailView()}>
         <PageHeader title={recommendGreeting()} />
       </Show>
       <p class="online-recommend-subtitle">{t("ncm.home.welcome")}</p>
-      <Show
-        when={detailNav.selectedDailySongs()}
-        fallback={
-        <Show
-          when={detailNav.selectedLikedSongs()}
-          fallback={
-            <Show
-              when={detailNav.selectedAlbum()}
-              fallback={
-                <Show
-                  when={detailNav.selectedArtist()}
-                  fallback={
-                    <Show
-                      when={detailNav.selectedPlaylist()}
-                      fallback={
-                        <section class="online-recommend-stage">
-                          <NeteaseHomeFeed
-                            isLoggedIn={props.loginProfile() !== null}
-                            userId={props.loginProfile()?.userId ?? null}
-                            onSelectPlaylist={(playlist) => void detailNav.loadPlaylistTracks(playlist)}
-                            onSelectDailySongs={detailNav.enterDailySongs}
-                            onSelectLikedSongs={detailNav.enterLikedSongs}
-                            onPlayPersonalFm={() => void playPersonalFmRadio()}
-                            onPlay={() => void props.onPlay()}
-                            onPause={() => void props.onPause()}
-                            onSkipNext={() => void props.onSkipNext()}
-                            onDislikePersonalFm={(songId) => void dislikePersonalFmTrack(songId)}
-                            isPlaying={props.isPlaying}
-                            onSelectAlbum={(item) => void detailNav.loadAlbumTracks(item)}
-                            onSelectArtist={(item) => void detailNav.loadArtistTracks(item)}
-                            onNavigateToDiscover={(tab) => handleNavigateToDiscover(tab)}
-                          />
-                        </section>
-                      }
-                    >
-                      <PlaylistDetail
-                        playlist={detailNav.selectedPlaylist()}
-                        tracks={detailNav.filteredPlaylistTracks()}
-                        trackCount={detailNav.playlistTrackCount()}
-                        metaText={detailNav.playlistMetaText()}
-                        subtitleText={pageTitle()}
-                        isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
-                        isScrolled={detailNav.isPlaylistDetailScrolled()}
-                        filter={detailNav.playlistFilter()}
-                        detailTab={detailNav.playlistDetailTab()}
-                        setFilter={detailNav.setPlaylistFilter}
-                        setDetailTab={detailNav.setPlaylistDetailTab}
-                        onBack={detailNav.handleBackToPlaylists}
-                        onPlayAll={detailNav.playAllPlaylistTracks}
-                        onScroll={detailNav.handlePlaylistTrackScroll}
-                        playback={props.playback}
-                        currentTrackPath={props.currentTrackPath}
-                        currentSongId={props.currentSongId}
-                        isPlaying={props.isPlaying}
-                      />
-                    </Show>
-                  }
-                >
-                  <ArtistDetail
-                    artist={detailNav.selectedArtist()}
-                    tracks={detailNav.artistTracksState()}
-                    isLoading={detailNav.isLoadingArtistTracks()}
-                    onBack={detailNav.exitArtist}
-                    playback={props.playback}
-                    currentTrackPath={props.currentTrackPath}
-                    currentSongId={props.currentSongId}
-                    isPlaying={props.isPlaying}
-                  />
-                </Show>
-              }
-            >
-              <AlbumDetail
-                album={detailNav.selectedAlbum()}
-                tracks={detailNav.albumTracksState()}
-                isLoading={detailNav.isLoadingAlbumTracks()}
-                onBack={detailNav.exitAlbum}
-                playback={props.playback}
-                currentTrackPath={props.currentTrackPath}
-                currentSongId={props.currentSongId}
-                isPlaying={props.isPlaying}
-              />
-            </Show>
-          }
-        >
+      <Switch fallback={renderHomeFeed()}>
+        <Match when={detailNav.selectedDailySongs()}>
+          <DailySongsDetail
+            loginProfile={props.loginProfile()}
+            tracks={detailNav.dailySongsState()}
+            isLoading={detailNav.isLoadingDailySongs()}
+            onBack={detailNav.exitDailySongs}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailNav.selectedLikedSongs()}>
           <LikedSongsDetail
             loginProfile={props.loginProfile()}
             tracks={detailNav.likedSongsState()}
@@ -211,20 +175,62 @@ export function RecommendMode(props: RecommendModeProps) {
             currentSongId={props.currentSongId}
             isPlaying={props.isPlaying}
           />
-        </Show>
-      }
-    >
-      <DailySongsDetail
-        loginProfile={props.loginProfile()}
-        tracks={detailNav.dailySongsState()}
-        isLoading={detailNav.isLoadingDailySongs()}
-        onBack={detailNav.exitDailySongs}
-        playback={props.playback}
-        currentTrackPath={props.currentTrackPath}
-        currentSongId={props.currentSongId}
-        isPlaying={props.isPlaying}
-      />
-      </Show>
+        </Match>
+        <Match when={detailNav.selectedAlbum() !== null}>
+          <AlbumDetail
+            album={detailNav.selectedAlbum()}
+            tracks={detailNav.albumTracksState()}
+            isLoading={detailNav.isLoadingAlbumTracks()}
+            onBack={detailNav.exitAlbum}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailNav.selectedArtist() !== null}>
+          <ArtistDetail
+            artist={detailNav.selectedArtist()}
+            tracks={detailNav.artistTracksState()}
+            isLoading={detailNav.isLoadingArtistTracks()}
+            onBack={detailNav.exitArtist}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailNav.selectedPlaylist() !== null}>
+          <PlaylistDetail
+            playlist={detailNav.selectedPlaylist()}
+            tracks={detailNav.filteredPlaylistTracks()}
+            trackCount={detailNav.playlistTrackCount()}
+            metaText={detailNav.playlistMetaText()}
+            subtitleText={pageTitle()}
+            isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
+            isScrolled={detailNav.isPlaylistDetailScrolled()}
+            filter={detailNav.playlistFilter()}
+            detailTab={detailNav.playlistDetailTab()}
+            setFilter={detailNav.setPlaylistFilter}
+            setDetailTab={detailNav.setPlaylistDetailTab}
+            onBack={detailNav.handleBackToPlaylists}
+            onPlayAll={detailNav.playAllPlaylistTracks}
+            onScroll={detailNav.handlePlaylistTrackScroll}
+            playback={props.playback}
+            currentTrackPath={props.currentTrackPath}
+            currentSongId={props.currentSongId}
+            isPlaying={props.isPlaying}
+          />
+        </Match>
+        <Match when={detailNav.selectedVideo() !== null}>
+          <VideoDetail
+            video={detailNav.selectedVideo()}
+            onBack={detailNav.exitVideo}
+            onPauseAudio={props.onPause}
+            onSelectArtist={(artist) => void detailNav.loadArtistTracks(artist)}
+          />
+        </Match>
+      </Switch>
     </>
   );
 }

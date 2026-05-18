@@ -21,6 +21,7 @@ import {
 } from "../shared/state/useUISettings";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
 import { applyDynamicAccent, extractAccent } from "../shared/styles/dynamicAccent";
+import { applyUserAppearanceSettings } from "../shared/styles/customAppearance";
 import type { ApiClient } from "../shared/api/client";
 import { readErrorMessage } from "./controllerHelpers";
 import { useNavigationController } from "./useNavigationController";
@@ -48,6 +49,7 @@ export interface AppController {
   selectedPlaylistId: Accessor<number | null>;
   discoverTabRequest: Accessor<{ tab: string; version: number }>;
   artistDetailRequest: Accessor<{ artist: FeedCardItem | null; version: number }>;
+  radioDetailRequest: Accessor<{ radio: FeedCardItem | null; version: number }>;
   player: Accessor<PlayerState | null>;
   currentTrackPath: Accessor<string | null>;
   currentMediaId: Accessor<string | null>;
@@ -96,6 +98,7 @@ export interface AppController {
   handleSelectedPlaylistChange: (playlistId: number | null) => void;
   handleNavigateToDiscover: (tab: string) => void;
   handleNavigateToArtistDetail: (artist: FeedCardItem) => void;
+  handleNavigateToRadioDetail: (radio: FeedCardItem) => void;
   handleChangeCurrentNcmQuality: (level: string) => Promise<void>;
   handleGoBack: () => void;
   handleGoForward: () => void;
@@ -133,7 +136,8 @@ export function useAppController(api: ApiClient): AppController {
     api,
     player: playback.player,
     livePosition: playback.livePosition,
-    coverUrl: playback.coverUrl
+    coverUrl: playback.coverUrl,
+    dynamicCoverEnabled: () => fullPlayerOpen() && uiSettings.dynamicCover
   });
 
   const handleChangeCurrentNcmQuality = async (level: string) => {
@@ -178,14 +182,22 @@ export function useAppController(api: ApiClient): AppController {
   };
 
   createEffect(() => {
+    applyUserAppearanceSettings(uiSettings);
+  });
+
+  createEffect(() => {
+    const themeMode = uiSettings.themeMode;
+    void themeMode;
     if (!uiSettings.playerFollowCoverColor) {
       applyDynamicAccent(null);
+      applyUserAppearanceSettings(uiSettings);
       return;
     }
-    const url = ncm.resolvedCoverUrl();
+    const url = ncm.currentNcmCoverUrl() ?? playback.coverUrl();
     let cancelled = false;
     if (!url) {
       applyDynamicAccent(null);
+      applyUserAppearanceSettings(uiSettings);
       return;
     }
     void extractAccent(url).then((color) => {
@@ -213,6 +225,7 @@ export function useAppController(api: ApiClient): AppController {
     selectedPlaylistId: navigation.selectedPlaylistId,
     discoverTabRequest: navigation.discoverTabRequest,
     artistDetailRequest: navigation.artistDetailRequest,
+    radioDetailRequest: navigation.radioDetailRequest,
     player: playback.player,
     currentTrackPath: playback.currentTrackPath,
     currentMediaId: playback.currentMediaId,
@@ -261,6 +274,7 @@ export function useAppController(api: ApiClient): AppController {
     handleSelectedPlaylistChange: navigation.handleSelectedPlaylistChange,
     handleNavigateToDiscover: navigation.handleNavigateToDiscover,
     handleNavigateToArtistDetail: navigation.handleNavigateToArtistDetail,
+    handleNavigateToRadioDetail: navigation.handleNavigateToRadioDetail,
     handleChangeCurrentNcmQuality,
     handleGoBack: navigation.handleGoBack,
     handleGoForward: navigation.handleGoForward,

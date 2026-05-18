@@ -109,8 +109,11 @@ export interface DiscoverArtistShowcaseProps {
   setDiscoverArtistAreaIndex: (index: number) => void;
   discoverSectionTitle: string;
   discoverSectionSubtitle: string;
-  discoverArtists: Resource<DiscoverCardItem[]>;
+  allArtists: DiscoverCardItem[];
+  isLoadingArtists: boolean;
+  hasMoreArtists: boolean;
   onLoadArtist: (artist: DiscoverCardItem) => void | Promise<void>;
+  onLoadMore: () => void;
 }
 
 export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
@@ -142,9 +145,9 @@ export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
           <span>{props.discoverSectionSubtitle}</span>
         </div>
       </div>
-      <Show when={(props.discoverArtists() ?? []).length > 0} fallback={<div class="panel-note">{t("ncm.home.empty")}</div>}>
+      <Show when={props.allArtists.length > 0} fallback={<div class="panel-note">{props.isLoadingArtists ? t("ncm.playlist.loading") : t("ncm.home.empty")}</div>}>
         <div class="album-grid">
-          <For each={props.discoverArtists() ?? []}>
+          <For each={props.allArtists}>
             {(item) => (
               <AlbumCard
                 title={item.title}
@@ -157,6 +160,18 @@ export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
               />
             )}
           </For>
+        </div>
+      </Show>
+      <Show when={props.hasMoreArtists && props.allArtists.length > 0}>
+        <div class="online-discover-load-more">
+          <button
+            type="button"
+            class="ghost-button"
+            disabled={props.isLoadingArtists}
+            onClick={props.onLoadMore}
+          >
+            {props.isLoadingArtists ? t("ncm.playlist.loading") : t("ncm.discover.loadMore")}
+          </button>
         </div>
       </Show>
     </section>
@@ -265,6 +280,7 @@ export interface DiscoverNewShowcaseProps {
   isLoadingAlbums: boolean;
   hasMoreAlbums: boolean;
   onLoadMoreAlbums: () => void;
+  onLoadAlbum: (album: DiscoverCardItem) => void | Promise<void>;
   playback: PlaybackController;
   currentTrackPath: string | null;
   currentSongId: number | null;
@@ -328,6 +344,7 @@ export function DiscoverNewShowcase(props: DiscoverNewShowcaseProps) {
                     subtitle={item.subtitle}
                     coverUrl={item.coverUrl}
                     coverVisible={!uiSettings.hiddenCovers.new}
+                    onClick={() => void props.onLoadAlbum(item)}
                   />
                 )}
               </For>

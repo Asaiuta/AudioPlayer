@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import type { JSX } from "solid-js";
 import type { PlayerState, RepeatMode, RequestState, ShuffleMode } from "../shared/api/types";
+import { ncmSongShareUrl } from "../shared/api/ncm/urls";
 import { useTranslation } from "../shared/i18n";
 import { useUISearch } from "../shared/state/UISearchContext";
 import { useUISettings } from "../shared/state/useUISettings";
@@ -218,12 +219,16 @@ export function PlayerBar(props: PlayerBarProps) {
     closeMore();
   };
   const handleShare = () => {
-    const sourcePath = props.request.status === "success" ? props.request.data.ncm_source_page_url : null;
-    if (!sourcePath) {
+    const player = props.request.status === "success" ? props.request.data : null;
+    const shareUrl =
+      player?.ncm_song_id !== null && player?.ncm_song_id !== undefined
+        ? ncmSongShareUrl(player.ncm_song_id, uiSettings.shareUrlFormat)
+        : player?.ncm_source_page_url ?? null;
+    if (!shareUrl) {
       closeMore();
       return;
     }
-    void copyToClipboard(sourcePath, t("player.feedback.copiedShareLink"));
+    void copyToClipboard(shareUrl, t("player.feedback.copiedShareLink"));
     closeMore();
   };
   const handleSelectArtist = (artistId: number) => {

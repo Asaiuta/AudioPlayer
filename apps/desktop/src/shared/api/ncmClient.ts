@@ -48,7 +48,10 @@ export interface NcmApiClient {
   resolveNcmTrack: (input: ResolveNcmTrackInput) => Promise<ResolvedNcmTrack>;
   playNcmTrack: (input: ResolveNcmTrackInput) => Promise<NcmTrackPlaybackResult>;
   enqueueNcmTrack: (input: ResolveNcmTrackInput) => Promise<NcmTrackQueueResult>;
-  resolveNcmTrackSupplement: (songId: number) => Promise<ResolvedNcmTrackSupplement>;
+  resolveNcmTrackSupplement: (
+    songId: number,
+    options?: { dynamicCover?: boolean }
+  ) => Promise<ResolvedNcmTrackSupplement>;
   getNcmAccounts: () => Promise<NcmAccountState>;
   upsertNcmAccount: (input: NcmAccountUpsertInput) => Promise<NcmAccountState>;
   setActiveNcmAccount: (userId: number) => Promise<NcmAccountState>;
@@ -99,9 +102,12 @@ export const createNcmApiClient = (transport: NcmApiTransport): NcmApiClient => 
     parseNcmTrackQueueResponse(
       await transport.requestJson("/domain/ncm/track/enqueue", postJson(buildResolveNcmTrackBody(input)))
     ),
-  resolveNcmTrackSupplement: async (songId) =>
+  resolveNcmTrackSupplement: async (songId, options) =>
     parseResolvedNcmTrackSupplementResponse(
-      await transport.requestJson("/domain/ncm/track/supplement", postJson({ song_id: songId }))
+      await transport.requestJson(
+        "/domain/ncm/track/supplement",
+        postJson({ song_id: songId, dynamic_cover: options?.dynamicCover === true })
+      )
     ),
   getNcmAccounts: async () => parseNcmAccountStateResponse(await transport.requestJson("/domain/ncm/accounts")),
   upsertNcmAccount: async (input) =>
