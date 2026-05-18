@@ -2,6 +2,8 @@ import { render } from "solid-js/web";
 import App from "./app/App";
 import { I18nProvider } from "./shared/i18n";
 import { NcmAccountProvider } from "./shared/state/NcmAccountContext";
+import { readUISettingsSnapshot } from "./shared/state/useUISettings";
+import { applyUserAppearanceSettings } from "./shared/styles/customAppearance";
 import "./shared/styles/global.css";
 import "./shared/styles/components/shell.css";
 import "./shared/styles/components/pages.css";
@@ -26,6 +28,7 @@ function applyTheme(): void {
   }
 }
 applyTheme();
+applyUserAppearanceSettings(readUISettingsSnapshot(), { executeJs: true });
 
 const root = document.getElementById("root");
 if (!root) {

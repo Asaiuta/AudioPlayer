@@ -15,6 +15,9 @@ export interface ToggleConfig<Key extends string> {
 }
 
 export type AppearanceSubPanel =
+  | "themeConfig"
+  | "fontConfig"
+  | "customCode"
   | "sidebar"
   | "homeSections"
   | "playlistPage"
@@ -67,8 +70,13 @@ export const CONTEXT_MENU_ITEMS: readonly ToggleConfig<keyof ContextMenuOptions>
   { key: "play", itemId: "contextMenuOptions.play", labelKey: "settings.appearance.contextMenu.play" },
   { key: "playNext", itemId: "contextMenuOptions.playNext", labelKey: "settings.appearance.contextMenu.playNext" },
   { key: "addToPlaylist", itemId: "contextMenuOptions.addToPlaylist", labelKey: "settings.appearance.contextMenu.addToPlaylist" },
+  { key: "more", itemId: "contextMenuOptions.more", labelKey: "settings.appearance.contextMenu.more" },
+  { key: "search", itemId: "contextMenuOptions.search", labelKey: "settings.appearance.contextMenu.search" },
   { key: "copyName", itemId: "contextMenuOptions.copyName", labelKey: "settings.appearance.contextMenu.copyName" },
-  { key: "delete", itemId: "contextMenuOptions.delete", labelKey: "settings.appearance.contextMenu.delete" }
+  { key: "openFolder", itemId: "contextMenuOptions.openFolder", labelKey: "settings.appearance.contextMenu.openFolder" },
+  { key: "deleteFromPlaylist", itemId: "contextMenuOptions.deleteFromPlaylist", labelKey: "settings.appearance.contextMenu.deleteFromPlaylist" },
+  { key: "deleteFromCloud", itemId: "contextMenuOptions.deleteFromCloud", labelKey: "settings.appearance.contextMenu.deleteFromCloud" },
+  { key: "deleteFromLibrary", itemId: "contextMenuOptions.deleteFromLibrary", labelKey: "settings.appearance.contextMenu.deleteFromLibrary" }
 ];
 
 export const COVER_DISPLAY_ITEMS: readonly ToggleConfig<keyof HiddenCovers>[] = [
@@ -118,6 +126,27 @@ export const LAYOUT_MANAGER_ITEMS: readonly ManagerConfig[] = [
     itemId: "contextMenuOptions",
     labelKey: "settings.appearance.contextMenuManager",
     descriptionKey: "settings.appearance.contextMenuManager.desc"
+  }
+];
+
+export const THEME_MANAGER_ITEMS: readonly ManagerConfig[] = [
+  {
+    panel: "themeConfig",
+    itemId: "themeConfig",
+    labelKey: "settings.appearance.themeConfig",
+    descriptionKey: "settings.appearance.themeConfig.desc"
+  },
+  {
+    panel: "fontConfig",
+    itemId: "fontConfig",
+    labelKey: "settings.appearance.fontConfig",
+    descriptionKey: "settings.appearance.fontConfig.desc"
+  },
+  {
+    panel: "customCode",
+    itemId: "customCode",
+    labelKey: "settings.appearance.customCode",
+    descriptionKey: "settings.appearance.customCode.desc"
   }
 ];
 

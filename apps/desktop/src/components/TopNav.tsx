@@ -3,6 +3,7 @@ import { For, Show, createMemo, createSignal } from "solid-js";
 import { useTranslation } from "../shared/i18n";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useUISearch } from "../shared/state/UISearchContext";
+import { useUISettings } from "../shared/state/useUISettings";
 import { isSearchEnabledPage, type ActivePage } from "../shared/ui/navigation";
 import {
   IconArtist,
@@ -31,6 +32,7 @@ interface TopNavProps {
 export function TopNav(props: TopNavProps) {
   const { t, td } = useTranslation();
   const accountStore = useNcmAccount();
+  const uiSettings = useUISettings();
   const { query, setQuery, activePage: searchPage, submitSearch, history, selectHistoryItem, clearHistory } =
     useUISearch();
   const [historyOpen, setHistoryOpen] = createSignal(false);
@@ -57,7 +59,12 @@ export function TopNav(props: TopNavProps) {
   const searchClassName = () => `top-nav-search${searchEnabled() ? "" : " is-disabled"}`;
   const searchTitle = () =>
     searchEnabled() ? undefined : t("nav.search.disabledHint", { scope: searchScopeLabel() });
-  const showHistory = () => historyOpen() && searchEnabled() && history().length > 0 && query().trim().length === 0;
+  const showHistory = () =>
+    uiSettings.showSearchHistory &&
+    historyOpen() &&
+    searchEnabled() &&
+    history().length > 0 &&
+    query().trim().length === 0;
 
   const handleSearchInput = (event: InputEvent) => {
     const target = event.currentTarget;
@@ -115,8 +122,21 @@ export function TopNav(props: TopNavProps) {
               type="search"
               value={query()}
               onInput={handleSearchInput}
-              onFocus={() => setHistoryOpen(history().length > 0 && query().trim().length === 0)}
-              onBlur={() => window.setTimeout(() => setHistoryOpen(false), 120)}
+              onFocus={() =>
+                setHistoryOpen(
+                  uiSettings.showSearchHistory &&
+                    history().length > 0 &&
+                    query().trim().length === 0
+                )
+              }
+              onBlur={() =>
+                window.setTimeout(() => {
+                  setHistoryOpen(false);
+                  if (uiSettings.searchInputBehavior === "clear") {
+                    setQuery("");
+                  }
+                }, 120)
+              }
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   event.preventDefault();

@@ -2,6 +2,7 @@ import { createMemo, createSignal, type Accessor, type Setter } from "solid-js";
 import type {
   ContextMenuOptions,
   FullPlayerCommentMode,
+  GlobalFont,
   HiddenCovers,
   UISettings,
   UISettingsBooleanFieldName,
@@ -20,6 +21,10 @@ import {
   DEFAULT_HIDDEN_COVERS,
   readUISettingsSnapshot
 } from "../../../shared/state/useUISettings";
+import {
+  applyUserAppearanceSettings,
+  executeCustomJs
+} from "../../../shared/styles/customAppearance";
 import {
   togglePersistedField
 } from "../storage";
@@ -40,6 +45,15 @@ export function useAppearanceSettings() {
   const initialSettings = readUISettingsSnapshot();
 
   const [themeMode, setThemeMode] = createSignal<ThemeMode>(initialSettings.themeMode);
+  const [customAccentColor, setCustomAccentColor] =
+    createSignal<string>(initialSettings.customAccentColor);
+  const [themeGlobalColor, setThemeGlobalColor] =
+    createSignal<boolean>(initialSettings.themeGlobalColor);
+  const [globalFont, setGlobalFont] = createSignal<GlobalFont>(initialSettings.globalFont);
+  const [customFontFamily, setCustomFontFamily] =
+    createSignal<string>(initialSettings.customFontFamily);
+  const [customCss, setCustomCss] = createSignal<string>(initialSettings.customCss);
+  const [customJs, setCustomJs] = createSignal<string>(initialSettings.customJs);
   const [bgEnabled, setBgEnabled] = createSignal<boolean>(initialSettings.bgEnabled);
   const [bgBlur, setBgBlur] = createSignal<number>(initialSettings.bgBlur);
   const [bgMask, setBgMask] = createSignal<number>(initialSettings.bgMask);
@@ -69,6 +83,7 @@ export function useAppearanceSettings() {
     createSignal<boolean>(initialSettings.playerBackgroundLowFreqVolume);
   const [playerExpandAnimation, setPlayerExpandAnimation] =
     createSignal<PlayerExpandAnimation>(initialSettings.playerExpandAnimation);
+  const [dynamicCover, setDynamicCover] = createSignal<boolean>(initialSettings.dynamicCover);
   const [playerFollowCoverColor, setPlayerFollowCoverColor] =
     createSignal<boolean>(initialSettings.playerFollowCoverColor);
   const [sidebarHiddenItems, setSidebarHiddenItems] =
@@ -114,8 +129,14 @@ export function useAppearanceSettings() {
     createSignal<boolean>(initialSettings.fullPlayerShowDownload);
   const [fullPlayerShowComments, setFullPlayerShowComments] =
     createSignal<boolean>(initialSettings.fullPlayerShowComments);
+  const [fullPlayerShowCopyLyric, setFullPlayerShowCopyLyric] =
+    createSignal<boolean>(initialSettings.fullPlayerShowCopyLyric);
   const [fullPlayerShowDesktopLyric, setFullPlayerShowDesktopLyric] =
     createSignal<boolean>(initialSettings.fullPlayerShowDesktopLyric);
+  const [fullPlayerShowLyricOffset, setFullPlayerShowLyricOffset] =
+    createSignal<boolean>(initialSettings.fullPlayerShowLyricOffset);
+  const [fullPlayerShowLyricSettings, setFullPlayerShowLyricSettings] =
+    createSignal<boolean>(initialSettings.fullPlayerShowLyricSettings);
   const [fullPlayerShowMoreSettings, setFullPlayerShowMoreSettings] =
     createSignal<boolean>(initialSettings.fullPlayerShowMoreSettings);
   const [fullPlayerShowCommentCount, setFullPlayerShowCommentCount] =
@@ -128,10 +149,49 @@ export function useAppearanceSettings() {
   const handleThemeChange = (mode: ThemeMode) => {
     if (commitUISettingField("themeMode", mode, themeMode, setThemeMode)) {
       applyTheme(mode);
+      applyUserAppearanceSettings(readUISettingsSnapshot());
     } else {
       applyTheme(themeMode());
     }
   };
+  const handleCustomAccentColor = (value: string) => {
+    if (commitUISettingField("customAccentColor", value, customAccentColor, setCustomAccentColor)) {
+      applyUserAppearanceSettings(readUISettingsSnapshot());
+    }
+  };
+  const handleThemeGlobalColor = () => {
+    if (togglePersistedField("themeGlobalColor", themeGlobalColor, setThemeGlobalColor)) {
+      applyUserAppearanceSettings(readUISettingsSnapshot());
+    }
+  };
+  const handleGlobalFont = (value: GlobalFont) => {
+    if (commitUISettingField("globalFont", value, globalFont, setGlobalFont)) {
+      applyUserAppearanceSettings(readUISettingsSnapshot());
+    }
+  };
+  const handleCustomFontFamily = (value: string) => {
+    const persisted = commitUISettingField(
+      "customFontFamily",
+      value,
+      customFontFamily,
+      setCustomFontFamily
+    );
+    if (persisted) {
+      applyUserAppearanceSettings(readUISettingsSnapshot());
+    }
+    return persisted;
+  };
+  const handleCustomCss = (value: string) => {
+    const persisted = commitUISettingField("customCss", value, customCss, setCustomCss);
+    if (persisted) {
+      applyUserAppearanceSettings(readUISettingsSnapshot());
+    }
+    return persisted;
+  };
+  const handleCustomJs = (value: string) => {
+    return commitUISettingField("customJs", value, customJs, setCustomJs);
+  };
+  const handleRunCustomJs = () => executeCustomJs(customJs());
   const handleRouteAnimation = (value: RouteAnimation) => {
     commitUISettingField("routeAnimation", value, routeAnimation, setRouteAnimation);
   };
@@ -221,6 +281,8 @@ export function useAppearanceSettings() {
       playerFollowCoverColor,
       setPlayerFollowCoverColor
     );
+  const handleDynamicCover = () =>
+    togglePersistedField("dynamicCover", dynamicCover, setDynamicCover);
   const handleTimeFormat = (value: PlayerTimeFormat) => {
     commitUISettingField("timeFormat", value, timeFormat, setTimeFormat);
   };
@@ -258,6 +320,12 @@ export function useAppearanceSettings() {
 
   return {
     themeMode,
+    customAccentColor,
+    themeGlobalColor,
+    globalFont,
+    customFontFamily,
+    customCss,
+    customJs,
     bgEnabled,
     bgBlur,
     bgMask,
@@ -276,6 +344,7 @@ export function useAppearanceSettings() {
     playerBackgroundPause,
     playerBackgroundLowFreqVolume,
     playerExpandAnimation,
+    dynamicCover,
     playerFollowCoverColor,
     sidebarHiddenItems,
     playlistPageElements,
@@ -303,18 +372,32 @@ export function useAppearanceSettings() {
     fullPlayerShowAddToPlaylist,
     fullPlayerShowDownload,
     fullPlayerShowComments,
+    fullPlayerShowCopyLyric,
     fullPlayerShowDesktopLyric,
+    fullPlayerShowLyricOffset,
+    fullPlayerShowLyricSettings,
     fullPlayerShowMoreSettings,
     fullPlayerShowCommentCount,
     allCoversHidden,
     setBgBlur,
     setBgMask,
+    setCustomAccentColor,
+    setCustomFontFamily,
+    setCustomCss,
+    setCustomJs,
     setPlayerStyleRatio,
     setPlayerFullscreenGradient,
     setPlayerBackgroundFps,
     setPlayerBackgroundFlowSpeed,
     setPlayerBackgroundRenderScale,
     handleThemeChange,
+    handleCustomAccentColor,
+    handleThemeGlobalColor,
+    handleGlobalFont,
+    handleCustomFontFamily,
+    handleCustomCss,
+    handleCustomJs,
+    handleRunCustomJs,
     handleRouteAnimation,
     handleBgToggle,
     handleBgBlur,
@@ -331,6 +414,7 @@ export function useAppearanceSettings() {
     handlePlayerBackgroundFlowSpeed,
     handlePlayerBackgroundRenderScale,
     handlePlayerExpandAnimation,
+    handleDynamicCover,
     handlePlayerFollowCoverColor,
     handleTimeFormat,
     handleToggleAllCovers,
@@ -359,11 +443,15 @@ export function useAppearanceSettings() {
     setShowPlayerQuality,
     setPlayerBackgroundPause,
     setPlayerBackgroundLowFreqVolume,
+    setDynamicCover,
     setFullPlayerShowLike,
     setFullPlayerShowAddToPlaylist,
     setFullPlayerShowDownload,
     setFullPlayerShowComments,
+    setFullPlayerShowCopyLyric,
     setFullPlayerShowDesktopLyric,
+    setFullPlayerShowLyricOffset,
+    setFullPlayerShowLyricSettings,
     setFullPlayerShowMoreSettings,
     setFullPlayerShowCommentCount
   };

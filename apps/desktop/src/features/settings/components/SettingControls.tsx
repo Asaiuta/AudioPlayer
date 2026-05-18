@@ -35,6 +35,7 @@ export function BooleanSettingItem(props: BooleanSettingItemProps) {
 interface ButtonSettingItemProps extends BaseSettingControlProps {
   buttonLabel: string;
   onClick: () => void;
+  disabled?: boolean;
 }
 
 export function ButtonSettingItem(props: ButtonSettingItemProps) {
@@ -46,7 +47,7 @@ export function ButtonSettingItem(props: ButtonSettingItemProps) {
       highlighted={props.highlighted}
       index={props.index}
     >
-      <button type="button" class="ghost-button" onClick={props.onClick}>
+      <button type="button" class="ghost-button" onClick={props.onClick} disabled={props.disabled}>
         {props.buttonLabel}
       </button>
     </SettingItem>

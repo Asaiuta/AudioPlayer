@@ -4,15 +4,18 @@ import { usePresenceTransition } from "../../shared/ui/usePresenceTransition";
 import { IconClose } from "../../components/icons";
 import { SettingsCategoryNav, type SettingsCategoryKey } from "./components/SettingsCategoryNav";
 import { SettingsSearchBox } from "./components/SettingsSearchBox";
+import { GeneralSection } from "./sections/GeneralSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
 import { PlaybackSection } from "./sections/PlaybackSection";
 import { LyricsSection } from "./sections/LyricsSection";
 import { AudioEngineSection } from "./sections/AudioEngineSection";
+import { UnavailableSettingsSection } from "./sections/UnavailableSettingsSection";
 
 interface SettingsPageProps {
   isOpen: boolean;
   onClose: () => void;
   onStateRefresh: () => Promise<void>;
+  initialCategory?: SettingsCategoryKey;
 }
 
 const HIGHLIGHT_DURATION_MS = 2500;
@@ -54,7 +57,7 @@ const settingsModalContentClass =
 
 export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation();
-  const [activeCategory, setActiveCategory] = createSignal<SettingsCategoryKey>("appearance");
+  const [activeCategory, setActiveCategory] = createSignal<SettingsCategoryKey>("general");
   const [highlightId, setHighlightId] = createSignal<string | null>(null);
   const presence = usePresenceTransition(() => props.isOpen);
   let contentRef: HTMLDivElement | undefined;
@@ -77,6 +80,11 @@ export function SettingsPage(props: SettingsPageProps) {
   // Close on Escape, only when open.
   createEffect(() => {
     if (!props.isOpen) return;
+    if (props.initialCategory) {
+      clearHighlight();
+      setActiveCategory(props.initialCategory);
+      contentRef?.scrollTo({ top: 0 });
+    }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") props.onClose();
     };
@@ -149,6 +157,9 @@ export function SettingsPage(props: SettingsPageProps) {
           <div class={settingsModalMainClass}>
             <div class={settingsModalContentClass} ref={contentRef}>
               <Switch>
+                <Match when={activeCategory() === "general"}>
+                  <GeneralSection highlightId={highlightId()} />
+                </Match>
                 <Match when={activeCategory() === "appearance"}>
                   <AppearanceSection highlightId={highlightId()} />
                 </Match>
@@ -158,10 +169,34 @@ export function SettingsPage(props: SettingsPageProps) {
                 <Match when={activeCategory() === "lyrics"}>
                   <LyricsSection highlightId={highlightId()} />
                 </Match>
+                <Match when={activeCategory() === "local"}>
+                  <UnavailableSettingsSection
+                    titleKey="settings.nav.local"
+                    descriptionKey="settings.local.unavailable.desc"
+                  />
+                </Match>
+                <Match when={activeCategory() === "keyboard"}>
+                  <UnavailableSettingsSection
+                    titleKey="settings.nav.keyboard"
+                    descriptionKey="settings.keyboard.unavailable.desc"
+                  />
+                </Match>
+                <Match when={activeCategory() === "network"}>
+                  <UnavailableSettingsSection
+                    titleKey="settings.nav.network"
+                    descriptionKey="settings.network.unavailable.desc"
+                  />
+                </Match>
                 <Match when={activeCategory() === "audio-engine"}>
                   <AudioEngineSection
                     highlightId={highlightId()}
                     onStateRefresh={props.onStateRefresh}
+                  />
+                </Match>
+                <Match when={activeCategory() === "about"}>
+                  <UnavailableSettingsSection
+                    titleKey="settings.nav.about"
+                    descriptionKey="settings.about.unavailable.desc"
                   />
                 </Match>
               </Switch>

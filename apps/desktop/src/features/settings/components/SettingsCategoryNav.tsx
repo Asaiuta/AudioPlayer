@@ -1,18 +1,26 @@
 import { For, type JSX } from "solid-js";
 import {
+  IconCloud,
   IconControls,
+  IconFolder,
   IconLogo,
   IconMusic,
+  IconSettings,
   IconTextPlay
 } from "../../../components/icons";
 import type { TranslationKey } from "../../../shared/i18n";
 import { useTranslation } from "../../../shared/i18n";
 
 export type SettingsCategoryKey =
+  | "general"
   | "appearance"
   | "playback"
   | "lyrics"
-  | "audio-engine";
+  | "local"
+  | "keyboard"
+  | "network"
+  | "audio-engine"
+  | "about";
 
 interface CategoryDef {
   key: SettingsCategoryKey;
@@ -21,10 +29,15 @@ interface CategoryDef {
 }
 
 const CATEGORIES: ReadonlyArray<CategoryDef> = [
+  { key: "general", labelKey: "settings.nav.general", icon: () => <IconSettings /> },
   { key: "appearance", labelKey: "settings.nav.appearance", icon: () => <IconLogo /> },
   { key: "playback", labelKey: "settings.nav.playback", icon: () => <IconMusic /> },
   { key: "lyrics", labelKey: "settings.nav.lyrics", icon: () => <IconTextPlay /> },
-  { key: "audio-engine", labelKey: "settings.nav.audioEngine", icon: () => <IconControls /> }
+  { key: "local", labelKey: "settings.nav.local", icon: () => <IconFolder /> },
+  { key: "keyboard", labelKey: "settings.nav.keyboard", icon: () => <IconControls /> },
+  { key: "network", labelKey: "settings.nav.network", icon: () => <IconCloud /> },
+  { key: "audio-engine", labelKey: "settings.nav.audioEngine", icon: () => <IconControls /> },
+  { key: "about", labelKey: "settings.nav.about", icon: () => <IconLogo /> }
 ];
 
 const settingsNavClass = "settings-nav min-h-0 flex-1 overflow-y-auto";

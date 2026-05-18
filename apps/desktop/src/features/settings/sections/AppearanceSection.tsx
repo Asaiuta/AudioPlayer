@@ -1,5 +1,10 @@
-import { Show, createEffect, createMemo, createSignal } from "solid-js";
+import { Match, Show, Switch, createEffect, createMemo, createSignal } from "solid-js";
 import { settingsSectionClass } from "../components/SettingItem";
+import {
+  CustomCodePanel,
+  FontConfigPanel,
+  ThemeConfigPanel
+} from "./AppearanceAdvancedPanels";
 import { AppearanceMainPanel } from "./AppearanceMainPanel";
 import { AppearanceSubPanel } from "./AppearanceSubPanel";
 import {
@@ -9,6 +14,7 @@ import {
   LAYOUT_MANAGER_ITEMS,
   PLAYLIST_PAGE_ITEMS,
   SIDEBAR_VISIBILITY_ITEMS,
+  THEME_MANAGER_ITEMS,
   type AppearanceSubPanel as AppearanceSubPanelId,
   type ManagerConfig
 } from "./appearanceConfig";
@@ -19,9 +25,18 @@ interface AppearanceSectionProps {
 }
 
 const ALL_MANAGER_ITEMS: readonly ManagerConfig[] = [
+  ...THEME_MANAGER_ITEMS,
   ...LAYOUT_MANAGER_ITEMS,
   COVER_MANAGER_ITEM
 ];
+
+const isGenericSubPanel = (panel: AppearanceSubPanelId) =>
+  panel === "sidebar" ||
+  panel === "homeSections" ||
+  panel === "playlistPage" ||
+  panel === "fullPlayerElements" ||
+  panel === "contextMenu" ||
+  panel === "cover";
 
 export function AppearanceSection(props: AppearanceSectionProps) {
   const [activeSubPanel, setActiveSubPanel] = createSignal<AppearanceSubPanelId | null>(null);
@@ -54,6 +69,25 @@ export function AppearanceSection(props: AppearanceSectionProps) {
           highlightedId === "hiddenCovers.all" ||
           COVER_DISPLAY_ITEMS.some((entry) => entry.itemId === highlightedId)
         );
+      case "themeConfig":
+        return (
+          highlightedId === "themeConfig" ||
+          highlightedId === "themeGlobalColor" ||
+          highlightedId === "playerFollowCoverColor" ||
+          highlightedId === "customAccentColor"
+        );
+      case "fontConfig":
+        return (
+          highlightedId === "fontConfig" ||
+          highlightedId === "globalFont" ||
+          highlightedId === "customFontFamily"
+        );
+      case "customCode":
+        return (
+          highlightedId === "customCode" ||
+          highlightedId === "customCss" ||
+          highlightedId === "customJs"
+        );
       default: {
         const _exhaustive: never = item.panel;
         return _exhaustive;
@@ -77,13 +111,44 @@ export function AppearanceSection(props: AppearanceSectionProps) {
     <section class={settingsSectionClass}>
       <Show when={activeManager()} keyed>
         {(manager) => (
-          <AppearanceSubPanel
-            manager={manager}
-            settings={settings}
-            highlightId={props.highlightId}
-            nextIndex={nextIndex}
-            onBack={() => setActiveSubPanel(null)}
-          />
+          <Switch>
+            <Match when={manager.panel === "themeConfig"}>
+              <ThemeConfigPanel
+                manager={manager}
+                settings={settings}
+                highlightId={props.highlightId}
+                nextIndex={nextIndex}
+                onBack={() => setActiveSubPanel(null)}
+              />
+            </Match>
+            <Match when={manager.panel === "fontConfig"}>
+              <FontConfigPanel
+                manager={manager}
+                settings={settings}
+                highlightId={props.highlightId}
+                nextIndex={nextIndex}
+                onBack={() => setActiveSubPanel(null)}
+              />
+            </Match>
+            <Match when={manager.panel === "customCode"}>
+              <CustomCodePanel
+                manager={manager}
+                settings={settings}
+                highlightId={props.highlightId}
+                nextIndex={nextIndex}
+                onBack={() => setActiveSubPanel(null)}
+              />
+            </Match>
+            <Match when={isGenericSubPanel(manager.panel)}>
+              <AppearanceSubPanel
+                manager={manager}
+                settings={settings}
+                highlightId={props.highlightId}
+                nextIndex={nextIndex}
+                onBack={() => setActiveSubPanel(null)}
+              />
+            </Match>
+          </Switch>
         )}
       </Show>
 

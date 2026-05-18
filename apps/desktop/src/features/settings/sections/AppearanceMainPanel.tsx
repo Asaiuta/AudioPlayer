@@ -24,6 +24,7 @@ import {
   COVER_MANAGER_ITEM,
   LAYOUT_MANAGER_ITEMS,
   ROUTE_ANIMATIONS,
+  THEME_MANAGER_ITEMS,
   type ManagerConfig
 } from "./appearanceConfig";
 import type { AppearanceSettings } from "./useAppearanceSettings";
@@ -335,7 +336,7 @@ export function AppearanceMainPanel(props: AppearanceMainPanelProps) {
 
   return (
     <>
-      <SettingGroup title={t("settings.appearance.title")}>
+      <SettingGroup title={t("settings.appearance.themeAndStyle")}>
         <SelectSettingItem
           id="themeMode"
           label={t("settings.appearance.themeMode")}
@@ -345,6 +346,10 @@ export function AppearanceMainPanel(props: AppearanceMainPanelProps) {
           options={themeModeOptions()}
           onChange={(value) => props.settings.handleThemeChange(value as ThemeMode)}
         />
+
+        <For each={THEME_MANAGER_ITEMS}>
+          {(item) => renderManagerButton(item)}
+        </For>
 
         <BooleanSettingItem
           id="bgEnabled"
@@ -566,6 +571,16 @@ export function AppearanceMainPanel(props: AppearanceMainPanelProps) {
           onChange={(value) =>
             props.settings.handlePlayerExpandAnimation(value as PlayerExpandAnimation)
           }
+        />
+
+        <BooleanSettingItem
+          id="dynamicCover"
+          label={t("settings.appearance.dynamicCover")}
+          description={t("settings.appearance.dynamicCover.desc")}
+          highlighted={props.highlightId === "dynamicCover"}
+          index={props.nextIndex()}
+          checked={props.settings.dynamicCover()}
+          onChange={props.settings.handleDynamicCover}
         />
 
         <BooleanSettingItem

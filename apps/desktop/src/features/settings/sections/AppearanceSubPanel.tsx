@@ -68,11 +68,32 @@ const FULL_PLAYER_ELEMENT_ITEMS: readonly BooleanItemConfig[] = [
 
 const FULL_PLAYER_ELEMENT_TRAILING_ITEMS: readonly BooleanItemConfig[] = [
   {
+    id: "fullPlayerShowCopyLyric",
+    labelKey: "settings.appearance.fullPlayerShowCopyLyric",
+    field: "fullPlayerShowCopyLyric",
+    value: (settings) => settings.fullPlayerShowCopyLyric,
+    setValue: (settings) => settings.setFullPlayerShowCopyLyric
+  },
+  {
     id: "fullPlayerShowDesktopLyric",
     labelKey: "settings.appearance.fullPlayerShowDesktopLyric",
     field: "fullPlayerShowDesktopLyric",
     value: (settings) => settings.fullPlayerShowDesktopLyric,
     setValue: (settings) => settings.setFullPlayerShowDesktopLyric
+  },
+  {
+    id: "fullPlayerShowLyricOffset",
+    labelKey: "settings.appearance.fullPlayerShowLyricOffset",
+    field: "fullPlayerShowLyricOffset",
+    value: (settings) => settings.fullPlayerShowLyricOffset,
+    setValue: (settings) => settings.setFullPlayerShowLyricOffset
+  },
+  {
+    id: "fullPlayerShowLyricSettings",
+    labelKey: "settings.appearance.fullPlayerShowLyricSettings",
+    field: "fullPlayerShowLyricSettings",
+    value: (settings) => settings.fullPlayerShowLyricSettings,
+    setValue: (settings) => settings.setFullPlayerShowLyricSettings
   },
   {
     id: "fullPlayerShowMoreSettings",
