@@ -4,6 +4,7 @@
 //! Enables pre-computed gain values for fast playback without real-time analysis.
 
 use rusqlite::{params, Connection, OptionalExtension};
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
@@ -48,6 +49,8 @@ pub struct TrackLoudness {
     /// File size in bytes (for change detection)
     /// FIX for Defect 40: Track file changes
     pub file_size: Option<i64>,
+    cached_gain_target_lufs: Cell<Option<f64>>,
+    cached_gain_linear: Cell<f32>,
 }
 
 impl TrackLoudness {
@@ -80,6 +83,8 @@ impl TrackLoudness {
             scanned_at: chrono_timestamp(),
             file_mtime,
             file_size,
+            cached_gain_target_lufs: Cell::new(None),
+            cached_gain_linear: Cell::new(1.0),
         }
     }
 
@@ -119,8 +124,15 @@ impl TrackLoudness {
 
     /// Convert dB gain to linear coefficient
     pub fn gain_linear(&self, target_lufs: f64) -> f32 {
+        if self.cached_gain_target_lufs.get() == Some(target_lufs) {
+            return self.cached_gain_linear.get();
+        }
+
         let gain_db = self.gain_for_target(target_lufs);
-        10.0_f64.powf(gain_db / 20.0) as f32
+        let gain = 10.0_f64.powf(gain_db / 20.0) as f32;
+        self.cached_gain_target_lufs.set(Some(target_lufs));
+        self.cached_gain_linear.set(gain);
+        gain
     }
 }
 
@@ -296,6 +308,8 @@ impl LoudnessDatabase {
                         scanned_at: row.get(8)?,
                         file_mtime: row.get(9)?,
                         file_size: row.get(10)?,
+                        cached_gain_target_lufs: Cell::new(None),
+                        cached_gain_linear: Cell::new(1.0),
                     })
                 },
             )
@@ -568,5 +582,19 @@ mod tests {
 
         // Different target
         assert_eq!(track.gain_for_target(-23.0), -3.0);
+    }
+
+    #[test]
+    fn track_gain_linear_reuses_same_target_and_invalidates_on_change() {
+        let track = TrackLoudness::new("/test.flac", -20.0, -1.0, None, -14.0);
+
+        let first = track.gain_linear(-14.0);
+        let second = track.gain_linear(-14.0);
+        let third = track.gain_linear(-23.0);
+
+        assert_eq!(first.to_bits(), second.to_bits());
+        assert_eq!(first.to_bits(), track.gain_linear(-14.0).to_bits());
+        assert_eq!(third.to_bits(), track.gain_linear(-23.0).to_bits());
+        assert_ne!(first.to_bits(), third.to_bits());
     }
 }

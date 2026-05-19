@@ -1,7 +1,7 @@
 //! Linear gain ramp for smooth track-to-track transitions.
 
 /// Linear gain ramp for smooth transitions between tracks.
-/// Uses position-based interpolation to avoid floating-point accumulation errors.
+/// Caches the current gain and per-sample delta so accessors stay cheap.
 ///
 /// Use cases:
 /// - Track-to-track gain changes
@@ -12,6 +12,10 @@ pub struct GainRamp {
     from: f64,
     /// Target gain value (linear)
     to: f64,
+    /// Current gain value (linear)
+    current: f64,
+    /// Per-sample gain delta
+    step: f64,
     /// Total samples in the ramp
     total_samples: usize,
     /// Remaining samples in the ramp
@@ -33,6 +37,8 @@ impl GainRamp {
         Self {
             from,
             to,
+            current: from,
+            step: (to - from) / total_samples as f64,
             total_samples,
             remaining: total_samples,
         }
@@ -49,15 +55,18 @@ impl GainRamp {
     }
 
     /// Get the next gain value (call once per sample)
-    /// Uses position-based interpolation to avoid accumulation errors (RISK-02 fix)
+    /// Uses a cached per-sample delta and snaps to the target at ramp end.
     #[inline(always)]
     pub fn next_gain(&mut self) -> f64 {
         if self.remaining > 0 {
-            // Position-based interpolation: no accumulation error
-            // progress = (total - remaining) / total
-            let progress = 1.0 - (self.remaining as f64 / self.total_samples as f64);
+            let gain = self.current;
             self.remaining -= 1;
-            self.from + (self.to - self.from) * progress
+            if self.remaining == 0 {
+                self.current = self.to;
+            } else {
+                self.current += self.step;
+            }
+            gain
         } else {
             self.to
         }
@@ -80,14 +89,9 @@ impl GainRamp {
         self.remaining
     }
 
-    /// Get current gain (computed from position)
+    /// Get current gain
     pub fn current(&self) -> f64 {
-        if self.remaining > 0 {
-            let progress = 1.0 - (self.remaining as f64 / self.total_samples as f64);
-            self.from + (self.to - self.from) * progress
-        } else {
-            self.to
-        }
+        self.current
     }
 
     /// Get target gain
@@ -103,12 +107,16 @@ impl GainRamp {
         let total_samples = (sample_rate as u64 * ramp_ms as u64 / 1000) as usize;
         self.total_samples = total_samples.max(1);
         self.remaining = self.total_samples;
+        self.current = current;
+        self.step = (self.to - self.from) / self.total_samples as f64;
     }
 
     /// Jump immediately to target (no ramp)
     pub fn jump(&mut self, target: f64) {
         self.from = target;
         self.to = target;
+        self.current = target;
+        self.step = 0.0;
         self.total_samples = 1;
         self.remaining = 0;
     }
