@@ -29,40 +29,56 @@ fn main() {
     let report = benchmark_true_peak(&corpus, iterations);
     println!("audio_truepeak_perf frames={frames} iterations={iterations}");
     println!(
-        "true_peak fir={:.3} ns/sample legacy_cubic={:.3} ns/sample ratio={:.2}x fir_peak={:.6} legacy_peak={:.6}",
-        report.fir_ns_per_sample,
+        "true_peak indexed={:.3} ns/sample unrolled={:.3} ns/sample legacy_cubic={:.3} ns/sample indexed_ratio={:.2}x unrolled_ratio={:.2}x indexed_peak={:.6} unrolled_peak={:.6} legacy_peak={:.6}",
+        report.indexed_ns_per_sample,
+        report.unrolled_ns_per_sample,
         report.legacy_ns_per_sample,
-        report.ratio,
-        report.fir_peak,
+        report.indexed_ratio,
+        report.unrolled_ratio,
+        report.indexed_peak,
+        report.unrolled_peak,
         report.legacy_peak,
     );
 
     if enforce {
         assert!(
-            report.ratio <= 1.0,
-            "FIR true-peak detector is slower than legacy cubic: {:.2}x",
-            report.ratio
+            report.unrolled_ratio <= 1.0,
+            "unrolled FIR true-peak detector is slower than legacy cubic: {:.2}x",
+            report.unrolled_ratio
         );
     }
 }
 
 struct TruePeakReport {
-    fir_ns_per_sample: f64,
+    indexed_ns_per_sample: f64,
+    unrolled_ns_per_sample: f64,
     legacy_ns_per_sample: f64,
-    ratio: f64,
-    fir_peak: f64,
+    indexed_ratio: f64,
+    unrolled_ratio: f64,
+    indexed_peak: f64,
+    unrolled_peak: f64,
     legacy_peak: f64,
 }
 
 fn benchmark_true_peak(corpus: &[f64], iterations: usize) -> TruePeakReport {
-    let mut fir = FirTruePeakDetector::new();
+    let mut indexed = IndexedFirTruePeakDetector::new();
+    let mut unrolled = UnrolledFirTruePeakDetector::new();
     let mut legacy = LegacyCubicTruePeakDetector::new();
 
-    let fir_duration = measure(
+    let indexed_duration = measure(
         || {
-            fir.reset();
-            fir.process(black_box(corpus));
-            black_box(fir.max_true_peak())
+            indexed.reset();
+            indexed.process(black_box(corpus));
+            black_box(indexed.max_true_peak())
+        },
+        iterations,
+    );
+
+    let unrolled_duration = measure(
+        || {
+            unrolled.reset();
+            unrolled.process(black_box(corpus));
+            black_box(unrolled.max_true_peak())
         },
         iterations,
     );
@@ -77,14 +93,25 @@ fn benchmark_true_peak(corpus: &[f64], iterations: usize) -> TruePeakReport {
     );
 
     let samples = corpus.len() * iterations;
-    let fir_ns_per_sample = nanos_per_unit(fir_duration, samples);
+    let indexed_ns_per_sample = nanos_per_unit(indexed_duration, samples);
+    let unrolled_ns_per_sample = nanos_per_unit(unrolled_duration, samples);
     let legacy_ns_per_sample = nanos_per_unit(legacy_duration, samples);
 
+    assert!(
+        (indexed.max_true_peak() - unrolled.max_true_peak()).abs() < 1.0e-12,
+        "indexed/unrolled FIR outputs diverged: {} vs {}",
+        indexed.max_true_peak(),
+        unrolled.max_true_peak()
+    );
+
     TruePeakReport {
-        fir_ns_per_sample,
+        indexed_ns_per_sample,
+        unrolled_ns_per_sample,
         legacy_ns_per_sample,
-        ratio: fir_ns_per_sample / legacy_ns_per_sample,
-        fir_peak: fir.max_true_peak(),
+        indexed_ratio: indexed_ns_per_sample / legacy_ns_per_sample,
+        unrolled_ratio: unrolled_ns_per_sample / legacy_ns_per_sample,
+        indexed_peak: indexed.max_true_peak(),
+        unrolled_peak: unrolled.max_true_peak(),
         legacy_peak: legacy.max_true_peak(),
     }
 }
@@ -118,13 +145,13 @@ fn synthetic_corpus(frames: usize) -> Vec<f64> {
     out
 }
 
-struct FirTruePeakDetector {
+struct IndexedFirTruePeakDetector {
     history: [f64; TRUE_PEAK_HISTORY_LEN],
     write_pos: usize,
     max_true_peak: f64,
 }
 
-impl FirTruePeakDetector {
+impl IndexedFirTruePeakDetector {
     fn new() -> Self {
         let _ = true_peak_fir();
         Self {
@@ -174,6 +201,77 @@ impl FirTruePeakDetector {
     fn max_true_peak(&self) -> f64 {
         self.max_true_peak
     }
+}
+
+struct UnrolledFirTruePeakDetector {
+    history: [f64; TRUE_PEAK_HISTORY_LEN],
+    write_pos: usize,
+    max_true_peak: f64,
+}
+
+impl UnrolledFirTruePeakDetector {
+    fn new() -> Self {
+        let _ = true_peak_fir();
+        Self {
+            history: [0.0; TRUE_PEAK_HISTORY_LEN],
+            write_pos: 0,
+            max_true_peak: 0.0,
+        }
+    }
+
+    fn process(&mut self, samples: &[f64]) {
+        let fir = true_peak_fir();
+        for &sample in samples {
+            self.max_true_peak = self.max_true_peak.max(sample.abs());
+            self.history[self.write_pos] = sample;
+            self.history[self.write_pos + TRUE_PEAK_DELAY] = sample;
+
+            let dot_base = self.write_pos + TRUE_PEAK_DELAY - 11;
+            let phase1 = dot12_contiguous(&self.history[dot_base..dot_base + 12], &fir.coeffs[1]);
+            let phase2 = dot12_contiguous(&self.history[dot_base..dot_base + 12], &fir.coeffs[2]);
+            let phase3 = dot12_contiguous(&self.history[dot_base..dot_base + 12], &fir.coeffs[3]);
+
+            self.max_true_peak = self
+                .max_true_peak
+                .max(phase1.abs())
+                .max(phase2.abs())
+                .max(phase3.abs());
+
+            self.write_pos += 1;
+            if self.write_pos == TRUE_PEAK_DELAY {
+                self.write_pos = 0;
+            }
+        }
+    }
+
+    fn reset(&mut self) {
+        self.history.fill(0.0);
+        self.write_pos = 0;
+        self.max_true_peak = 0.0;
+    }
+
+    fn max_true_peak(&self) -> f64 {
+        self.max_true_peak
+    }
+}
+
+#[inline]
+fn dot12_contiguous(
+    history: &[f64],
+    coeffs: &[f32; TRUE_PEAK_DELAY],
+) -> f64 {
+    history[11] * coeffs[0] as f64
+        + history[10] * coeffs[1] as f64
+        + history[9] * coeffs[2] as f64
+        + history[8] * coeffs[3] as f64
+        + history[7] * coeffs[4] as f64
+        + history[6] * coeffs[5] as f64
+        + history[5] * coeffs[6] as f64
+        + history[4] * coeffs[7] as f64
+        + history[3] * coeffs[8] as f64
+        + history[2] * coeffs[9] as f64
+        + history[1] * coeffs[10] as f64
+        + history[0] * coeffs[11] as f64
 }
 
 struct LegacyCubicTruePeakDetector {
