@@ -78,9 +78,7 @@ pub fn spectrum_thread_main(
 
                     let sr = shared.sample_rate.load(Ordering::Relaxed) as u32;
                     let spectrum_data = analyzer.analyze(&buffer, sr);
-                    let mut shared_spectrum = shared.spectrum_data.lock();
-                    shared_spectrum.clear();
-                    shared_spectrum.extend_from_slice(spectrum_data);
+                    shared.spectrum_data.store(Arc::new(spectrum_data.to_vec()));
                     buffer.clear();
                 }
             }

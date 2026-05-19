@@ -6,7 +6,7 @@ use crate::config::{DEFAULT_CACHE_MAX_BYTES, ENV_AUDIO_CACHE_MAX_BYTES};
 use crate::processor::{DspChain, NoiseShaperCurve};
 use arc_swap::{ArcSwap, ArcSwapOption};
 use crossbeam::queue::ArrayQueue;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{Read, Write};
@@ -495,7 +495,7 @@ pub struct SharedState {
     pub sample_rate: AtomicU64,
     pub channels: AtomicU64,
     pub total_frames: AtomicU64,
-    pub spectrum_data: Mutex<Vec<f32>>,
+    pub spectrum_data: ArcSwap<Vec<f32>>,
     /// Audio sample buffer — lock-free via ArcSwap for realtime-safe reads
     /// from the audio callback. Writers (load, gapless swap) call .store()
     /// which is an atomic pointer swap; readers call .load() which never blocks.
@@ -582,7 +582,7 @@ impl SharedState {
             sample_rate: AtomicU64::new(44100),
             channels: AtomicU64::new(2),
             total_frames: AtomicU64::new(0),
-            spectrum_data: Mutex::new(vec![0.0; 64]),
+            spectrum_data: ArcSwap::new(Arc::new(vec![0.0; 64])),
             audio_buffer: ArcSwap::new(Arc::new(Vec::new())),
             exclusive_mode: AtomicBool::new(false),
             device_id: std::sync::atomic::AtomicI64::new(-1),
@@ -713,8 +713,8 @@ pub struct AudioDeviceInfo {
 #[cfg(test)]
 mod cache_policy_tests {
     use super::{
-        load_cache_with_header, prune_cache_dir_to_limit, save_cache_with_header, CACHE_HEADER_SIZE,
-        CACHE_MAGIC, CACHE_SAMPLE_BYTES, CACHE_VERSION,
+        load_cache_with_header, prune_cache_dir_to_limit, save_cache_with_header,
+        CACHE_HEADER_SIZE, CACHE_MAGIC, CACHE_SAMPLE_BYTES, CACHE_VERSION,
     };
     use std::fs;
     use std::io::Write;

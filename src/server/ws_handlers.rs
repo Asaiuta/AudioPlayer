@@ -353,13 +353,14 @@ async fn websocket(
                         position_ticks = 0;
                     }
 
-                    let spectrum = shared_state.spectrum_data.lock().clone();
-                    if spectrum == last_spectrum && !is_playing {
+                    let spectrum = shared_state.spectrum_data.load_full();
+                    if spectrum.as_slice() == last_spectrum.as_slice() && !is_playing {
                         continue;
                     }
-                    last_spectrum = spectrum.clone();
+                    last_spectrum.clear();
+                    last_spectrum.extend_from_slice(spectrum.as_slice());
 
-                    let msg = ws_events::spectrum_data(&spectrum);
+                    let msg = ws_events::spectrum_data(spectrum.as_slice());
 
                     if session.text(msg.to_string()).await.is_err() {
                         break;
