@@ -301,6 +301,11 @@ pub struct StreamingResampler {
     interleaved_output: Vec<f64>,
 }
 
+pub struct ResampleOutput<'a> {
+    pub samples: &'a [f64],
+    pub frames: usize,
+}
+
 impl StreamingResampler {
     pub fn from_rate(&self) -> u32 {
         self.from_rate
@@ -410,25 +415,13 @@ impl StreamingResampler {
         })
     }
 
-    /// Process a chunk of interleaved audio, returning resampled interleaved output
-    ///
-    /// FIX for Defect 33: Uses pre-allocated buffers to avoid heap allocation.
-    /// Note: This still returns a Vec for API compatibility. For zero-allocation,
-    /// use process_chunk_into() which writes to a pre-allocated output buffer.
-    pub fn process_chunk(&mut self, input: &[f64]) -> Vec<f64> {
-        if self.from_rate == self.to_rate {
-            return input.to_vec();
-        }
-
-        let input_frames = input.len() / self.channels;
-        if input_frames == 0 {
-            return Vec::new();
-        }
-
+    fn process_chunk_to_internal_output(&mut self, input: &[f64]) -> usize {
         // Clear and reuse pre-allocated channel input buffers (Defect 33 fix)
         for ch_buf in &mut self.channel_inputs {
             ch_buf.clear();
         }
+
+        let input_frames = input.len() / self.channels;
 
         // De-interleave input into pre-allocated buffers. Trailing incomplete
         // frames are intentionally ignored, matching `input.len() / channels`.
@@ -460,27 +453,75 @@ impl StreamingResampler {
                             channel_data.len(),
                             e
                         );
-                        return Vec::new();
+                        self.interleaved_output.clear();
+                        return 0;
                     }
                 };
 
-            // Copy to channel output buffer (still one allocation per channel, unavoidable for Vec return)
             self.channel_outputs[ch]
                 .extend_from_slice(&self.output_scratch[..processed.output_frames]);
         }
 
-        if interleave_channel_outputs_to_vec(
+        interleave_channel_outputs_to_vec(
             &self.channel_outputs,
             self.channels,
             &mut self.interleaved_output,
-        ) == 0
-        {
+        )
+    }
+
+    /// Process a chunk of interleaved audio and borrow the resampler-owned output.
+    ///
+    /// Resampling processes only complete input frames; trailing samples where
+    /// `input.len() % channels != 0` are ignored to preserve existing behavior.
+    /// The equal-rate bypass returns the original input slice unchanged.
+    /// The borrowed slice remains valid until the next mutable resampler call.
+    pub fn process_chunk_borrowed<'a>(&'a mut self, input: &'a [f64]) -> ResampleOutput<'a> {
+        if self.from_rate == self.to_rate {
+            return ResampleOutput {
+                samples: input,
+                frames: input.len() / self.channels,
+            };
+        }
+
+        let input_frames = input.len() / self.channels;
+        if input_frames == 0 {
+            self.interleaved_output.clear();
+            return ResampleOutput {
+                samples: &self.interleaved_output,
+                frames: 0,
+            };
+        }
+
+        let frames = self.process_chunk_to_internal_output(input);
+        ResampleOutput {
+            samples: &self.interleaved_output,
+            frames,
+        }
+    }
+
+    /// Process a chunk and append the result directly to a caller-owned buffer.
+    pub fn process_chunk_append(&mut self, input: &[f64], output: &mut Vec<f64>) -> usize {
+        let result = self.process_chunk_borrowed(input);
+        output.extend_from_slice(result.samples);
+        result.frames
+    }
+
+    /// Process a chunk of interleaved audio, returning resampled interleaved output
+    ///
+    /// FIX for Defect 33: Uses pre-allocated buffers to avoid heap allocation.
+    /// Note: This still returns a Vec for API compatibility. For zero-allocation,
+    /// use process_chunk_borrowed(), process_chunk_append(), or process_chunk_into().
+    pub fn process_chunk(&mut self, input: &[f64]) -> Vec<f64> {
+        if self.from_rate == self.to_rate {
+            return input.to_vec();
+        }
+
+        let result = self.process_chunk_borrowed(input);
+        if result.frames == 0 {
             return Vec::new();
         }
 
-        // Return a clone of the interleaved data (API compatibility)
-        // The pre-allocated buffer is reused on next call
-        self.interleaved_output.clone()
+        result.samples.to_vec()
     }
 
     /// Process a chunk into a pre-allocated output buffer (zero-allocation version)
@@ -651,5 +692,45 @@ mod tests {
 
         assert_eq!(frames, 2);
         assert_eq!(output, vec![1.0, 2.0, 3.0, 4.0, 42.0, 42.0]);
+    }
+
+    #[test]
+    fn process_chunk_borrowed_equal_rate_reports_complete_frames_and_full_input() {
+        let mut resampler = StreamingResampler::new(2, 48_000, 48_000).unwrap();
+        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+
+        let result = resampler.process_chunk_borrowed(&input);
+
+        assert_eq!(result.frames, 2);
+        assert_eq!(result.samples, input.as_slice());
+    }
+
+    #[test]
+    fn process_chunk_append_equal_rate_preserves_prefix_and_full_input() {
+        let mut resampler = StreamingResampler::new(2, 48_000, 48_000).unwrap();
+        let input = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let mut output = vec![-1.0, -2.0];
+
+        let frames = resampler.process_chunk_append(&input, &mut output);
+
+        assert_eq!(frames, 2);
+        assert_eq!(output, vec![-1.0, -2.0, 1.0, 2.0, 3.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn process_chunk_append_matches_vec_wrapper_for_resampling() {
+        let input = (0..2048)
+            .map(|sample| sample as f64 / 2048.0)
+            .collect::<Vec<_>>();
+        let mut wrapper_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        let mut append_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        let expected = wrapper_resampler.process_chunk(&input);
+        let mut actual = vec![99.0];
+
+        let frames = append_resampler.process_chunk_append(&input, &mut actual);
+
+        assert_eq!(frames * 2, expected.len());
+        assert_eq!(&actual[..1], &[99.0]);
+        assert_eq!(&actual[1..], expected.as_slice());
     }
 }

@@ -615,8 +615,7 @@ impl AudioPlayer {
             }
             decoded_frames += (decoded_chunk.len() / channels) as u64;
             if let Some(ref mut rs) = resampler {
-                let resampled = rs.process_chunk(&decoded_chunk);
-                samples.extend(resampled);
+                rs.process_chunk_append(&decoded_chunk, &mut samples);
             } else {
                 samples.extend(decoded_chunk);
             }

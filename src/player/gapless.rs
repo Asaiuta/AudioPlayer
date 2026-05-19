@@ -227,7 +227,7 @@ fn decode_to_buffer_with_cancel(
         }
 
         if let Some(ref mut rs) = resampler {
-            samples.extend(rs.process_chunk(&chunk));
+            rs.process_chunk_append(&chunk, &mut samples);
         } else {
             samples.extend(chunk);
         }
