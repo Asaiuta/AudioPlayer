@@ -3,13 +3,20 @@ import type { JSX } from "solid-js";
 import { Portal } from "solid-js/web";
 import { useTranslation } from "../../shared/i18n";
 import { ncmSongShareUrl } from "../../shared/api/ncm/urls";
+import {
+  readSongCommentsPayload,
+  songComments,
+  type NcmSongComment
+} from "../../shared/api/ncm/comment";
 import { useUISettings } from "../../shared/state/useUISettings";
 import { useDismissibleOverlay } from "../../shared/ui/useDismissibleOverlay";
+import { Modal } from "../Modal";
 import {
   IconChevronDown,
   IconCopy,
   IconDelete,
   IconFolder,
+  IconMessage,
   IconPlay,
   IconPlaylist,
   IconQueueAdd,
@@ -35,6 +42,7 @@ export type MediaContextAction =
   | "copy-name"
   | "copy-id"
   | "share-link"
+  | "view-comments"
   | "copy-path"
   | "show-in-folder"
   | "add-to-playlist"
@@ -124,6 +132,16 @@ interface SortMenuState {
   y: number;
 }
 
+interface CommentsModalState {
+  open: boolean;
+  title: string;
+  status: "idle" | "loading" | "success" | "error";
+  total: number;
+  hotComments: readonly NcmSongComment[];
+  comments: readonly NcmSongComment[];
+  error: string | null;
+}
+
 const closedMenu: MenuState = {
   open: false,
   x: 0,
@@ -137,6 +155,16 @@ const closedSortMenu: SortMenuState = {
   y: 0
 };
 
+const closedCommentsModal: CommentsModalState = {
+  open: false,
+  title: "",
+  status: "idle",
+  total: 0,
+  hotComments: [],
+  comments: [],
+  error: null
+};
+
 export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
   const { t } = useTranslation();
   const uiSettings = useUISettings();
@@ -144,13 +172,25 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<MenuState>(closedMenu);
   const [sortMenu, setSortMenu] = createSignal<SortMenuState>(closedSortMenu);
+  const [commentsModal, setCommentsModal] = createSignal<CommentsModalState>(closedCommentsModal);
   const [scrollTop, setScrollTop] = createSignal<number>(0);
   const [viewportHeight, setViewportHeight] = createSignal<number>(0);
   let viewportRef: HTMLDivElement | undefined;
   let sortMenuRef: HTMLDivElement | undefined;
 
   const contextActionSet = createMemo<Set<MediaContextAction>>(
-    () => new Set(props.contextActions ?? ["play", "enqueue", "search", "copy-name", "copy-id", "share-link"])
+    () =>
+      new Set(
+        props.contextActions ?? [
+          "play",
+          "enqueue",
+          "search",
+          "copy-name",
+          "copy-id",
+          "share-link",
+          "view-comments"
+        ]
+      )
   );
   const contextActionEnabled = (action: MediaContextAction): boolean => {
     switch (action) {
@@ -167,6 +207,8 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
       case "copy-id":
       case "share-link":
         return uiSettings.contextMenuOptions.more;
+      case "view-comments":
+        return uiSettings.useOnlineService;
       case "copy-path":
         return true;
       case "show-in-folder":
@@ -302,6 +344,39 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     props.onContextAction?.("share-link", item);
   };
 
+  const handleViewComments = async (item: T) => {
+    if (typeof item.songId !== "number") return;
+    const title = searchableTitle(item) || String(item.songId);
+    setCommentsModal({
+      ...closedCommentsModal,
+      open: true,
+      title,
+      status: "loading"
+    });
+    props.onContextAction?.("view-comments", item);
+    try {
+      const payload = readSongCommentsPayload(await songComments(item.songId, 30, 0));
+      setCommentsModal({
+        open: true,
+        title,
+        status: "success",
+        total: payload.total,
+        hotComments: payload.hotComments,
+        comments: payload.comments,
+        error: null
+      });
+    } catch (error) {
+      console.warn("[MediaList] load song comments failed", error);
+      setCommentsModal({
+        ...closedCommentsModal,
+        open: true,
+        title,
+        status: "error",
+        error: error instanceof Error ? error.message : t("common.error.requestFailed")
+      });
+    }
+  };
+
   const handleMenuSelect = (key: string) => {
     const target = props.items.find((item) => item.id === menu().itemId);
     if (!target) return;
@@ -317,6 +392,8 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
       void handleCopyId(target);
     } else if (key === "share-link") {
       void handleShareLink(target);
+    } else if (key === "view-comments") {
+      void handleViewComments(target);
     } else if (key === "copy-path") {
       void handleCopyPath(target);
     } else if (key === "show-in-folder") {
@@ -494,6 +571,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
       { key: "copy-name", label: t("media.context.copyName"), icon: <IconCopy /> },
       { key: "copy-id", label: t("media.context.copyId"), icon: <IconCopy /> },
       { key: "share-link", label: t("media.context.shareLink"), icon: <IconShare /> },
+      { key: "view-comments", label: t("media.context.viewComments"), icon: <IconMessage /> },
       { key: "copy-path", label: t("media.context.copyPath"), icon: <IconCopy /> },
       { key: "show-in-folder", label: t("media.context.showInFolder"), icon: <IconFolder /> },
       { key: "delete-from-playlist", label: t("media.context.deleteFromPlaylist"), icon: <IconDelete /> },
@@ -503,7 +581,10 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     ];
     return items.filter((item) => {
       const action = item.key as MediaContextAction;
-      if ((action === "copy-id" || action === "share-link") && typeof target?.songId !== "number") {
+      if (
+        (action === "copy-id" || action === "share-link" || action === "view-comments") &&
+        typeof target?.songId !== "number"
+      ) {
         return false;
       }
       return actions.has(action) && contextActionEnabled(action);
@@ -631,6 +712,45 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
           onSelect={handleMenuSelect}
           onClose={closeMenu}
         />
+        <Modal
+          open={commentsModal().open}
+          title={t("media.comments.title", { title: commentsModal().title })}
+          onClose={() => setCommentsModal(closedCommentsModal)}
+          size="lg"
+        >
+          <div class="media-comments-modal">
+            <Show when={commentsModal().status === "loading"}>
+              <div class="panel-note">{t("media.comments.loading")}</div>
+            </Show>
+            <Show when={commentsModal().status === "error"}>
+              <div class="panel-note">{commentsModal().error ?? t("common.error.requestFailed")}</div>
+            </Show>
+            <Show when={commentsModal().status === "success" && commentsModal().total === 0}>
+              <div class="panel-note">{t("media.comments.empty")}</div>
+            </Show>
+            <Show when={commentsModal().hotComments.length > 0}>
+              <section class="media-comments-section">
+                <h4>{t("media.comments.hot")}</h4>
+                <For each={commentsModal().hotComments}>
+                  {(comment) => <MediaCommentItem comment={comment} />}
+                </For>
+              </section>
+            </Show>
+            <Show when={commentsModal().comments.length > 0}>
+              <section class="media-comments-section">
+                <h4>
+                  {t("media.comments.all")}
+                  <Show when={commentsModal().total > 0}>
+                    <span>{commentsModal().total}</span>
+                  </Show>
+                </h4>
+                <For each={commentsModal().comments}>
+                  {(comment) => <MediaCommentItem comment={comment} />}
+                </For>
+              </section>
+            </Show>
+          </div>
+        </Modal>
         <Show when={sortMenu().open && typeof document !== "undefined"}>
           <Portal mount={document.body}>
             <MediaSortPopover
@@ -654,5 +774,30 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
         </Show>
       </div>
     </Show>
+  );
+}
+
+function MediaCommentItem(props: { comment: NcmSongComment }) {
+  const timeLabel = () =>
+    props.comment.time === null ? "" : new Date(props.comment.time).toLocaleDateString();
+
+  return (
+    <article class="media-comment-item">
+      <Show when={props.comment.user.avatarUrl} fallback={<div class="media-comment-avatar" aria-hidden="true" />}>
+        {(avatarUrl) => (
+          <img class="media-comment-avatar" src={avatarUrl()} alt={props.comment.user.nickname} />
+        )}
+      </Show>
+      <div class="media-comment-body">
+        <div class="media-comment-meta">
+          <span>{props.comment.user.nickname}</span>
+          <span>{timeLabel()}</span>
+        </div>
+        <p>{props.comment.content}</p>
+        <Show when={props.comment.likedCount > 0}>
+          <span class="media-comment-like">{props.comment.likedCount}</span>
+        </Show>
+      </div>
+    </article>
   );
 }

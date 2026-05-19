@@ -18,6 +18,9 @@ export interface NcmSongCommentsPayload {
   hasMore: boolean;
 }
 
+export type NcmResourceCommentType = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+export type NcmResourceCommentSort = 1 | 2 | 3;
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
@@ -29,6 +32,11 @@ const readNumber = (value: unknown): number | null =>
 
 const readBoolean = (value: unknown): boolean | null =>
   typeof value === "boolean" ? value : null;
+
+const readCommentContainer = (envelope: NcmResponseEnvelope): Record<string, unknown> => {
+  if (isRecord(envelope.data)) return envelope.data;
+  return envelope;
+};
 
 const readComment = (value: unknown): NcmSongComment | null => {
   if (!isRecord(value)) {
@@ -68,6 +76,18 @@ export const readSongCommentsPayload = (
   hasMore: readBoolean(envelope.more) ?? readBoolean(envelope.hasMore) ?? false
 });
 
+export const readResourceCommentsPayload = (
+  envelope: NcmResponseEnvelope
+): NcmSongCommentsPayload => {
+  const data = readCommentContainer(envelope);
+  return {
+    total: readNumber(data.total) ?? readNumber(data.totalCount) ?? readNumber(envelope.total) ?? 0,
+    hotComments: readComments(data.hotComments),
+    comments: readComments(data.comments),
+    hasMore: readBoolean(data.more) ?? readBoolean(data.hasMore) ?? false
+  };
+};
+
 export const songComments = (
   id: number,
   limit = 20,
@@ -76,5 +96,27 @@ export const songComments = (
   requestNcm("comment/music", {
     method: "POST",
     data: { id, limit, offset },
+    noCache: true
+  });
+
+export const resourceComments = (
+  id: number,
+  type: NcmResourceCommentType,
+  pageNo = 1,
+  pageSize = 20,
+  sortType: NcmResourceCommentSort = 2,
+  cursor?: number
+): Promise<NcmResponseEnvelope> =>
+  requestNcm("comment/new", {
+    method: "POST",
+    data: {
+      id,
+      type,
+      pageNo,
+      pageSize,
+      sortType,
+      timestamp: Date.now(),
+      ...(cursor === undefined ? {} : { cursor })
+    },
     noCache: true
   });

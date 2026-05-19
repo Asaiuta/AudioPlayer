@@ -264,7 +264,16 @@ export function CloudPage(props: CloudPageProps) {
           onPlay={(item) => void playback.playOnlineTrack(item)}
           onEnqueue={(item) => void playback.enqueueOnlineTrack(item)}
           onContextAction={handleContextAction}
-          contextActions={["play", "enqueue", "search", "copy-name", "copy-id", "share-link", "delete-from-cloud"]}
+          contextActions={[
+            "play",
+            "enqueue",
+            "search",
+            "copy-name",
+            "copy-id",
+            "share-link",
+            "view-comments",
+            "delete-from-cloud"
+          ]}
           deleteActionLabel={t("ncm.cloud.deleteAction")}
           isLoading={isLoading()}
           emptyState={

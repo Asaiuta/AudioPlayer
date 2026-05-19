@@ -254,6 +254,9 @@ mod tests {
             ("/mv/detail", "mv_detail"),
             ("/mv/detail/info", "mv_detail_info"),
             ("/mv/url", "mv_url"),
+            ("/comment/music", "comment_music"),
+            ("/comment/new", "comment_new"),
+            ("/comment/hot", "comment_hot"),
         ];
         for (path, expected) in cases {
             let normalized = normalize_route(path);

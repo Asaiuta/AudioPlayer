@@ -101,6 +101,7 @@ pub(super) enum ProxyRouteGroup {
     Recommend,
     Dj,
     Mv,
+    Comment,
 }
 
 macro_rules! proxy_route_group {
@@ -254,6 +255,12 @@ proxy_route_group!(MV_PROXY_METHODS, dispatch_mv_route, |client, query| {
     "mv_url" => client.mv_url(query).await,
 });
 
+proxy_route_group!(COMMENT_PROXY_METHODS, dispatch_comment_route, |client, query| {
+    "comment_music" => client.comment_music(query).await,
+    "comment_new" => client.comment_new(query).await,
+    "comment_hot" => client.comment_hot(query).await,
+});
+
 const PROXY_METHOD_REGISTRY: &[(ProxyRouteGroup, &[&str])] = &[
     (ProxyRouteGroup::Auth, AUTH_PROXY_METHODS),
     (ProxyRouteGroup::Search, SEARCH_PROXY_METHODS),
@@ -263,6 +270,7 @@ const PROXY_METHOD_REGISTRY: &[(ProxyRouteGroup, &[&str])] = &[
     (ProxyRouteGroup::Recommend, RECOMMEND_PROXY_METHODS),
     (ProxyRouteGroup::Dj, DJ_PROXY_METHODS),
     (ProxyRouteGroup::Mv, MV_PROXY_METHODS),
+    (ProxyRouteGroup::Comment, COMMENT_PROXY_METHODS),
 ];
 
 pub(super) fn proxy_route_group_for_method(method: &str) -> Option<ProxyRouteGroup> {
@@ -294,6 +302,7 @@ async fn dispatch(
         ProxyRouteGroup::Recommend => dispatch_recommend_route(client, method, query).await,
         ProxyRouteGroup::Dj => dispatch_dj_route(client, method, query).await,
         ProxyRouteGroup::Mv => dispatch_mv_route(client, method, query).await,
+        ProxyRouteGroup::Comment => dispatch_comment_route(client, method, query).await,
     }
     .unwrap_or_else(|| {
         Err(DispatchError::RegistryDrift {
@@ -320,6 +329,7 @@ pub(super) fn proxy_handler_method_names() -> Vec<&'static str> {
     methods.extend_from_slice(RECOMMEND_PROXY_METHODS);
     methods.extend_from_slice(DJ_PROXY_METHODS);
     methods.extend_from_slice(MV_PROXY_METHODS);
+    methods.extend_from_slice(COMMENT_PROXY_METHODS);
     methods
 }
 

@@ -84,6 +84,7 @@ export const parseVideoDetail = (detailPayload: unknown, infoPayload: unknown): 
     qualities: readArray(data.brs)
       .map((item) => (isRecord(item) ? readNumber(item.br ?? item.size) : null))
       .filter((item): item is number => item !== null)
+      .sort((a, b) => b - a)
   };
 };
 
