@@ -8,8 +8,12 @@
 //! - References lock-free parameters (shared with main thread)
 //! - Synchronizes parameters before processing
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use arc_swap::ArcSwapOption;
+
+use super::convolver::FFTConvolver;
 use super::crossfeed::Crossfeed;
 use super::dsp::NoiseShaper;
 use super::dynamic_loudness::DynamicLoudness;
@@ -727,6 +731,77 @@ impl SampleRateAware for DynamicLoudnessProcessor {
 }
 
 // ============================================================================
+// Convolver Adapter
+// ============================================================================
+
+/// FFT convolver processor with wait-free kernel swap-in.
+pub struct ConvolverProcessor {
+    owned: Option<FFTConvolver>,
+    swap: Arc<ArcSwapOption<FFTConvolver>>,
+    enabled: Arc<AtomicBool>,
+}
+
+impl ConvolverProcessor {
+    pub fn new(swap: Arc<ArcSwapOption<FFTConvolver>>, enabled: Arc<AtomicBool>) -> Self {
+        Self {
+            owned: None,
+            swap,
+            enabled,
+        }
+    }
+
+    fn sync_convolver(&mut self) {
+        if !self.enabled.load(Ordering::Acquire) {
+            self.owned = None;
+            let _ = self.swap.swap(None);
+            return;
+        }
+
+        let new_conv = self.swap.swap(None);
+        if let Some(arc_conv) = new_conv {
+            match Arc::try_unwrap(arc_conv) {
+                Ok(conv) => self.owned = Some(conv),
+                Err(arc) => self.owned = Some((*arc).clone()),
+            }
+        }
+    }
+}
+
+impl AudioProcessor for ConvolverProcessor {
+    fn name(&self) -> &'static str {
+        "Convolver"
+    }
+
+    fn process(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
+        self.sync_convolver();
+
+        if let Some(ref mut convolver) = self.owned {
+            convolver.process_inplace(buffer);
+            ProcessResult::Ok
+        } else {
+            ProcessResult::Bypassed
+        }
+    }
+
+    fn reset(&mut self) {
+        if let Some(ref mut convolver) = self.owned {
+            convolver.reset();
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        self.enabled.load(Ordering::Acquire)
+    }
+
+    fn set_enabled(&mut self, enabled: bool) {
+        if !enabled {
+            self.owned = None;
+        }
+        self.enabled.store(enabled, Ordering::Release);
+    }
+}
+
+// ============================================================================
 // Pass-through Processor (for testing)
 // ============================================================================
 
@@ -774,6 +849,37 @@ impl AudioProcessor for PassThroughProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_convolver_processor_swaps_in_and_processes() {
+        let swap = Arc::new(ArcSwapOption::empty());
+        let enabled = Arc::new(AtomicBool::new(false));
+        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+        let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
+
+        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Bypassed);
+
+        swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
+        enabled.store(true, Ordering::Release);
+        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Ok);
+        assert_eq!(buffer, vec![0.5, 1.0, 1.5, 2.0]);
+    }
+
+    #[test]
+    fn test_convolver_processor_clear_disables_owned_convolver() {
+        let swap = Arc::new(ArcSwapOption::empty());
+        let enabled = Arc::new(AtomicBool::new(true));
+        let mut proc = ConvolverProcessor::new(Arc::clone(&swap), Arc::clone(&enabled));
+        let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
+
+        swap.store(Some(Arc::new(FFTConvolver::new(&[0.5], 1))));
+        assert_eq!(proc.process(&mut buffer, 1), ProcessResult::Ok);
+
+        enabled.store(false, Ordering::Release);
+        let mut bypassed = vec![1.0, 2.0, 3.0, 4.0];
+        assert_eq!(proc.process(&mut bypassed, 1), ProcessResult::Bypassed);
+        assert_eq!(bypassed, vec![1.0, 2.0, 3.0, 4.0]);
+    }
 
     #[test]
     fn test_eq_processor() {

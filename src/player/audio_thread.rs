@@ -155,6 +155,7 @@ impl AudioThreadRuntime {
             AudioCommand::LoadComplete { generation, result } => {
                 handle_load_complete_command(
                     &self.shared_state,
+                    &self.dsp_ctx,
                     &self.loudness_state,
                     self.dsp_params.refs(),
                     self.target_lufs,
@@ -426,6 +427,7 @@ fn handle_set_fir_convolver_command(
 #[allow(clippy::too_many_arguments)]
 fn handle_load_complete_command(
     shared_state: &Arc<SharedState>,
+    dsp_ctx: &Arc<LockfreeDspContext>,
     loudness_state: &Arc<AtomicLoudnessState>,
     dsp_params: DspParamRefs<'_>,
     target_lufs: f64,
@@ -447,6 +449,7 @@ fn handle_load_complete_command(
     );
     apply_loaded_track_result(
         shared_state,
+        dsp_ctx,
         loudness_state,
         dsp_params,
         target_lufs,
@@ -469,6 +472,7 @@ fn handle_load_error_command(shared_state: &Arc<SharedState>, generation: u64, m
 
 fn rebuild_pending_dsp_chain(
     shared_state: &SharedState,
+    dsp_ctx: &Arc<LockfreeDspContext>,
     dsp_params: DspParamRefs<'_>,
     channels: usize,
     sample_rate: u32,
@@ -485,6 +489,8 @@ fn rebuild_pending_dsp_chain(
         Arc::clone(dsp_params.noise_shaper_params),
         Arc::clone(dsp_params.dynamic_loudness_params),
         Arc::clone(dsp_params.dynamic_loudness_telemetry),
+        Arc::clone(&dsp_ctx.merged_convolver),
+        Arc::clone(&dsp_ctx.merged_convolver_enabled),
     );
     let _ = shared_state.pending_dsp_chain.push(rebuilt_chain);
 }
@@ -631,6 +637,7 @@ fn apply_loaded_track_loudness(
 
 fn apply_loaded_track_result(
     shared_state: &Arc<SharedState>,
+    dsp_ctx: &Arc<LockfreeDspContext>,
     loudness_state: &Arc<AtomicLoudnessState>,
     dsp_params: DspParamRefs<'_>,
     target_lufs: f64,
@@ -646,7 +653,7 @@ fn apply_loaded_track_result(
         metadata,
     } = result;
     let samples_arc = Arc::new(samples);
-    rebuild_pending_dsp_chain(shared_state, dsp_params, channels, sample_rate);
+    rebuild_pending_dsp_chain(shared_state, dsp_ctx, dsp_params, channels, sample_rate);
     apply_loaded_track_state(
         shared_state,
         sample_rate,
@@ -713,14 +720,13 @@ fn handle_wasapi_exclusive(
     }
 
     let cb_shared = Arc::clone(shared_state);
-    let cb_convolver = Arc::clone(&dsp_ctx.merged_convolver);
     let cb_loudness_state = Arc::clone(loudness_state);
     let cb_spectrum_tx = spectrum_tx.clone();
 
     let mut callback_scratch = CallbackScratch::new(channels);
 
-    // Build a DspChain owned by the WASAPI callback
-    let (_, wasapi_chain) = LockfreeDspContext::new(
+    // Build a DspChain owned by the WASAPI callback.
+    let mut wasapi_dsp_chain = LockfreeDspContext::build_dsp_chain(
         channels,
         sample_rate as f64,
         Arc::clone(&dsp_ctx.eq_params),
@@ -731,19 +737,17 @@ fn handle_wasapi_exclusive(
         Arc::clone(&dsp_ctx.noise_shaper_params),
         Arc::clone(&dsp_ctx.dynamic_loudness_params),
         Arc::new(crate::processor::AtomicDynamicLoudnessTelemetry::new()),
+        Arc::clone(&dsp_ctx.merged_convolver),
+        Arc::clone(&dsp_ctx.merged_convolver_enabled),
     );
-    let mut wasapi_dsp_chain = wasapi_chain;
 
     let mut unused_resampler = None;
-    let mut wasapi_owned_convolver: Option<crate::processor::FFTConvolver> = None;
 
     let dsp_callback = Box::new(move |data: &mut [f32], cb_channels: usize| -> bool {
         audio_callback_lockfree(
             data,
             &cb_shared,
             &mut wasapi_dsp_chain,
-            &mut wasapi_owned_convolver,
-            &cb_convolver,
             &cb_loudness_state,
             &cb_spectrum_tx,
             cb_channels,
@@ -900,6 +904,7 @@ fn handle_wasapi_command(
         AudioCommand::LoadComplete { generation, result } => {
             handle_load_complete_command(
                 context.shared_state,
+                context.dsp_ctx,
                 context.loudness_state,
                 wasapi_dsp_refs(context),
                 context.target_lufs,

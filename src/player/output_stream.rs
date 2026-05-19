@@ -112,6 +112,7 @@ pub(super) fn build_requested_output_stream(
         build_dsp_chain(
             output_plan.channels as usize,
             output_plan.requested_sample_rate as f64,
+            context,
             dsp_params,
         )
     });
@@ -142,8 +143,12 @@ pub(super) fn build_fallback_output_stream(
         .into();
     let fallback_sample_rate = fallback_config.sample_rate.0;
     let fallback_channels = fallback_config.channels as usize;
-    let fallback_chain =
-        build_dsp_chain(fallback_channels, fallback_sample_rate as f64, dsp_params);
+    let fallback_chain = build_dsp_chain(
+        fallback_channels,
+        fallback_sample_rate as f64,
+        context,
+        dsp_params,
+    );
 
     build_output_stream_with_callback(
         &output_plan.device,
@@ -160,6 +165,7 @@ pub(super) fn build_fallback_output_stream(
 fn build_dsp_chain(
     channels: usize,
     sample_rate: f64,
+    context: &OutputStreamContext<'_>,
     params: &DspParamRefs<'_>,
 ) -> crate::processor::DspChain {
     LockfreeDspContext::build_dsp_chain(
@@ -173,6 +179,8 @@ fn build_dsp_chain(
         Arc::clone(params.noise_shaper_params),
         Arc::clone(params.dynamic_loudness_params),
         Arc::clone(params.dynamic_loudness_telemetry),
+        Arc::clone(&context.dsp_ctx.merged_convolver),
+        Arc::clone(&context.dsp_ctx.merged_convolver_enabled),
     )
 }
 
@@ -202,11 +210,9 @@ fn build_output_stream_with_callback(
     };
 
     let cb_shared = Arc::clone(context.shared_state);
-    let cb_convolver = Arc::clone(&context.dsp_ctx.merged_convolver);
     let cb_loudness_state = Arc::clone(context.loudness_state);
     let cb_spectrum_tx = context.spectrum_tx.clone();
     let mut scratch = CallbackScratch::new(channels);
-    let mut owned_convolver: Option<crate::processor::FFTConvolver> = None;
 
     device
         .build_output_stream(
@@ -222,8 +228,6 @@ fn build_output_stream_with_callback(
                         data,
                         &cb_shared,
                         &mut dsp_chain,
-                        &mut owned_convolver,
-                        &cb_convolver,
                         &cb_loudness_state,
                         &cb_spectrum_tx,
                         channels,
@@ -237,8 +241,6 @@ fn build_output_stream_with_callback(
                     data,
                     &cb_shared,
                     &mut dsp_chain,
-                    &mut owned_convolver,
-                    &cb_convolver,
                     &cb_loudness_state,
                     &cb_spectrum_tx,
                     channels,
