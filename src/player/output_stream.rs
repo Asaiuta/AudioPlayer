@@ -13,7 +13,7 @@ use crossbeam::channel::Sender;
 #[cfg(debug_assertions)]
 use assert_no_alloc::assert_no_alloc;
 
-use super::callback::{audio_callback_lockfree, LockfreeDspContext};
+use super::callback::{audio_callback_lockfree, CallbackScratch, LockfreeDspContext};
 use super::state::{PlayerState, SharedState, EVENT_PLAYBACK_STARTED};
 use crate::config::PhaseResponse;
 use crate::processor::{
@@ -23,9 +23,6 @@ use crate::processor::{
 };
 
 const MAX_DAC_RATE: u32 = 384000;
-const AUDIO_PROCESS_BUFFER_FRAMES: usize = 8192;
-const AUDIO_RESAMPLE_BUFFER_FRAMES: usize = 16384;
-
 pub(super) struct PlaybackOutputPlan {
     pub device: Device,
     pub requested_sample_rate: u32,
@@ -207,13 +204,8 @@ fn build_output_stream_with_callback(
     let cb_convolver = Arc::clone(&context.dsp_ctx.merged_convolver);
     let cb_loudness_state = Arc::clone(context.loudness_state);
     let cb_spectrum_tx = context.spectrum_tx.clone();
-    let mut process_buffer = Vec::with_capacity(AUDIO_PROCESS_BUFFER_FRAMES * channels);
-    process_buffer.resize(AUDIO_PROCESS_BUFFER_FRAMES * channels, 0.0);
-    let mut resample_leftover = Vec::with_capacity(AUDIO_RESAMPLE_BUFFER_FRAMES * channels);
-    let mut resample_leftover_pos = 0usize;
-    let mut resample_output = Vec::with_capacity(AUDIO_RESAMPLE_BUFFER_FRAMES * channels);
+    let mut scratch = CallbackScratch::new(channels);
     let mut owned_convolver: Option<crate::processor::FFTConvolver> = None;
-    let mut convolver_output = Vec::with_capacity(AUDIO_PROCESS_BUFFER_FRAMES * channels);
 
     device
         .build_output_stream(
@@ -234,12 +226,8 @@ fn build_output_stream_with_callback(
                         &cb_loudness_state,
                         &cb_spectrum_tx,
                         channels,
-                        &mut process_buffer,
                         &mut resampler,
-                        &mut resample_leftover,
-                        &mut resample_leftover_pos,
-                        &mut resample_output,
-                        &mut convolver_output,
+                        &mut scratch,
                     );
                 });
 
@@ -253,12 +241,8 @@ fn build_output_stream_with_callback(
                     &cb_loudness_state,
                     &cb_spectrum_tx,
                     channels,
-                    &mut process_buffer,
                     &mut resampler,
-                    &mut resample_leftover,
-                    &mut resample_leftover_pos,
-                    &mut resample_output,
-                    &mut convolver_output,
+                    &mut scratch,
                 );
             },
             |err| log::error!("Stream error: {}", err),

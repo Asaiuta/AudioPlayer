@@ -20,6 +20,35 @@ use crate::processor::{
     PeakLimiterProcessor, SaturationProcessor, StreamingResampler, VolumeProcessor,
 };
 
+pub const AUDIO_PROCESS_BUFFER_FRAMES: usize = 8192;
+pub const AUDIO_RESAMPLE_BUFFER_FRAMES: usize = 16384;
+
+pub struct CallbackScratch {
+    process_buffer: Vec<f64>,
+    resample_leftover: Vec<f64>,
+    resample_leftover_pos: usize,
+    resample_output: Vec<f64>,
+    convolver_output: Vec<f64>,
+}
+
+impl CallbackScratch {
+    pub fn new(channels: usize) -> Self {
+        let process_samples = AUDIO_PROCESS_BUFFER_FRAMES * channels;
+        let resample_samples = AUDIO_RESAMPLE_BUFFER_FRAMES * channels;
+
+        let mut process_buffer = Vec::with_capacity(process_samples);
+        process_buffer.resize(process_samples, 0.0);
+
+        Self {
+            process_buffer,
+            resample_leftover: Vec::with_capacity(resample_samples),
+            resample_leftover_pos: 0,
+            resample_output: Vec::with_capacity(resample_samples),
+            convolver_output: Vec::with_capacity(process_samples),
+        }
+    }
+}
+
 // ============================================================================
 // CHANNEL NORMALIZATION
 // ============================================================================
@@ -356,12 +385,8 @@ pub fn audio_callback_lockfree(
     loudness_state: &Arc<AtomicLoudnessState>,
     spectrum_tx: &Sender<f64>,
     channels: usize,
-    process_buf: &mut Vec<f64>,
     resampler: &mut Option<StreamingResampler>,
-    resample_leftover: &mut Vec<f64>,
-    resample_leftover_pos: &mut usize,
-    resample_output: &mut Vec<f64>,
-    convolver_output: &mut Vec<f64>,
+    scratch: &mut CallbackScratch,
 ) {
     // Check for new convolver delivered via ArcSwap (wait-free pointer swap).
     // If a new convolver was built by the command handler thread, swap it in.
@@ -407,7 +432,7 @@ pub fn audio_callback_lockfree(
         return;
     }
 
-    let has_leftover = *resample_leftover_pos < resample_leftover.len();
+    let has_leftover = scratch.resample_leftover_pos < scratch.resample_leftover.len();
 
     // Gapless and EOF handling
     let total = shared.total_frames.load(Ordering::Relaxed) as usize;
@@ -474,8 +499,8 @@ pub fn audio_callback_lockfree(
                 if let Some(ref mut rs) = resampler {
                     rs.reset();
                 }
-                resample_leftover.clear();
-                *resample_leftover_pos = 0;
+                scratch.resample_leftover.clear();
+                scratch.resample_leftover_pos = 0;
                 shared.dsp_reset_pending.store(false, Ordering::Release);
 
                 data.fill(0.0);
@@ -501,21 +526,21 @@ pub fn audio_callback_lockfree(
     let output_len = data.len();
 
     // Drain leftovers from resampling
-    if resampler.is_some() && *resample_leftover_pos < resample_leftover.len() {
-        let available = resample_leftover.len() - *resample_leftover_pos;
+    if resampler.is_some() && scratch.resample_leftover_pos < scratch.resample_leftover.len() {
+        let available = scratch.resample_leftover.len() - scratch.resample_leftover_pos;
         let take = available.min(output_len);
-        let start = *resample_leftover_pos;
+        let start = scratch.resample_leftover_pos;
         let end = start + take;
         for (dst, src) in data[..take]
             .iter_mut()
-            .zip(resample_leftover[start..end].iter())
+            .zip(scratch.resample_leftover[start..end].iter())
         {
             *dst = *src as f32;
         }
-        *resample_leftover_pos += take;
-        if *resample_leftover_pos >= resample_leftover.len() {
-            resample_leftover.clear();
-            *resample_leftover_pos = 0;
+        scratch.resample_leftover_pos += take;
+        if scratch.resample_leftover_pos >= scratch.resample_leftover.len() {
+            scratch.resample_leftover.clear();
+            scratch.resample_leftover_pos = 0;
         }
         samples_written = take;
     }
@@ -539,7 +564,7 @@ pub fn audio_callback_lockfree(
 
         // Clamp frames_to_read to pre-allocated buffer capacity to prevent
         // heap allocation inside the audio callback (P0-3 fix)
-        let max_frames_from_capacity = process_buf.capacity() / channels;
+        let max_frames_from_capacity = scratch.process_buffer.capacity() / channels;
         let frames_to_read = source_frames_needed
             .min(available_source)
             .min(4096)
@@ -547,15 +572,17 @@ pub fn audio_callback_lockfree(
         let start_sample = current_pos * channels;
         let end_sample = start_sample + frames_to_read * channels;
 
-        process_buf.clear();
+        scratch.process_buffer.clear();
         {
             let buf = shared.audio_buffer.load();
             if end_sample <= buf.len() {
-                process_buf.extend_from_slice(&buf[start_sample..end_sample]);
+                scratch
+                    .process_buffer
+                    .extend_from_slice(&buf[start_sample..end_sample]);
             }
         }
 
-        if process_buf.is_empty() {
+        if scratch.process_buffer.is_empty() {
             continue;
         }
 
@@ -566,14 +593,14 @@ pub fn audio_callback_lockfree(
 
         // ===== DSP Chain Processing (LOCK-FREE) =====
         // Apply loudness normalization (atomic, no lock)
-        let frames_in_chunk = process_buf.len() / channels;
+        let frames_in_chunk = scratch.process_buffer.len() / channels;
         let linear_gain = loudness_state.process_gain(frames_in_chunk);
-        for sample in process_buf.iter_mut() {
+        for sample in scratch.process_buffer.iter_mut() {
             *sample *= linear_gain;
         }
 
         // Process through unified DSP chain (NO Mutex — owned &mut)
-        dsp_chain.process(process_buf, channels);
+        dsp_chain.process(&mut scratch.process_buffer, channels);
 
         // Convolver: apply owned convolver in-place (P0 fix).
         // The convolver is exclusively owned by the callback closure,
@@ -581,38 +608,46 @@ pub fn audio_callback_lockfree(
         // New convolvers are delivered via ArcSwap at the top of this function.
         if let Some(ref mut conv) = owned_convolver {
             // Use pre-allocated convolver_output buffer to avoid allocation
-            let buf_len = process_buf.len();
-            convolver_output.clear();
-            convolver_output.resize(buf_len, 0.0);
-            conv.process_into(process_buf, convolver_output);
-            process_buf.copy_from_slice(&convolver_output[..buf_len]);
+            let buf_len = scratch.process_buffer.len();
+            scratch.convolver_output.clear();
+            scratch.convolver_output.resize(buf_len, 0.0);
+            conv.process_into(&scratch.process_buffer, &mut scratch.convolver_output);
+            scratch
+                .process_buffer
+                .copy_from_slice(&scratch.convolver_output[..buf_len]);
         }
 
         // Resample or direct output
         if let Some(rs) = resampler {
-            let expected_samples = rs.max_output_len_for_input(process_buf.len());
-            if resample_output.len() < expected_samples {
-                resample_output.resize(expected_samples, 0.0);
+            let expected_samples = rs.max_output_len_for_input(scratch.process_buffer.len());
+            if scratch.resample_output.len() < expected_samples {
+                scratch.resample_output.resize(expected_samples, 0.0);
             }
-            let frames_written = rs.process_chunk_into(process_buf, resample_output);
+            let frames_written =
+                rs.process_chunk_into(&scratch.process_buffer, &mut scratch.resample_output);
             let samples_resampled = frames_written * channels;
 
             let mut chunk_idx = 0;
             while samples_written < output_len && chunk_idx < samples_resampled {
-                data[samples_written] = resample_output[chunk_idx] as f32;
+                data[samples_written] = scratch.resample_output[chunk_idx] as f32;
                 samples_written += 1;
                 chunk_idx += 1;
             }
 
             if chunk_idx < samples_resampled {
-                resample_leftover.extend_from_slice(&resample_output[chunk_idx..samples_resampled]);
-                *resample_leftover_pos = 0;
+                scratch
+                    .resample_leftover
+                    .extend_from_slice(&scratch.resample_output[chunk_idx..samples_resampled]);
+                scratch.resample_leftover_pos = 0;
             }
         } else {
-            let take = process_buf.len().min(output_len - samples_written);
+            let take = scratch
+                .process_buffer
+                .len()
+                .min(output_len - samples_written);
             for (dst, src) in data[samples_written..samples_written + take]
                 .iter_mut()
-                .zip(process_buf[..take].iter())
+                .zip(scratch.process_buffer[..take].iter())
             {
                 *dst = *src as f32;
             }
@@ -665,6 +700,33 @@ mod tests {
         let stereo = vec![1.0, 3.0, 2.0, 4.0];
         let mono = normalize_channels(stereo, 2, 1);
         assert_eq!(mono, vec![2.0, 3.0]); // (1+3)/2, (2+4)/2
+    }
+
+    #[test]
+    fn callback_scratch_preallocates_hot_path_buffers() {
+        let scratch = CallbackScratch::new(2);
+
+        assert_eq!(
+            scratch.process_buffer.len(),
+            AUDIO_PROCESS_BUFFER_FRAMES * 2
+        );
+        assert_eq!(
+            scratch.process_buffer.capacity(),
+            AUDIO_PROCESS_BUFFER_FRAMES * 2
+        );
+        assert_eq!(
+            scratch.resample_leftover.capacity(),
+            AUDIO_RESAMPLE_BUFFER_FRAMES * 2
+        );
+        assert_eq!(
+            scratch.resample_output.capacity(),
+            AUDIO_RESAMPLE_BUFFER_FRAMES * 2
+        );
+        assert_eq!(
+            scratch.convolver_output.capacity(),
+            AUDIO_PROCESS_BUFFER_FRAMES * 2
+        );
+        assert_eq!(scratch.resample_leftover_pos, 0);
     }
 
     #[test]
@@ -737,13 +799,9 @@ mod tests {
         let loudness = Arc::new(AtomicLoudnessState::default());
         let (tx, _rx) = crossbeam::channel::bounded(16);
         let mut out = vec![0.0f32; 16];
-        let mut process_buf = vec![0.0; 16];
         let mut owned_convolver = None;
         let convolver_swap = Arc::new(ArcSwapOption::empty());
-        let mut leftover = Vec::new();
-        let mut leftover_pos = 0usize;
-        let mut resample_output = Vec::new();
-        let mut convolver_output = Vec::new();
+        let mut scratch = CallbackScratch::new(2);
 
         audio_callback_lockfree(
             &mut out,
@@ -754,12 +812,8 @@ mod tests {
             &loudness,
             &tx,
             2,
-            &mut process_buf,
             &mut None,
-            &mut leftover,
-            &mut leftover_pos,
-            &mut resample_output,
-            &mut convolver_output,
+            &mut scratch,
         );
 
         let current = shared.audio_buffer.load_full();
@@ -801,13 +855,9 @@ mod tests {
         let (tx, _rx) = crossbeam::channel::bounded(16);
         let mut out = vec![0.0f32; 8];
         let mut chain = initial;
-        let mut process_buf = vec![0.0; 8];
         let mut owned_convolver = None;
         let convolver_swap = Arc::new(ArcSwapOption::empty());
-        let mut leftover = Vec::new();
-        let mut leftover_pos = 0usize;
-        let mut resample_output = Vec::new();
-        let mut convolver_output = Vec::new();
+        let mut scratch = CallbackScratch::new(1);
 
         audio_callback_lockfree(
             &mut out,
@@ -818,12 +868,8 @@ mod tests {
             &loudness,
             &tx,
             1,
-            &mut process_buf,
             &mut None,
-            &mut leftover,
-            &mut leftover_pos,
-            &mut resample_output,
-            &mut convolver_output,
+            &mut scratch,
         );
 
         assert_eq!(chain.len(), 7);

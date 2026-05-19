@@ -9,7 +9,7 @@ use cpal::traits::StreamTrait;
 use cpal::Stream;
 use crossbeam::channel::{Receiver, RecvTimeoutError, Sender};
 
-use super::callback::{audio_callback_lockfree, LockfreeDspContext};
+use super::callback::{audio_callback_lockfree, CallbackScratch, LockfreeDspContext};
 use super::output_stream::{
     activate_started_stream, build_fallback_output_stream, build_requested_output_stream,
     detect_output_bits, prepare_playback_output, DspParamRefs, OutputStreamContext,
@@ -26,8 +26,6 @@ use crate::processor::{
 };
 
 const AUDIO_HEADROOM: f64 = 0.99;
-const AUDIO_PROCESS_BUFFER_FRAMES: usize = 8192;
-
 struct AudioThreadDspParams {
     eq_params: Arc<AtomicEqParams>,
     saturation_params: Arc<AtomicSaturationParams>,
@@ -519,7 +517,9 @@ fn apply_loaded_track_state(
     *shared_state.file_path.write() = Some(file_path.to_string());
     *shared_state.track_metadata.write() = metadata.clone();
     *shared_state.current_track_path.write() = Some(file_path.to_string());
-    shared_state.dsp_needs_rebuild.store(true, Ordering::Release);
+    shared_state
+        .dsp_needs_rebuild
+        .store(true, Ordering::Release);
 }
 
 fn calc_safe_replay_gain_db(rg_gain_db: f64, peak: Option<f64>, preamp_db: f64) -> f64 {
@@ -716,8 +716,7 @@ fn handle_wasapi_exclusive(
     let cb_loudness_state = Arc::clone(loudness_state);
     let cb_spectrum_tx = spectrum_tx.clone();
 
-    let mut process_buffer = Vec::with_capacity(AUDIO_PROCESS_BUFFER_FRAMES * channels);
-    process_buffer.resize(AUDIO_PROCESS_BUFFER_FRAMES * channels, 0.0);
+    let mut callback_scratch = CallbackScratch::new(channels);
 
     // Build a DspChain owned by the WASAPI callback
     let (_, wasapi_chain) = LockfreeDspContext::new(
@@ -735,11 +734,7 @@ fn handle_wasapi_exclusive(
     let mut wasapi_dsp_chain = wasapi_chain;
 
     let mut unused_resampler = None;
-    let mut unused_leftover = Vec::new();
-    let mut unused_leftover_pos = 0usize;
-    let mut unused_output = Vec::new();
     let mut wasapi_owned_convolver: Option<crate::processor::FFTConvolver> = None;
-    let mut wasapi_convolver_output = Vec::with_capacity(AUDIO_PROCESS_BUFFER_FRAMES * channels);
 
     let dsp_callback = Box::new(move |data: &mut [f32], cb_channels: usize| -> bool {
         audio_callback_lockfree(
@@ -751,12 +746,8 @@ fn handle_wasapi_exclusive(
             &cb_loudness_state,
             &cb_spectrum_tx,
             cb_channels,
-            &mut process_buffer,
             &mut unused_resampler,
-            &mut unused_leftover,
-            &mut unused_leftover_pos,
-            &mut unused_output,
-            &mut wasapi_convolver_output,
+            &mut callback_scratch,
         );
 
         cb_shared.state.load() == PlayerState::Stopped
@@ -809,8 +800,7 @@ fn handle_wasapi_exclusive(
 
             loop {
                 match cmd_rx.recv_timeout(std::time::Duration::from_millis(50)) {
-                    Ok(cmd) => match handle_wasapi_command(cmd, &wasapi_player, &command_context)
-                    {
+                    Ok(cmd) => match handle_wasapi_command(cmd, &wasapi_player, &command_context) {
                         WasapiCommandOutcome::Continue => {}
                         WasapiCommandOutcome::StopPlayback => break,
                         WasapiCommandOutcome::ShutdownThread => {
@@ -819,9 +809,7 @@ fn handle_wasapi_exclusive(
                     },
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
-                        log::warn!(
-                            "WASAPI command channel disconnected; stopping playback"
-                        );
+                        log::warn!("WASAPI command channel disconnected; stopping playback");
                         let _ = wasapi_player.stop();
                         break;
                     }
