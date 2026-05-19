@@ -368,16 +368,18 @@ impl AudioPipeline {
                 }
             };
 
-            // Resample if needed
-            let output = if let Some(ref mut rs) = resampler {
-                rs.process_chunk(&decoded)
+            // Resample if needed. Borrow resampler-owned output directly so the
+            // pipeline worker does not allocate a temporary Vec per chunk.
+            let (output, frames) = if let Some(ref mut rs) = resampler {
+                let resampled = rs.process_chunk_borrowed(&decoded);
+                (resampled.samples, resampled.frames)
             } else {
-                decoded
+                let frames = decoded.len() / channels;
+                (decoded.as_slice(), frames)
             };
 
             if !output.is_empty() {
-                let frames = output.len() / channels;
-                let (_, overflow) = ring_buffer.write().write(&output);
+                let (_, overflow) = ring_buffer.write().write(output);
                 // FIX for Defect 5: Sync external read position on overflow
                 if let Some(min_pos) = overflow {
                     current_read_pos.fetch_max(min_pos, Ordering::Relaxed);
