@@ -4,13 +4,18 @@ use crate::processor::dsp::linear_to_db;
 use std::sync::OnceLock;
 
 const TRUE_PEAK_PHASES: usize = 4;
-const TRUE_PEAK_FIR_TAPS: usize = 64;
-const TRUE_PEAK_FIR_MASK: usize = TRUE_PEAK_FIR_TAPS - 1;
-const TRUE_PEAK_HISTORY_LEN: usize = TRUE_PEAK_FIR_TAPS * 2;
-const TRUE_PEAK_FIR_BETA: f64 = 8.6;
-const TRUE_PEAK_FIR_CUTOFF: f64 = 0.5;
+const TRUE_PEAK_FIR_TAPS: usize = 49;
+const TRUE_PEAK_DELAY: usize = (TRUE_PEAK_FIR_TAPS + TRUE_PEAK_PHASES - 1) / TRUE_PEAK_PHASES;
+const TRUE_PEAK_HISTORY_LEN: usize = TRUE_PEAK_DELAY * 2;
 
-static TRUE_PEAK_FIR: OnceLock<[[f32; TRUE_PEAK_FIR_TAPS]; TRUE_PEAK_PHASES]> = OnceLock::new();
+static TRUE_PEAK_FIR: OnceLock<TruePeakFir> = OnceLock::new();
+
+#[derive(Clone, Copy)]
+struct TruePeakFir {
+    coeffs: [[f32; TRUE_PEAK_DELAY]; TRUE_PEAK_PHASES],
+    indices: [[usize; TRUE_PEAK_DELAY]; TRUE_PEAK_PHASES],
+    counts: [usize; TRUE_PEAK_PHASES],
+}
 
 /// EBU R128 loudness meter using the ebur128 crate
 /// Measures integrated, short-term, momentary loudness and loudness range
@@ -151,10 +156,10 @@ impl LoudnessMeter {
 
 /// True peak detector using 4x polyphase FIR oversampling.
 ///
-/// The FIR is a fixed-size Kaiser-windowed sinc table generated on first use.
-/// It replaces the older cubic interpolation estimate with a bounded, no-heap
-/// process path. Formal BS.1770 conformance still depends on validating the tap
-/// table against reference corpus data.
+/// The FIR follows libebur128's 49-tap Hanning-windowed sinc polyphase
+/// interpolator shape. It replaces the older cubic interpolation estimate with
+/// a bounded, no-heap process path. Formal BS.1770 conformance still depends on
+/// validating against reference corpus data.
 ///
 /// This is used for measurement, not limiting. The limiter above
 /// handles peak limiting without oversampling (acceptable for most use cases).
@@ -197,18 +202,29 @@ impl TruePeakDetector {
         self.max_true_peak = self.max_true_peak.max(sample.abs());
 
         self.history[self.write_pos] = sample;
-        self.history[self.write_pos + TRUE_PEAK_FIR_TAPS] = sample;
-        self.write_pos = (self.write_pos + 1) & TRUE_PEAK_FIR_MASK;
-        let history = &self.history[self.write_pos..self.write_pos + TRUE_PEAK_FIR_TAPS];
+        self.history[self.write_pos + TRUE_PEAK_DELAY] = sample;
+        let fir = true_peak_fir();
 
-        for phase in true_peak_fir() {
+        for phase in 0..TRUE_PEAK_PHASES {
             let mut acc = 0.0;
+            let coeffs = &fir.coeffs[phase];
+            let indices = &fir.indices[phase];
 
-            for (&sample, &tap) in history.iter().zip(phase.iter()) {
-                acc += sample * tap as f64;
+            for tap in 0..fir.counts[phase] {
+                let index = if self.write_pos >= indices[tap] {
+                    self.write_pos - indices[tap]
+                } else {
+                    self.write_pos + TRUE_PEAK_DELAY - indices[tap]
+                };
+                acc += self.history[index] * coeffs[tap] as f64;
             }
 
             self.max_true_peak = self.max_true_peak.max(acc.abs());
+        }
+
+        self.write_pos += 1;
+        if self.write_pos == TRUE_PEAK_DELAY {
+            self.write_pos = 0;
         }
     }
 
@@ -236,41 +252,37 @@ impl Default for TruePeakDetector {
     }
 }
 
-fn true_peak_fir() -> &'static [[f32; TRUE_PEAK_FIR_TAPS]; TRUE_PEAK_PHASES] {
+fn true_peak_fir() -> &'static TruePeakFir {
     TRUE_PEAK_FIR.get_or_init(generate_true_peak_fir)
 }
 
-fn generate_true_peak_fir() -> [[f32; TRUE_PEAK_FIR_TAPS]; TRUE_PEAK_PHASES] {
-    let mut phases = [[0.0_f32; TRUE_PEAK_FIR_TAPS]; TRUE_PEAK_PHASES];
+fn generate_true_peak_fir() -> TruePeakFir {
+    let mut fir = TruePeakFir {
+        coeffs: [[0.0; TRUE_PEAK_DELAY]; TRUE_PEAK_PHASES],
+        indices: [[0; TRUE_PEAK_DELAY]; TRUE_PEAK_PHASES],
+        counts: [0; TRUE_PEAK_PHASES],
+    };
     let center = (TRUE_PEAK_FIR_TAPS as f64 - 1.0) * 0.5;
-    let window_denominator = modified_bessel_i0(TRUE_PEAK_FIR_BETA);
 
-    for (phase_index, phase) in phases.iter_mut().enumerate() {
-        let fractional_delay = phase_index as f64 / TRUE_PEAK_PHASES as f64;
-        let mut sum = 0.0;
+    for tap_index in 0..TRUE_PEAK_FIR_TAPS {
+        let phase = tap_index % TRUE_PEAK_PHASES;
+        let count = fir.counts[phase];
+        let position = tap_index as f64 - center;
+        let window = 0.5
+            * (1.0
+                - (2.0 * std::f64::consts::PI * tap_index as f64
+                    / (TRUE_PEAK_FIR_TAPS as f64 - 1.0))
+                    .cos());
+        let coeff = sinc(position / TRUE_PEAK_PHASES as f64) * window;
 
-        for (tap_index, tap) in phase.iter_mut().enumerate() {
-            let position = tap_index as f64 - center - fractional_delay;
-            let normalized = (2.0 * tap_index as f64) / (TRUE_PEAK_FIR_TAPS as f64 - 1.0) - 1.0;
-            let window = modified_bessel_i0(
-                TRUE_PEAK_FIR_BETA * (1.0 - normalized * normalized).max(0.0).sqrt(),
-            ) / window_denominator;
-            let value = 2.0
-                * TRUE_PEAK_FIR_CUTOFF
-                * sinc(2.0 * TRUE_PEAK_FIR_CUTOFF * position)
-                * window;
-
-            *tap = value as f32;
-            sum += value;
-        }
-
-        phase.reverse();
-        for tap in phase {
-            *tap = (*tap as f64 / sum) as f32;
+        if coeff.abs() > 1.0e-12 {
+            fir.coeffs[phase][count] = coeff as f32;
+            fir.indices[phase][count] = tap_index / TRUE_PEAK_PHASES;
+            fir.counts[phase] += 1;
         }
     }
 
-    phases
+    fir
 }
 
 #[inline]
@@ -281,24 +293,6 @@ fn sinc(x: f64) -> f64 {
         let pix = std::f64::consts::PI * x;
         pix.sin() / pix
     }
-}
-
-fn modified_bessel_i0(x: f64) -> f64 {
-    let half_x = x * 0.5;
-    let mut sum = 1.0;
-    let mut term = 1.0;
-
-    for k in 1..=32 {
-        let k = k as f64;
-        term *= (half_x * half_x) / (k * k);
-        sum += term;
-
-        if term < sum * 1.0e-15 {
-            break;
-        }
-    }
-
-    sum
 }
 
 #[cfg(test)]
@@ -375,24 +369,26 @@ mod tests {
     }
 
     #[test]
-    fn true_peak_fir_taps_are_normalized() {
-        for phase in true_peak_fir() {
-            let sum: f64 = phase.iter().map(|&tap| tap as f64).sum();
-            assert!(
-                (sum - 1.0).abs() < 1.0e-6,
-                "phase sum should preserve DC gain: {sum}"
-            );
+    fn true_peak_fir_matches_libebur128_polyphase_shape() {
+        let fir = true_peak_fir();
+        assert_eq!(fir.counts, [1, 12, 12, 12]);
+
+        for phase in 0..TRUE_PEAK_PHASES {
+            for tap in 0..fir.counts[phase] {
+                assert!(fir.coeffs[phase][tap].is_finite());
+                assert!(fir.indices[phase][tap] < TRUE_PEAK_DELAY);
+            }
         }
     }
 
     #[test]
     fn true_peak_reset_clears_ring_history() {
         let mut detector = TruePeakDetector::new();
-        detector.process(&[1.0; TRUE_PEAK_FIR_TAPS]);
+        detector.process(&[1.0; TRUE_PEAK_DELAY]);
         assert!(detector.max_true_peak() > 0.0);
 
         detector.reset();
-        detector.process(&[0.0; TRUE_PEAK_FIR_TAPS]);
+        detector.process(&[0.0; TRUE_PEAK_DELAY]);
 
         assert_eq!(detector.max_true_peak(), 0.0);
     }
@@ -417,8 +413,8 @@ mod tests {
     #[test]
     fn true_peak_impulse_reaches_sample_peak_without_cubic_overshoot() {
         let mut detector = TruePeakDetector::new();
-        let mut samples = vec![0.0; TRUE_PEAK_FIR_TAPS * 2];
-        samples[TRUE_PEAK_FIR_TAPS / 2] = 1.0;
+        let mut samples = vec![0.0; TRUE_PEAK_DELAY * 2];
+        samples[TRUE_PEAK_DELAY / 2] = 1.0;
 
         detector.process(&samples);
 
