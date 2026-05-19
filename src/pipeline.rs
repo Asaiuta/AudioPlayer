@@ -590,4 +590,35 @@ mod tests {
         assert_eq!(pipeline.read_position(), 0);
         assert_eq!(output, vec![42.0; 4]);
     }
+
+    #[test]
+    fn audio_pipeline_read_advances_by_frames_actually_read() {
+        let ring_buffer = Arc::new(RwLock::new(RingBuffer::new(8, 2)));
+        ring_buffer.write().write(&samples(3, 2, 1.0));
+        let pipeline = AudioPipeline {
+            ring_buffer,
+            is_running: Arc::new(AtomicBool::new(false)),
+            is_finished: Arc::new(AtomicBool::new(false)),
+            buffered_frames: Arc::new(AtomicU64::new(3)),
+            total_frames: Arc::new(AtomicU64::new(3)),
+            current_read_pos: Arc::new(AtomicU64::new(0)),
+            worker_handle: None,
+            channels: 2,
+            sample_rate: 48_000,
+            original_sample_rate: 48_000,
+        };
+
+        let mut first = vec![0.0; 2 * 2];
+        assert_eq!(pipeline.read(&mut first), 2);
+        assert_eq!(pipeline.read_position(), 2);
+
+        let mut second = vec![0.0; 2 * 2];
+        assert_eq!(pipeline.read(&mut second), 1);
+        assert_eq!(pipeline.read_position(), 3);
+
+        let mut empty = vec![42.0; 2 * 2];
+        assert_eq!(pipeline.read(&mut empty), 0);
+        assert_eq!(pipeline.read_position(), 3);
+        assert_eq!(empty, vec![42.0; 4]);
+    }
 }
