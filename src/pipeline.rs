@@ -349,15 +349,14 @@ impl AudioPipeline {
                 Ok(None) => {
                     // EOF - flush resampler if present
                     if let Some(ref mut rs) = resampler {
-                        let flushed = rs.flush();
-                        if !flushed.is_empty() {
-                            let frames = flushed.len() / channels;
-                            let (_, overflow) = ring_buffer.write().write(&flushed);
+                        let flushed = rs.flush_borrowed();
+                        if !flushed.samples.is_empty() {
+                            let (_, overflow) = ring_buffer.write().write(flushed.samples);
                             // FIX for Defect 5: Sync external read position on overflow
                             if let Some(min_pos) = overflow {
                                 current_read_pos.fetch_max(min_pos, Ordering::Relaxed);
                             }
-                            total_output_frames += frames as u64;
+                            total_output_frames += flushed.frames as u64;
                             buffered_frames.store(total_output_frames, Ordering::Relaxed);
                         }
                     }

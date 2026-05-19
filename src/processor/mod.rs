@@ -56,7 +56,7 @@ pub use loudness_db::{
     DatabaseStats, LoudnessDatabase, TrackLoudness, CURRENT_SCAN_VERSION,
     DEFAULT_BROADCAST_TARGET_LUFS, DEFAULT_STREAMING_TARGET_LUFS,
 };
-pub use resampler::{Resampler, ResamplerError, StreamingResampler};
+pub use resampler::{ResampleOutput, Resampler, ResamplerError, StreamingResampler};
 pub use saturation::{Saturation, SaturationSettings, SaturationType};
 pub use spectrum::SpectrumAnalyzer;
 

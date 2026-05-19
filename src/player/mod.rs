@@ -639,7 +639,7 @@ impl AudioPlayer {
         }
 
         if let Some(ref mut rs) = resampler {
-            samples.extend(rs.flush());
+            rs.flush_into(&mut samples);
         }
 
         shared_state.load_progress.store(100, Ordering::Relaxed);

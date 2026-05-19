@@ -234,7 +234,7 @@ fn decode_to_buffer_with_cancel(
     }
 
     if let Some(ref mut rs) = resampler {
-        samples.extend(rs.flush());
+        rs.flush_into(&mut samples);
     }
 
     // Channel normalization

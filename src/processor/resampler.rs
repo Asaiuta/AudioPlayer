@@ -110,6 +110,32 @@ fn interleave_channel_outputs_to_vec(
     out_frames
 }
 
+fn interleave_channel_outputs_to_vec_with_max_frames(
+    channel_outputs: &[Vec<f64>],
+    channels: usize,
+    output: &mut Vec<f64>,
+) -> usize {
+    let out_frames = channel_outputs
+        .iter()
+        .take(channels)
+        .map(Vec::len)
+        .max()
+        .unwrap_or(0);
+    output.clear();
+    if out_frames == 0 {
+        return 0;
+    }
+
+    output.reserve(out_frames * channels);
+    for frame in 0..out_frames {
+        for channel in channel_outputs.iter().take(channels) {
+            output.push(channel.get(frame).copied().unwrap_or(0.0));
+        }
+    }
+
+    out_frames
+}
+
 fn interleave_channel_outputs_to_slice(
     channel_outputs: &[Vec<f64>],
     channels: usize,
@@ -595,42 +621,46 @@ impl StreamingResampler {
         self.interleaved_output.clear();
     }
 
-    /// Flush any remaining samples in the resampler's internal buffers
-    pub fn flush(&mut self) -> Vec<f64> {
-        let mut channel_outputs: Vec<Vec<f64>> = Vec::with_capacity(self.channels);
+    /// Flush remaining samples and borrow the resampler-owned interleaved output.
+    pub fn flush_borrowed(&mut self) -> ResampleOutput<'_> {
+        for channel_output in &mut self.channel_outputs {
+            channel_output.clear();
+        }
 
         for ch in 0..self.channels {
-            let mut flush_output = vec![0.0; 4096];
-            let mut all_flushed = Vec::new();
-
             // Keep flushing until no more output
             loop {
-                match self.soxr_instances[ch].process(&[], &mut flush_output) {
+                match self.soxr_instances[ch].process(&[], &mut self.output_scratch) {
                     Ok(processed) if processed.output_frames > 0 => {
-                        all_flushed.extend_from_slice(&flush_output[..processed.output_frames]);
+                        self.channel_outputs[ch]
+                            .extend_from_slice(&self.output_scratch[..processed.output_frames]);
                     }
                     _ => break,
                 }
             }
-
-            channel_outputs.push(all_flushed);
         }
 
-        // Re-interleave flushed data
-        if channel_outputs.is_empty() || channel_outputs.iter().all(|c| c.is_empty()) {
-            return Vec::new();
+        let frames = interleave_channel_outputs_to_vec_with_max_frames(
+            &self.channel_outputs,
+            self.channels,
+            &mut self.interleaved_output,
+        );
+        ResampleOutput {
+            samples: &self.interleaved_output,
+            frames,
         }
+    }
 
-        let max_frames = channel_outputs.iter().map(|c| c.len()).max().unwrap_or(0);
-        let mut output = Vec::with_capacity(max_frames * self.channels);
+    /// Flush any remaining samples directly into a caller-owned output buffer.
+    pub fn flush_into(&mut self, output: &mut Vec<f64>) -> usize {
+        let result = self.flush_borrowed();
+        output.extend_from_slice(result.samples);
+        result.frames
+    }
 
-        for f in 0..max_frames {
-            for ch in 0..self.channels {
-                output.push(channel_outputs[ch].get(f).copied().unwrap_or(0.0));
-            }
-        }
-
-        output
+    /// Flush any remaining samples in the resampler's internal buffers
+    pub fn flush(&mut self) -> Vec<f64> {
+        self.flush_borrowed().samples.to_vec()
     }
 }
 
@@ -684,6 +714,18 @@ mod tests {
     }
 
     #[test]
+    fn interleave_channel_outputs_with_max_frames_pads_short_channels() {
+        let channel_outputs = vec![vec![1.0], vec![2.0, 4.0, 6.0]];
+        let mut output = Vec::new();
+
+        let frames =
+            interleave_channel_outputs_to_vec_with_max_frames(&channel_outputs, 2, &mut output);
+
+        assert_eq!(frames, 3);
+        assert_eq!(output, vec![1.0, 2.0, 0.0, 4.0, 0.0, 6.0]);
+    }
+
+    #[test]
     fn interleave_channel_outputs_to_slice_preserves_tail_when_output_is_longer() {
         let channel_outputs = vec![vec![1.0, 3.0], vec![2.0, 4.0]];
         let mut output = vec![42.0; 6];
@@ -732,5 +774,78 @@ mod tests {
         assert_eq!(frames * 2, expected.len());
         assert_eq!(&actual[..1], &[99.0]);
         assert_eq!(&actual[1..], expected.as_slice());
+    }
+
+    #[test]
+    fn flush_into_matches_vec_wrapper_and_preserves_prefix() {
+        let input = (0..2048)
+            .map(|sample| sample as f64 / 2048.0)
+            .collect::<Vec<_>>();
+        let mut wrapper_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        let mut append_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        let _ = wrapper_resampler.process_chunk(&input);
+        let _ = append_resampler.process_chunk(&input);
+        let expected = wrapper_resampler.flush();
+        let mut actual = vec![99.0];
+
+        let frames = append_resampler.flush_into(&mut actual);
+
+        assert_eq!(frames * 2, expected.len());
+        assert_eq!(&actual[..1], &[99.0]);
+        assert_eq!(&actual[1..], expected.as_slice());
+    }
+
+    #[test]
+    fn flush_into_reuses_warmed_output_capacity() {
+        let input = (0..4096)
+            .map(|sample| sample as f64 / 4096.0)
+            .collect::<Vec<_>>();
+        let mut resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        let _ = resampler.process_chunk(&input);
+        let mut output = Vec::with_capacity(resampler.max_output_len_for_input(input.len()));
+
+        let _ = resampler.flush_into(&mut output);
+        let warmed_capacity = output.capacity();
+        output.clear();
+        let _ = resampler.process_chunk(&input);
+        let _ = resampler.flush_into(&mut output);
+
+        assert_eq!(output.capacity(), warmed_capacity);
+    }
+
+    #[test]
+    fn flush_into_reuses_internal_capacity_after_warmup() {
+        let input = (0..4096)
+            .map(|sample| sample as f64 / 4096.0)
+            .collect::<Vec<_>>();
+        let mut resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        let mut output = Vec::with_capacity(resampler.max_output_len_for_input(input.len()));
+        let _ = resampler.process_chunk(&input);
+        let _ = resampler.flush_into(&mut output);
+        let warmed_channel_caps = resampler
+            .channel_outputs
+            .iter()
+            .map(Vec::capacity)
+            .collect::<Vec<_>>();
+        let warmed_interleaved_cap = resampler.interleaved_output.capacity();
+        let warmed_scratch_len = resampler.output_scratch.len();
+
+        output.clear();
+        let _ = resampler.process_chunk(&input);
+        let _ = resampler.flush_into(&mut output);
+
+        assert_eq!(
+            resampler
+                .channel_outputs
+                .iter()
+                .map(Vec::capacity)
+                .collect::<Vec<_>>(),
+            warmed_channel_caps
+        );
+        assert_eq!(
+            resampler.interleaved_output.capacity(),
+            warmed_interleaved_cap
+        );
+        assert_eq!(resampler.output_scratch.len(), warmed_scratch_len);
     }
 }
