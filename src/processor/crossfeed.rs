@@ -305,4 +305,24 @@ mod tests {
         let _ = Crossfeed::process_hpf_df2t_static(&mut state, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert_eq!(state, [0.0, 0.0]);
     }
+
+    #[test]
+    fn test_crossfeed_sustained_subnormal_input_flushes_to_zero() {
+        crate::runtime::audio_thread_init();
+        if !crate::runtime::audio_thread_float_mode_is_enabled() {
+            return;
+        }
+
+        let mut cf = Crossfeed::new(44_100.0);
+        let subnormal = f64::from_bits(1);
+        let mut samples = (0..1024)
+            .flat_map(|_| [subnormal, -subnormal])
+            .collect::<Vec<_>>();
+
+        cf.process(&mut samples, 2);
+
+        assert!(samples.iter().all(|sample| *sample == 0.0));
+        assert_eq!(cf.w_lr, [0.0, 0.0]);
+        assert_eq!(cf.w_rl, [0.0, 0.0]);
+    }
 }

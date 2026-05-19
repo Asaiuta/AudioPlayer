@@ -473,4 +473,25 @@ mod tests {
         assert_eq!(sat.hpf_states[0], 0.0);
         assert_eq!(sat.prev_inputs[0], 0.0);
     }
+
+    #[test]
+    fn test_highpass_sustained_subnormal_input_flushes_to_zero() {
+        crate::runtime::audio_thread_init();
+        if !crate::runtime::audio_thread_float_mode_is_enabled() {
+            return;
+        }
+
+        let mut sat = Saturation::new();
+        sat.set_highpass_mode(true);
+        let subnormal = f64::from_bits(1);
+        let mut samples = (0..1024)
+            .flat_map(|_| [subnormal, -subnormal])
+            .collect::<Vec<_>>();
+
+        sat.process_with_channels(&mut samples, 2);
+
+        assert!(samples.iter().all(|sample| *sample == 0.0));
+        assert!(sat.hpf_states.iter().all(|state| *state == 0.0));
+        assert!(sat.prev_inputs.iter().all(|input| *input == 0.0));
+    }
 }

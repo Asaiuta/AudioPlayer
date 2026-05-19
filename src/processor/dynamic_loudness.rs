@@ -1005,4 +1005,23 @@ mod tests {
         assert_eq!(filter.state.z1, 0.0);
         assert_eq!(filter.state.z2, 0.0);
     }
+
+    #[test]
+    fn test_biquad_sustained_subnormal_input_flushes_to_zero() {
+        crate::runtime::audio_thread_init();
+        if !crate::runtime::audio_thread_float_mode_is_enabled() {
+            return;
+        }
+
+        let mut filter = BiquadFilter::peaking(1000.0, 6.0, 1.0, 44100.0);
+        let subnormal = f64::from_bits(1);
+
+        for _ in 0..1024 {
+            assert_eq!(filter.process(subnormal), 0.0);
+            assert_eq!(filter.process(-subnormal), 0.0);
+        }
+
+        assert_eq!(filter.state.z1, 0.0);
+        assert_eq!(filter.state.z2, 0.0);
+    }
 }
