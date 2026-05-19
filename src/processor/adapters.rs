@@ -30,6 +30,7 @@ pub struct EqProcessor {
     channels: usize,
     /// Lock-free parameters reference
     params: Arc<AtomicEqParams>,
+    cached_params: Arc<EqParamsSnapshot>,
     /// Local parameter cache
     cached: EqParamsSnapshot,
     /// Sample rate for coefficient recalculation
@@ -39,19 +40,26 @@ pub struct EqProcessor {
 impl EqProcessor {
     /// Create new EQ processor with lock-free params
     pub fn new(channels: usize, sample_rate: f64, params: Arc<AtomicEqParams>) -> Self {
+        let cached_params = params.load();
+        let cached = *cached_params;
+        let mut eq = Equalizer::new(channels, sample_rate);
+        eq.set_all_bands(&cached.gains, sample_rate);
+        eq.set_enabled(cached.enabled);
         Self {
-            eq: Equalizer::new(channels, sample_rate),
+            eq,
             channels,
             params,
-            cached: EqParamsSnapshot::default(),
+            cached_params,
+            cached,
             sample_rate,
         }
     }
 
     /// Synchronize parameters from lock-free storage
     fn sync_params(&mut self) {
-        if self.params.has_update() {
-            self.cached = self.params.read();
+        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+            self.cached = *current;
+            self.cached_params = current;
 
             // Apply to internal EQ
             self.eq.set_all_bands(&self.cached.gains, self.sample_rate);
@@ -115,24 +123,38 @@ impl SampleRateAware for EqProcessor {
 pub struct SaturationProcessor {
     saturation: Saturation,
     params: Arc<AtomicSaturationParams>,
+    cached_params: Arc<SaturationParamsSnapshot>,
     cached: SaturationParamsSnapshot,
     sample_rate: f64,
 }
 
 impl SaturationProcessor {
     pub fn new(params: Arc<AtomicSaturationParams>) -> Self {
+        let cached_params = params.load();
+        let cached = *cached_params;
+        let mut saturation = Saturation::new();
+        saturation.set_drive(cached.drive);
+        saturation.set_threshold(cached.threshold);
+        saturation.set_mix(cached.mix);
+        saturation.set_input_gain(cached.input_gain_db);
+        saturation.set_output_gain(cached.output_gain_db);
+        saturation.set_highpass_mode(cached.highpass_mode);
+        saturation.set_highpass_cutoff(cached.highpass_cutoff);
+        saturation.set_enabled(cached.enabled);
+        saturation.set_type(super::saturation::SaturationType::from(cached.sat_type));
         Self {
-            saturation: Saturation::new(),
+            saturation,
             params,
-            cached: SaturationParamsSnapshot::default(),
+            cached_params,
+            cached,
             sample_rate: 44100.0,
         }
     }
 
     fn sync_params(&mut self) {
-        if self.params.has_update() {
-            self.cached = self.params.read();
-            self.params.clear_dirty();
+        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+            self.cached = *current;
+            self.cached_params = current;
 
             // Apply to saturation processor
             self.saturation.set_drive(self.cached.drive);
@@ -206,24 +228,32 @@ impl SampleRateAware for SaturationProcessor {
 pub struct CrossfeedProcessor {
     crossfeed: Crossfeed,
     params: Arc<AtomicCrossfeedParams>,
+    cached_params: Arc<CrossfeedParamsSnapshot>,
     cached: CrossfeedParamsSnapshot,
     sample_rate: f64,
 }
 
 impl CrossfeedProcessor {
     pub fn new(sample_rate: f64, params: Arc<AtomicCrossfeedParams>) -> Self {
+        let cached_params = params.load();
+        let cached = *cached_params;
+        let mut crossfeed = Crossfeed::new(sample_rate);
+        crossfeed.set_mix(cached.mix);
+        crossfeed.set_enabled(cached.enabled);
+        crossfeed.set_sample_rate(sample_rate, cached.cutoff_hz);
         Self {
-            crossfeed: Crossfeed::new(sample_rate),
+            crossfeed,
             params,
-            cached: CrossfeedParamsSnapshot::default(),
+            cached_params,
+            cached,
             sample_rate,
         }
     }
 
     fn sync_params(&mut self) {
-        if self.params.has_update() {
-            self.cached = self.params.read();
-            self.params.clear_dirty();
+        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+            self.cached = *current;
+            self.cached_params = current;
             self.crossfeed.set_mix(self.cached.mix);
             self.crossfeed.set_enabled(self.cached.enabled);
             // Cutoff change requires sample rate update
@@ -285,6 +315,7 @@ impl SampleRateAware for CrossfeedProcessor {
 pub struct PeakLimiterProcessor {
     limiter: PeakLimiter,
     params: Arc<AtomicPeakLimiterParams>,
+    cached_params: Arc<PeakLimiterParamsSnapshot>,
     cached: PeakLimiterParamsSnapshot,
     sample_rate: u32,
     channels: usize,
@@ -292,19 +323,28 @@ pub struct PeakLimiterProcessor {
 
 impl PeakLimiterProcessor {
     pub fn new(channels: usize, sample_rate: u32, params: Arc<AtomicPeakLimiterParams>) -> Self {
+        let cached_params = params.load();
+        let cached = *cached_params;
         Self {
-            limiter: PeakLimiter::new(channels, sample_rate, -1.0, 10.0, 150.0),
+            limiter: PeakLimiter::new(
+                channels,
+                sample_rate,
+                cached.threshold_db,
+                10.0,
+                cached.release_ms,
+            ),
             params,
-            cached: PeakLimiterParamsSnapshot::default(),
+            cached_params,
+            cached,
             sample_rate,
             channels,
         }
     }
 
     fn sync_params(&mut self) {
-        if self.params.has_update() {
-            self.cached = self.params.read();
-            self.params.clear_dirty();
+        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+            self.cached = *current;
+            self.cached_params = current;
 
             // In-place update — NO PeakLimiter::new(), NO heap allocation
             self.limiter.set_threshold(self.cached.threshold_db);
@@ -395,11 +435,14 @@ impl ChannelAware for PeakLimiterProcessor {
 /// causing audible clicks/zips on rapid volume changes.
 pub struct VolumeProcessor {
     params: Arc<AtomicVolumeParams>,
+    cached_params: Arc<VolumeParamsSnapshot>,
     cached: VolumeParamsSnapshot,
     /// Current smoothed volume (exponentially approaches target)
     current_volume: f64,
     /// Smoothing coefficient per sample (calculated from sample rate)
     smoothing_coeff: f64,
+    /// Cached `1.0 - smoothing_coeff`
+    one_minus_smoothing_coeff: f64,
     /// Sample rate for smoothing calculation
     sample_rate: f64,
 }
@@ -407,11 +450,16 @@ pub struct VolumeProcessor {
 impl VolumeProcessor {
     pub fn new(params: Arc<AtomicVolumeParams>) -> Self {
         let smoothing_coeff = Self::calc_smoothing_coeff(44100.0);
+        let one_minus_smoothing_coeff = 1.0 - smoothing_coeff;
+        let cached_params = params.load();
+        let cached = *cached_params;
         Self {
             params,
-            cached: VolumeParamsSnapshot::default(),
+            cached_params,
+            cached,
             current_volume: 1.0,
             smoothing_coeff,
+            one_minus_smoothing_coeff,
             sample_rate: 44100.0,
         }
     }
@@ -424,9 +472,9 @@ impl VolumeProcessor {
     }
 
     fn sync_params(&mut self) {
-        if self.params.has_update() {
-            self.cached = self.params.read();
-            self.params.clear_dirty();
+        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+            self.cached = *current;
+            self.cached_params = current;
         }
     }
 }
@@ -443,26 +491,30 @@ impl AudioProcessor for VolumeProcessor {
         // Check for mute
         if self.cached.muted {
             // Smooth fade to zero to avoid click
+            let coeff = self.smoothing_coeff;
+            let mut current_volume = self.current_volume;
             for sample in buffer.iter_mut() {
-                self.current_volume *= self.smoothing_coeff;
-                *sample *= self.current_volume;
+                current_volume *= coeff;
+                *sample *= current_volume;
             }
+            self.current_volume = current_volume;
             return ProcessResult::Ok;
         }
 
         // Apply volume with anti-zipper smoothing
         let target = self.cached.volume;
-        let coeff = self.smoothing_coeff;
-        let one_minus_coeff = 1.0 - coeff;
+        let one_minus_coeff = self.one_minus_smoothing_coeff;
+        let mut current_volume = self.current_volume;
         let frames = buffer.len() / channels;
 
         for frame in 0..frames {
             // Exponential smoothing: current = current + (target - current) * (1 - coeff)
-            self.current_volume += (target - self.current_volume) * one_minus_coeff;
+            current_volume += (target - current_volume) * one_minus_coeff;
             for ch in 0..channels {
-                buffer[frame * channels + ch] *= self.current_volume;
+                buffer[frame * channels + ch] *= current_volume;
             }
         }
+        self.current_volume = current_volume;
 
         ProcessResult::Ok
     }
@@ -483,6 +535,7 @@ impl AudioProcessor for VolumeProcessor {
         if (self.sample_rate - sample_rate).abs() > 1.0 {
             self.sample_rate = sample_rate;
             self.smoothing_coeff = Self::calc_smoothing_coeff(sample_rate);
+            self.one_minus_smoothing_coeff = 1.0 - self.smoothing_coeff;
         }
     }
 }
@@ -495,6 +548,7 @@ impl AudioProcessor for VolumeProcessor {
 pub struct NoiseShaperProcessor {
     noise_shaper: NoiseShaper,
     params: Arc<AtomicNoiseShaperParams>,
+    cached_params: Arc<NoiseShaperParamsSnapshot>,
     cached: NoiseShaperParamsSnapshot,
     sample_rate: u32,
     channels: usize,
@@ -502,7 +556,8 @@ pub struct NoiseShaperProcessor {
 
 impl NoiseShaperProcessor {
     pub fn new(channels: usize, sample_rate: u32, params: Arc<AtomicNoiseShaperParams>) -> Self {
-        let cached = params.read();
+        let cached_params = params.load();
+        let cached = *cached_params;
         let mut noise_shaper = NoiseShaper::new(channels, sample_rate, cached.bits);
         noise_shaper.set_enabled(cached.enabled);
         noise_shaper.set_curve(cached.curve);
@@ -510,6 +565,7 @@ impl NoiseShaperProcessor {
         Self {
             noise_shaper,
             params,
+            cached_params,
             cached,
             sample_rate,
             channels,
@@ -517,9 +573,9 @@ impl NoiseShaperProcessor {
     }
 
     fn sync_params(&mut self) {
-        if self.params.has_update() {
-            self.cached = self.params.read();
-            self.params.clear_dirty();
+        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+            self.cached = *current;
+            self.cached_params = current;
             self.noise_shaper.set_enabled(self.cached.enabled);
             self.noise_shaper.set_bits(self.cached.bits);
             self.noise_shaper.set_curve(self.cached.curve);
@@ -582,6 +638,7 @@ pub struct DynamicLoudnessProcessor {
     dynamic_loudness: DynamicLoudness,
     params: Arc<AtomicDynamicLoudnessParams>,
     telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
+    cached_params: Arc<DynamicLoudnessParamsSnapshot>,
     cached: DynamicLoudnessParamsSnapshot,
     sample_rate: u32,
     channels: usize,
@@ -594,20 +651,26 @@ impl DynamicLoudnessProcessor {
         params: Arc<AtomicDynamicLoudnessParams>,
         telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
     ) -> Self {
+        let cached_params = params.load();
+        let cached = *cached_params;
+        let mut dynamic_loudness = DynamicLoudness::new(channels, sample_rate as f64);
+        dynamic_loudness.set_volume(cached.volume);
+        dynamic_loudness.set_strength(cached.strength);
         Self {
-            dynamic_loudness: DynamicLoudness::new(channels, sample_rate as f64),
+            dynamic_loudness,
             params,
             telemetry,
-            cached: DynamicLoudnessParamsSnapshot::default(),
+            cached_params,
+            cached,
             sample_rate,
             channels,
         }
     }
 
     fn sync_params(&mut self) {
-        if self.params.has_update() {
-            self.cached = self.params.read();
-            self.params.clear_dirty();
+        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+            self.cached = *current;
+            self.cached_params = current;
             self.dynamic_loudness.set_volume(self.cached.volume);
             self.dynamic_loudness.set_strength(self.cached.strength);
         }
@@ -744,6 +807,25 @@ mod tests {
         // Muting uses a click-free exponential fade rather than an instant hard cut.
         assert!(buffer[0] < 1.0);
         assert!(buffer[buffer.len() - 1] < 0.001);
+    }
+
+    #[test]
+    fn test_volume_processor_writes_back_smoothed_volume() {
+        let params = Arc::new(AtomicVolumeParams::new());
+        let mut proc = VolumeProcessor::new(Arc::clone(&params));
+
+        params.set_volume(0.25);
+        let mut buffer = vec![1.0; 128];
+        proc.process(&mut buffer, 2);
+
+        let first_pass_volume = proc.current_volume;
+        assert!(first_pass_volume < 1.0);
+        assert!(first_pass_volume > 0.25);
+
+        proc.process(&mut buffer, 2);
+
+        assert!(proc.current_volume < first_pass_volume);
+        assert!(proc.current_volume > 0.25);
     }
 
     #[test]

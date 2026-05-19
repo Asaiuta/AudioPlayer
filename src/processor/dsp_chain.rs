@@ -30,8 +30,6 @@
 //! Output Buffer
 //! ```
 
-use std::sync::atomic::{AtomicU64, Ordering};
-
 use super::traits::{AudioProcessor, ProcessResult};
 
 /// Processing statistics for monitoring
@@ -65,9 +63,9 @@ pub struct ProcessorStats {
 pub struct DspChain {
     /// Processors in execution order
     processors: Vec<Box<dyn AudioProcessor>>,
-    /// Chain-level statistics (atomic for lock-free updates)
-    total_calls: AtomicU64,
-    bypassed_count: AtomicU64,
+    /// Chain-level statistics owned by the audio thread.
+    total_calls: u64,
+    bypassed_count: u64,
     /// Sample rate for the chain
     sample_rate: f64,
 }
@@ -77,8 +75,8 @@ impl DspChain {
     pub fn new(sample_rate: f64) -> Self {
         Self {
             processors: Vec::new(),
-            total_calls: AtomicU64::new(0),
-            bypassed_count: AtomicU64::new(0),
+            total_calls: 0,
+            bypassed_count: 0,
             sample_rate,
         }
     }
@@ -87,8 +85,8 @@ impl DspChain {
     pub fn with_capacity(capacity: usize, sample_rate: f64) -> Self {
         Self {
             processors: Vec::with_capacity(capacity),
-            total_calls: AtomicU64::new(0),
-            bypassed_count: AtomicU64::new(0),
+            total_calls: 0,
+            bypassed_count: 0,
             sample_rate,
         }
     }
@@ -129,13 +127,13 @@ impl DspChain {
     /// * `buffer` - Interleaved audio samples [L, R, L, R, ...]
     /// * `channels` - Number of audio channels
     pub fn process(&mut self, buffer: &mut [f64], channels: usize) {
-        self.total_calls.fetch_add(1, Ordering::Relaxed);
+        self.total_calls = self.total_calls.wrapping_add(1);
 
         for processor in &mut self.processors {
             let result = processor.process(buffer, channels);
 
             if result == ProcessResult::Bypassed {
-                self.bypassed_count.fetch_add(1, Ordering::Relaxed);
+                self.bypassed_count = self.bypassed_count.wrapping_add(1);
             }
         }
     }
@@ -197,8 +195,8 @@ impl DspChain {
     /// Get chain statistics
     pub fn stats(&self) -> ChainStats {
         ChainStats {
-            total_calls: self.total_calls.load(Ordering::Relaxed),
-            bypassed_count: self.bypassed_count.load(Ordering::Relaxed),
+            total_calls: self.total_calls,
+            bypassed_count: self.bypassed_count,
             stale_params_count: 0, // Would need per-processor tracking
             processor_stats: self
                 .processors

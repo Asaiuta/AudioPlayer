@@ -1,83 +1,97 @@
 //! Lock-free Parameter Structures
 //!
-//! Provides atomic-based parameter passing from main thread to audio thread.
+//! Provides snapshot-based parameter passing from main thread to audio thread.
 //! This eliminates the need for mutexes in the audio callback, ensuring
 //! that DSP processing is never blocked or skipped due to lock contention.
 //!
-//! # Design Patterns
+//! # Design Pattern
 //!
-//! 1. **Atomic Scalars**: For simple values (gain, mix, enabled), use atomic ops
-//! 2. **SeqLock**: For complex structures (EQ bands), use version-number based locking
-//! 3. **Triple Buffer**: For large data (IR samples), use rotating buffers
-//!
-//! # Memory Ordering
-//!
-//! - `Release` on writes: Ensures all previous writes are visible
-//! - `Acquire` on reads: Ensures we see the latest written values
-//! - `Relaxed` for counters and non-critical values
+//! Processor parameters are published as immutable snapshots through `ArcSwap`.
+//! Setters patch snapshots with `ArcSwap::rcu`, so concurrent UI/control writes
+//! retry instead of silently overwriting each other's fields. The audio thread
+//! observes either the old or the new complete snapshot, never a mix of fields
+//! from both.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 
-// Use atomic_float crate directly — it's already a dependency in Cargo.toml.
-// Previously this used a cfg(feature) gate that was never registered, causing
-// a hand-rolled fallback to always be used instead (P1-1 fix).
+use arc_swap::ArcSwap;
 use atomic_float::AtomicF64;
 
 use super::traits::LockfreeParams;
 
-#[inline]
-fn mark_dirty_flag(dirty: &AtomicBool) {
-    dirty.store(true, Ordering::Release);
+struct SharedParams<T> {
+    current: ArcSwap<T>,
+    generation: AtomicU64,
+    observed_generation: AtomicU64,
 }
 
-#[inline]
-fn clear_dirty_flag_relaxed(dirty: &AtomicBool) {
-    dirty.store(false, Ordering::Relaxed);
+impl<T: Default> SharedParams<T> {
+    fn new() -> Self {
+        Self::from_snapshot(T::default())
+    }
 }
 
-#[inline]
-fn clear_dirty_flag_release(dirty: &AtomicBool) {
-    dirty.store(false, Ordering::Release);
+impl<T> SharedParams<T> {
+    fn from_snapshot(snapshot: T) -> Self {
+        Self {
+            current: ArcSwap::new(Arc::new(snapshot)),
+            generation: AtomicU64::new(0),
+            observed_generation: AtomicU64::new(0),
+        }
+    }
+
+    #[inline]
+    fn load(&self) -> Arc<T> {
+        self.current.load_full()
+    }
+
+    #[inline]
+    fn load_if_changed(&self, cached: &Arc<T>) -> Option<Arc<T>> {
+        let current = self.current.load();
+        if std::ptr::eq(&**current, Arc::as_ref(cached)) {
+            None
+        } else {
+            Some(self.current.load_full())
+        }
+    }
+
+    #[inline]
+    fn has_update(&self) -> bool {
+        self.generation.load(Ordering::Acquire) != self.observed_generation.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    fn clear_update(&self) {
+        let generation = self.generation.load(Ordering::Acquire);
+        self.observed_generation
+            .store(generation, Ordering::Release);
+    }
+
+    #[inline]
+    fn publish(&self, snapshot: T) {
+        self.current.store(Arc::new(snapshot));
+        self.generation.fetch_add(1, Ordering::Release);
+    }
 }
 
-#[inline]
-fn is_dirty_flag_set(dirty: &AtomicBool) -> bool {
-    dirty.load(Ordering::Acquire)
-}
+impl<T: Clone> SharedParams<T> {
+    #[inline]
+    fn read(&self) -> T {
+        (*self.current.load_full()).clone()
+    }
 
-#[inline]
-fn load_enabled_flag(enabled: &AtomicBool) -> bool {
-    enabled.load(Ordering::Acquire)
-}
-
-#[inline]
-fn store_bool_and_mark_dirty(target: &AtomicBool, value: bool, dirty: &AtomicBool) {
-    target.store(value, Ordering::Release);
-    mark_dirty_flag(dirty);
-}
-
-#[inline]
-fn store_f64_and_mark_dirty(target: &AtomicF64, value: f64, dirty: &AtomicBool) {
-    target.store(value, Ordering::Release);
-    mark_dirty_flag(dirty);
-}
-
-#[inline]
-fn store_clamped_f64_and_mark_dirty(
-    target: &AtomicF64,
-    value: f64,
-    min: f64,
-    max: f64,
-    dirty: &AtomicBool,
-) {
-    target.store(value.clamp(min, max), Ordering::Release);
-    mark_dirty_flag(dirty);
-}
-
-#[inline]
-fn store_u8_and_mark_dirty(target: &AtomicU8, value: u8, dirty: &AtomicBool) {
-    target.store(value, Ordering::Release);
-    mark_dirty_flag(dirty);
+    #[inline]
+    fn update(&self, mut f: impl FnMut(&mut T)) {
+        self.current.rcu(|current| {
+            let mut snapshot = T::clone(current);
+            f(&mut snapshot);
+            snapshot
+        });
+        self.generation.fetch_add(1, Ordering::Release);
+    }
 }
 
 macro_rules! impl_default_via_new {
@@ -98,15 +112,15 @@ macro_rules! impl_lockfree_params {
             }
 
             fn mark_dirty(&self) {
-                mark_dirty_flag(&self.dirty);
+                self.shared.generation.fetch_add(1, Ordering::Release);
             }
 
             fn clear_dirty(&self) {
-                clear_dirty_flag_release(&self.dirty);
+                self.shared.clear_update();
             }
 
             fn is_dirty(&self) -> bool {
-                is_dirty_flag_set(&self.dirty)
+                self.shared.has_update()
             }
         }
     };
@@ -116,7 +130,7 @@ macro_rules! impl_has_update_accessor {
     () => {
         #[inline]
         pub fn has_update(&self) -> bool {
-            is_dirty_flag_set(&self.dirty)
+            self.shared.has_update()
         }
     };
 }
@@ -127,7 +141,7 @@ macro_rules! impl_dirty_accessors {
 
         #[inline]
         pub fn clear_dirty(&self) {
-            clear_dirty_flag_relaxed(&self.dirty);
+            self.shared.clear_update();
         }
     };
 }
@@ -136,7 +150,9 @@ macro_rules! impl_set_enabled_accessor {
     () => {
         #[inline]
         pub fn set_enabled(&self, enabled: bool) {
-            store_bool_and_mark_dirty(&self.enabled, enabled, &self.dirty);
+            self.shared.update(|snapshot| {
+                snapshot.enabled = enabled;
+            });
         }
     };
 }
@@ -145,13 +161,13 @@ macro_rules! impl_enabled_reader {
     () => {
         #[inline]
         pub fn is_enabled(&self) -> bool {
-            load_enabled_flag(&self.enabled)
+            self.read().enabled
         }
     };
 }
 
 // ============================================================================
-// EQ Parameters (SeqLock Pattern)
+// EQ Parameters
 // ============================================================================
 
 /// EQ band count constant
@@ -175,125 +191,60 @@ impl Default for EqParamsSnapshot {
     }
 }
 
-/// Atomic EQ parameters using SeqLock pattern
-///
-/// SeqLock allows multiple readers without blocking, while writers
-/// use a version number to detect concurrent modifications.
-///
-/// # Algorithm
-///
-/// 1. Writer: increment version to odd → write data → increment to even
-/// 2. Reader: read version → read data → read version again
-///    - If versions match and even: success
-///    - Otherwise: retry
+/// EQ parameters published as complete immutable snapshots.
 pub struct AtomicEqParams {
-    /// Version number (odd = writing, even = stable)
-    version: AtomicUsize,
-    /// Band gains in dB
-    gains: [AtomicF64; EQ_BANDS],
-    /// Master enable
-    enabled: AtomicBool,
-    /// Dirty flag for fast update check
-    dirty: AtomicBool,
+    shared: SharedParams<EqParamsSnapshot>,
 }
 
 impl AtomicEqParams {
     /// Create new EQ params with default values
     pub fn new() -> Self {
         Self {
-            version: AtomicUsize::new(0),
-            gains: std::array::from_fn(|_| AtomicF64::new(0.0)),
-            enabled: AtomicBool::new(false),
-            dirty: AtomicBool::new(false),
+            shared: SharedParams::new(),
         }
     }
 
-    /// Write all EQ parameters atomically via SeqLock.
-    /// Caller must not call this concurrently (single-writer assumption).
+    /// Publish all EQ parameters as a complete snapshot.
     pub fn write(&self, gains: &[f64; EQ_BANDS], enabled: bool) {
-        // Begin write: version → odd
-        let v = self.version.fetch_add(1, Ordering::Relaxed);
-        debug_assert!(v & 1 == 0, "Concurrent write detected");
-
-        // Write data with Relaxed — ordering enforced by fence below
-        for (i, &g) in gains.iter().enumerate() {
-            self.gains[i].store(g, Ordering::Relaxed);
-        }
-        self.enabled.store(enabled, Ordering::Relaxed);
-
-        // Release fence: all Relaxed stores above are visible before version+2
-        std::sync::atomic::fence(Ordering::Release);
-
-        // End write: version → even
-        self.version.store(v + 2, Ordering::Relaxed);
-
-        // Mark dirty for fast polling
-        mark_dirty_flag(&self.dirty);
+        self.shared.publish(EqParamsSnapshot {
+            gains: *gains,
+            enabled,
+        });
     }
 
-    /// Read all EQ parameters via SeqLock optimistic read.
-    /// Safe to call from audio thread (wait-free in uncontended case).
+    /// Read the current EQ parameter snapshot.
     pub fn read(&self) -> EqParamsSnapshot {
-        loop {
-            let v1 = self.version.load(Ordering::Acquire);
-            if v1 & 1 != 0 {
-                // Writer active — spin with hint
-                std::hint::spin_loop();
-                continue;
-            }
+        self.shared.read()
+    }
 
-            // Read data with Relaxed
-            let gains = std::array::from_fn(|i| self.gains[i].load(Ordering::Relaxed));
-            let enabled = self.enabled.load(Ordering::Relaxed);
+    #[inline]
+    pub fn load(&self) -> Arc<EqParamsSnapshot> {
+        self.shared.load()
+    }
 
-            // Acquire fence: all Relaxed loads above complete before version check
-            std::sync::atomic::fence(Ordering::Acquire);
-
-            let v2 = self.version.load(Ordering::Relaxed);
-            if v1 == v2 {
-                clear_dirty_flag_relaxed(&self.dirty);
-                return EqParamsSnapshot { gains, enabled };
-            }
-            // Version changed during read — retry
-        }
+    #[inline]
+    pub fn load_if_changed(&self, cached: &Arc<EqParamsSnapshot>) -> Option<Arc<EqParamsSnapshot>> {
+        self.shared.load_if_changed(cached)
     }
 
     // Quick check if parameters have been updated (read-only, does not clear).
     impl_has_update_accessor!();
 
-    /// Update a single band gain (main thread).
-    /// MUST go through full SeqLock to preserve consistency with read().
+    /// Update a single band gain by patching and publishing a new snapshot.
     pub fn set_band_gain(&self, band: usize, gain_db: f64) {
         if band >= EQ_BANDS {
             return;
         }
-        // Read current state, patch one band, write back via full SeqLock
-        let mut snap = self.read_raw_no_clear();
-        snap.gains[band] = gain_db.clamp(-15.0, 15.0);
-        self.write(&snap.gains, snap.enabled);
-    }
-
-    /// Internal: read without clearing dirty flag
-    fn read_raw_no_clear(&self) -> EqParamsSnapshot {
-        loop {
-            let v1 = self.version.load(Ordering::Acquire);
-            if v1 & 1 != 0 {
-                std::hint::spin_loop();
-                continue;
-            }
-            let gains = std::array::from_fn(|i| self.gains[i].load(Ordering::Relaxed));
-            let enabled = self.enabled.load(Ordering::Relaxed);
-            std::sync::atomic::fence(Ordering::Acquire);
-            let v2 = self.version.load(Ordering::Relaxed);
-            if v1 == v2 {
-                return EqParamsSnapshot { gains, enabled };
-            }
-        }
+        self.shared.update(|snap| {
+            snap.gains[band] = gain_db.clamp(-15.0, 15.0);
+        });
     }
 
     /// Set enabled state (main thread)
     pub fn set_enabled(&self, enabled: bool) {
-        store_bool_and_mark_dirty(&self.enabled, enabled, &self.dirty);
+        self.shared.update(|snap| {
+            snap.enabled = enabled;
+        });
     }
 
     // Quick read of enabled state only.
@@ -406,85 +357,80 @@ impl Default for SaturationParamsSnapshot {
     }
 }
 
-/// Atomic saturation parameters
-///
-/// Simple structure - each parameter is independent, so we can use
-/// individual atomic operations without SeqLock.
+/// Saturation parameters published as complete immutable snapshots.
 pub struct AtomicSaturationParams {
-    pub drive: AtomicF64,
-    pub threshold: AtomicF64,
-    pub mix: AtomicF64,
-    pub sat_type: AtomicU8,
-    pub input_gain_db: AtomicF64,
-    pub output_gain_db: AtomicF64,
-    pub highpass_mode: AtomicBool,
-    pub highpass_cutoff: AtomicF64,
-    pub enabled: AtomicBool,
-    dirty: AtomicBool,
+    shared: SharedParams<SaturationParamsSnapshot>,
 }
 
 impl AtomicSaturationParams {
     pub fn new() -> Self {
         Self {
-            drive: AtomicF64::new(0.25),
-            threshold: AtomicF64::new(0.88),
-            mix: AtomicF64::new(0.2),
-            sat_type: AtomicU8::new(SaturationTypeValue::Tube as u8),
-            input_gain_db: AtomicF64::new(0.0),
-            output_gain_db: AtomicF64::new(0.0),
-            highpass_mode: AtomicBool::new(false),
-            highpass_cutoff: AtomicF64::new(4000.0),
-            enabled: AtomicBool::new(true),
-            dirty: AtomicBool::new(false),
+            shared: SharedParams::new(),
         }
     }
 
     /// Set drive amount (0.0 - 2.0)
     #[inline]
     pub fn set_drive(&self, drive: f64) {
-        store_clamped_f64_and_mark_dirty(&self.drive, drive, 0.0, 2.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.drive = drive.clamp(0.0, 2.0);
+        });
     }
 
     /// Set threshold (0.0 - 1.0)
     #[inline]
     pub fn set_threshold(&self, threshold: f64) {
-        store_clamped_f64_and_mark_dirty(&self.threshold, threshold, 0.0, 1.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.threshold = threshold.clamp(0.0, 1.0);
+        });
     }
 
     /// Set mix amount (0.0 - 1.0)
     #[inline]
     pub fn set_mix(&self, mix: f64) {
-        store_clamped_f64_and_mark_dirty(&self.mix, mix, 0.0, 1.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.mix = mix.clamp(0.0, 1.0);
+        });
     }
 
     /// Set saturation type
     #[inline]
     pub fn set_sat_type(&self, sat_type: SaturationTypeValue) {
-        store_u8_and_mark_dirty(&self.sat_type, sat_type as u8, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.sat_type = sat_type;
+        });
     }
 
     /// Set input gain (dB)
     #[inline]
     pub fn set_input_gain(&self, gain_db: f64) {
-        store_f64_and_mark_dirty(&self.input_gain_db, gain_db, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.input_gain_db = gain_db;
+        });
     }
 
     /// Set output gain (dB)
     #[inline]
     pub fn set_output_gain(&self, gain_db: f64) {
-        store_f64_and_mark_dirty(&self.output_gain_db, gain_db, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.output_gain_db = gain_db;
+        });
     }
 
     /// Set highpass mode
     #[inline]
     pub fn set_highpass_mode(&self, enabled: bool) {
-        store_bool_and_mark_dirty(&self.highpass_mode, enabled, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.highpass_mode = enabled;
+        });
     }
 
     /// Set highpass cutoff frequency
     #[inline]
     pub fn set_highpass_cutoff(&self, hz: f64) {
-        store_clamped_f64_and_mark_dirty(&self.highpass_cutoff, hz, 1000.0, 12000.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.highpass_cutoff = hz.clamp(1000.0, 12000.0);
+        });
     }
 
     impl_set_enabled_accessor!();
@@ -492,21 +438,24 @@ impl AtomicSaturationParams {
     /// Read all parameters into a snapshot
     #[inline]
     pub fn read(&self) -> SaturationParamsSnapshot {
-        SaturationParamsSnapshot {
-            drive: self.drive.load(Ordering::Acquire),
-            threshold: self.threshold.load(Ordering::Acquire),
-            mix: self.mix.load(Ordering::Acquire),
-            sat_type: SaturationTypeValue::from(self.sat_type.load(Ordering::Acquire)),
-            input_gain_db: self.input_gain_db.load(Ordering::Acquire),
-            output_gain_db: self.output_gain_db.load(Ordering::Acquire),
-            highpass_mode: self.highpass_mode.load(Ordering::Acquire),
-            highpass_cutoff: self.highpass_cutoff.load(Ordering::Acquire),
-            enabled: self.enabled.load(Ordering::Acquire),
-        }
+        self.shared.read()
     }
 
-    // `has_update()` checks for pending updates without clearing the dirty flag.
-    // `clear_dirty()` clears it after the caller consumes a snapshot.
+    #[inline]
+    pub fn load(&self) -> Arc<SaturationParamsSnapshot> {
+        self.shared.load()
+    }
+
+    #[inline]
+    pub fn load_if_changed(
+        &self,
+        cached: &Arc<SaturationParamsSnapshot>,
+    ) -> Option<Arc<SaturationParamsSnapshot>> {
+        self.shared.load_if_changed(cached)
+    }
+
+    // Compatibility update flag for legacy callers. Audio processors compare
+    // published snapshot pointers directly and do not consume this flag.
     impl_dirty_accessors!();
 
     // Quick check if enabled.
@@ -556,41 +505,48 @@ impl Default for CrossfeedParamsSnapshot {
 
 /// Atomic crossfeed parameters
 pub struct AtomicCrossfeedParams {
-    pub mix: AtomicF64,
-    pub cutoff_hz: AtomicF64,
-    pub enabled: AtomicBool,
-    dirty: AtomicBool,
+    shared: SharedParams<CrossfeedParamsSnapshot>,
 }
 
 impl AtomicCrossfeedParams {
     pub fn new() -> Self {
         Self {
-            mix: AtomicF64::new(0.35),
-            cutoff_hz: AtomicF64::new(700.0),
-            enabled: AtomicBool::new(true),
-            dirty: AtomicBool::new(false),
+            shared: SharedParams::new(),
         }
     }
 
     #[inline]
     pub fn set_mix(&self, mix: f64) {
-        store_clamped_f64_and_mark_dirty(&self.mix, mix, 0.0, 1.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.mix = mix.clamp(0.0, 1.0);
+        });
     }
 
     #[inline]
     pub fn set_cutoff(&self, hz: f64) {
-        store_clamped_f64_and_mark_dirty(&self.cutoff_hz, hz, 200.0, 2000.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.cutoff_hz = hz.clamp(200.0, 2000.0);
+        });
     }
 
     impl_set_enabled_accessor!();
 
     #[inline]
     pub fn read(&self) -> CrossfeedParamsSnapshot {
-        CrossfeedParamsSnapshot {
-            mix: self.mix.load(Ordering::Acquire),
-            cutoff_hz: self.cutoff_hz.load(Ordering::Acquire),
-            enabled: self.enabled.load(Ordering::Acquire),
-        }
+        self.shared.read()
+    }
+
+    #[inline]
+    pub fn load(&self) -> Arc<CrossfeedParamsSnapshot> {
+        self.shared.load()
+    }
+
+    #[inline]
+    pub fn load_if_changed(
+        &self,
+        cached: &Arc<CrossfeedParamsSnapshot>,
+    ) -> Option<Arc<CrossfeedParamsSnapshot>> {
+        self.shared.load_if_changed(cached)
     }
 
     impl_dirty_accessors!();
@@ -634,41 +590,48 @@ impl Default for PeakLimiterParamsSnapshot {
 
 /// Atomic peak limiter parameters
 pub struct AtomicPeakLimiterParams {
-    pub threshold_db: AtomicF64,
-    pub release_ms: AtomicF64,
-    pub enabled: AtomicBool,
-    dirty: AtomicBool,
+    shared: SharedParams<PeakLimiterParamsSnapshot>,
 }
 
 impl AtomicPeakLimiterParams {
     pub fn new() -> Self {
         Self {
-            threshold_db: AtomicF64::new(-1.0),
-            release_ms: AtomicF64::new(150.0),
-            enabled: AtomicBool::new(true),
-            dirty: AtomicBool::new(false),
+            shared: SharedParams::new(),
         }
     }
 
     #[inline]
     pub fn set_threshold(&self, db: f64) {
-        store_clamped_f64_and_mark_dirty(&self.threshold_db, db, -20.0, 0.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.threshold_db = db.clamp(-20.0, 0.0);
+        });
     }
 
     #[inline]
     pub fn set_release(&self, ms: f64) {
-        store_clamped_f64_and_mark_dirty(&self.release_ms, ms, 10.0, 1000.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.release_ms = ms.clamp(10.0, 1000.0);
+        });
     }
 
     impl_set_enabled_accessor!();
 
     #[inline]
     pub fn read(&self) -> PeakLimiterParamsSnapshot {
-        PeakLimiterParamsSnapshot {
-            threshold_db: self.threshold_db.load(Ordering::Acquire),
-            release_ms: self.release_ms.load(Ordering::Acquire),
-            enabled: self.enabled.load(Ordering::Acquire),
-        }
+        self.shared.read()
+    }
+
+    #[inline]
+    pub fn load(&self) -> Arc<PeakLimiterParamsSnapshot> {
+        self.shared.load()
+    }
+
+    #[inline]
+    pub fn load_if_changed(
+        &self,
+        cached: &Arc<PeakLimiterParamsSnapshot>,
+    ) -> Option<Arc<PeakLimiterParamsSnapshot>> {
+        self.shared.load_if_changed(cached)
     }
 
     impl_dirty_accessors!();
@@ -701,48 +664,59 @@ impl Default for VolumeParamsSnapshot {
 
 /// Atomic volume parameters
 pub struct AtomicVolumeParams {
-    pub volume: AtomicF64,
-    pub muted: AtomicBool,
-    dirty: AtomicBool,
+    shared: SharedParams<VolumeParamsSnapshot>,
 }
 
 impl AtomicVolumeParams {
     pub fn new() -> Self {
         Self {
-            volume: AtomicF64::new(1.0),
-            muted: AtomicBool::new(false),
-            dirty: AtomicBool::new(false),
+            shared: SharedParams::new(),
         }
     }
 
     /// Set volume (0.0 = silence, 1.0 = full)
     #[inline]
     pub fn set_volume(&self, vol: f64) {
-        store_clamped_f64_and_mark_dirty(&self.volume, vol, 0.0, 1.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.volume = vol.clamp(0.0, 1.0);
+        });
     }
 
     /// Set mute state
     #[inline]
     pub fn set_muted(&self, muted: bool) {
-        store_bool_and_mark_dirty(&self.muted, muted, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.muted = muted;
+        });
     }
 
     /// Read current state
     #[inline]
     pub fn read(&self) -> VolumeParamsSnapshot {
-        VolumeParamsSnapshot {
-            volume: self.volume.load(Ordering::Acquire),
-            muted: self.muted.load(Ordering::Acquire),
-        }
+        self.shared.read()
+    }
+
+    #[inline]
+    pub fn load(&self) -> Arc<VolumeParamsSnapshot> {
+        self.shared.load()
+    }
+
+    #[inline]
+    pub fn load_if_changed(
+        &self,
+        cached: &Arc<VolumeParamsSnapshot>,
+    ) -> Option<Arc<VolumeParamsSnapshot>> {
+        self.shared.load_if_changed(cached)
     }
 
     /// Get effective volume (0.0 if muted)
     #[inline]
     pub fn effective_volume(&self) -> f64 {
-        if self.muted.load(Ordering::Acquire) {
+        let snapshot = self.read();
+        if snapshot.muted {
             0.0
         } else {
-            self.volume.load(Ordering::Acquire)
+            snapshot.volume
         }
     }
 
@@ -776,19 +750,13 @@ impl Default for NoiseShaperParamsSnapshot {
 
 /// Atomic noise shaper parameters
 pub struct AtomicNoiseShaperParams {
-    pub enabled: AtomicBool,
-    pub bits: AtomicU8,
-    pub curve: AtomicU8,
-    dirty: AtomicBool,
+    shared: SharedParams<NoiseShaperParamsSnapshot>,
 }
 
 impl AtomicNoiseShaperParams {
     pub fn new() -> Self {
         Self {
-            enabled: AtomicBool::new(true),
-            bits: AtomicU8::new(24),
-            curve: AtomicU8::new(0),
-            dirty: AtomicBool::new(false),
+            shared: SharedParams::new(),
         }
     }
 
@@ -796,22 +764,34 @@ impl AtomicNoiseShaperParams {
 
     #[inline]
     pub fn set_bits(&self, bits: u32) {
-        let clamped = bits.clamp(8, 32) as u8;
-        store_u8_and_mark_dirty(&self.bits, clamped, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.bits = bits.clamp(8, 32);
+        });
     }
 
     #[inline]
     pub fn set_curve(&self, curve: super::dsp::NoiseShaperCurve) {
-        store_u8_and_mark_dirty(&self.curve, u8::from(curve), &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.curve = curve;
+        });
     }
 
     #[inline]
     pub fn read(&self) -> NoiseShaperParamsSnapshot {
-        NoiseShaperParamsSnapshot {
-            enabled: self.enabled.load(Ordering::Acquire),
-            bits: self.bits.load(Ordering::Acquire) as u32,
-            curve: super::dsp::NoiseShaperCurve::from(self.curve.load(Ordering::Acquire)),
-        }
+        self.shared.read()
+    }
+
+    #[inline]
+    pub fn load(&self) -> Arc<NoiseShaperParamsSnapshot> {
+        self.shared.load()
+    }
+
+    #[inline]
+    pub fn load_if_changed(
+        &self,
+        cached: &Arc<NoiseShaperParamsSnapshot>,
+    ) -> Option<Arc<NoiseShaperParamsSnapshot>> {
+        self.shared.load_if_changed(cached)
     }
 
     impl_dirty_accessors!();
@@ -820,7 +800,7 @@ impl AtomicNoiseShaperParams {
 
     #[inline]
     pub fn bits(&self) -> u32 {
-        self.bits.load(Ordering::Acquire) as u32
+        self.read().bits
     }
 
     #[inline]
@@ -842,6 +822,7 @@ pub struct DynamicLoudnessParamsSnapshot {
     pub enabled: bool,
     pub volume: f64,
     pub strength: f64,
+    pub ref_volume_db: Option<f64>,
 }
 
 impl Default for DynamicLoudnessParamsSnapshot {
@@ -850,25 +831,20 @@ impl Default for DynamicLoudnessParamsSnapshot {
             enabled: true,
             volume: 1.0,
             strength: 1.0,
+            ref_volume_db: None,
         }
     }
 }
 
 /// Atomic dynamic loudness parameters
 pub struct AtomicDynamicLoudnessParams {
-    pub enabled: AtomicBool,
-    pub volume: AtomicF64,
-    pub strength: AtomicF64,
-    dirty: AtomicBool,
+    shared: SharedParams<DynamicLoudnessParamsSnapshot>,
 }
 
 impl AtomicDynamicLoudnessParams {
     pub fn new() -> Self {
         Self {
-            enabled: AtomicBool::new(true),
-            volume: AtomicF64::new(1.0),
-            strength: AtomicF64::new(1.0),
-            dirty: AtomicBool::new(false),
+            shared: SharedParams::new(),
         }
     }
 
@@ -876,30 +852,49 @@ impl AtomicDynamicLoudnessParams {
 
     #[inline]
     pub fn set_volume(&self, vol: f64) {
-        store_clamped_f64_and_mark_dirty(&self.volume, vol, 0.0, 1.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.volume = vol.clamp(0.0, 1.0);
+            snapshot.ref_volume_db = None;
+        });
     }
 
     /// Alias for set_volume - for API compatibility
     #[inline]
     pub fn set_ref_volume_db(&self, db: f64) {
+        let mut snapshot = self.shared.read();
+        if snapshot.ref_volume_db == Some(db) {
+            return;
+        }
+        snapshot.ref_volume_db = Some(db);
         // Convert dB to linear (0dB = 1.0, -20dB = 0.1, etc.)
-        let linear = 10f64.powf(db / 20.0);
-        self.set_volume(linear);
+        snapshot.volume = 10f64.powf(db / 20.0).clamp(0.0, 1.0);
+        self.shared.publish(snapshot);
     }
 
     /// Set strength (0.0 - 1.0)
     #[inline]
     pub fn set_strength(&self, strength: f64) {
-        store_clamped_f64_and_mark_dirty(&self.strength, strength, 0.0, 1.0, &self.dirty);
+        self.shared.update(|snapshot| {
+            snapshot.strength = strength.clamp(0.0, 1.0);
+        });
     }
 
     #[inline]
     pub fn read(&self) -> DynamicLoudnessParamsSnapshot {
-        DynamicLoudnessParamsSnapshot {
-            enabled: self.enabled.load(Ordering::Acquire),
-            volume: self.volume.load(Ordering::Acquire),
-            strength: self.strength.load(Ordering::Acquire),
-        }
+        self.shared.read()
+    }
+
+    #[inline]
+    pub fn load(&self) -> Arc<DynamicLoudnessParamsSnapshot> {
+        self.shared.load()
+    }
+
+    #[inline]
+    pub fn load_if_changed(
+        &self,
+        cached: &Arc<DynamicLoudnessParamsSnapshot>,
+    ) -> Option<Arc<DynamicLoudnessParamsSnapshot>> {
+        self.shared.load_if_changed(cached)
     }
 
     impl_dirty_accessors!();
@@ -909,7 +904,7 @@ impl AtomicDynamicLoudnessParams {
     /// Get strength (0.0 - 1.0)
     #[inline]
     pub fn strength(&self) -> f64 {
-        self.strength.load(Ordering::Acquire)
+        self.read().strength
     }
 }
 
@@ -948,7 +943,8 @@ impl AtomicDynamicLoudnessTelemetry {
 
     #[inline]
     pub fn band_gains(&self) -> [f64; 7] {
-        std::array::from_fn(|i| self.band_gains[i].load(Ordering::Acquire))
+        let _ = self.factor.load(Ordering::Acquire);
+        std::array::from_fn(|i| self.band_gains[i].load(Ordering::Relaxed))
     }
 }
 
@@ -986,6 +982,81 @@ mod tests {
         assert!((snapshot.drive - 1.5).abs() < 1e-10);
         assert!((snapshot.mix - 0.7).abs() < 1e-10);
         assert!(snapshot.enabled);
+    }
+
+    #[test]
+    fn test_saturation_dirty_flag_survives_read_until_cleared() {
+        let params = AtomicSaturationParams::new();
+        assert!(!params.has_update());
+
+        params.set_drive(1.25);
+        assert!(params.has_update());
+
+        let snapshot = params.read();
+        assert!((snapshot.drive - 1.25).abs() < 1e-10);
+        assert!(params.has_update());
+
+        params.clear_dirty();
+        assert!(!params.has_update());
+    }
+
+    #[test]
+    fn test_simple_param_burst_final_state_visible() {
+        let params = AtomicDynamicLoudnessParams::new();
+        for i in 0..100 {
+            params.set_volume(i as f64 / 100.0);
+            params.set_strength(1.0 - i as f64 / 100.0);
+        }
+
+        assert!(params.has_update());
+        let snapshot = params.read();
+        assert!((snapshot.volume - 0.99).abs() < 1e-10);
+        assert!((snapshot.strength - 0.01).abs() < 1e-10);
+        assert!(snapshot.enabled);
+    }
+
+    #[test]
+    fn test_eq_snapshot_publication_keeps_old_and_new_consistent() {
+        let params = AtomicEqParams::new();
+        let old = params.load();
+
+        params.set_band_gain(3, 6.0);
+        let new = params.load();
+
+        assert!(!Arc::ptr_eq(&old, &new));
+        assert_eq!(old.gains, [0.0; EQ_BANDS]);
+        assert!((new.gains[3] - 6.0).abs() < 1e-10);
+        for (index, gain) in new.gains.iter().enumerate() {
+            if index != 3 {
+                assert!((*gain - 0.0).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_dynamic_loudness_ref_volume_db_skips_unchanged_publish() {
+        let params = AtomicDynamicLoudnessParams::new();
+
+        params.set_ref_volume_db(-6.0);
+        let first = params.load();
+        params.clear_dirty();
+
+        params.set_ref_volume_db(-6.0);
+        let second = params.load();
+
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(!params.has_update());
+    }
+
+    #[test]
+    fn test_telemetry_band_gains_round_trip() {
+        let telemetry = AtomicDynamicLoudnessTelemetry::new();
+        let gains = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+
+        telemetry.update(0.5, gains);
+
+        assert!((telemetry.factor() - 0.5).abs() < 1e-10);
+        assert_eq!(telemetry.band_gains(), gains);
     }
 
     #[test]
