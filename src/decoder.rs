@@ -1150,12 +1150,12 @@ impl StreamingDecoder {
         })
     }
 
-    /// Decode the next packet and return f64 interleaved samples
+    /// Decode the next packet into `out`, returning the number of appended f64 samples.
     ///
     /// Handles encoder delay and end padding trimming for gapless playback.
     /// In streaming mode, skips the first `encoder_delay` samples and
     /// stops output before the last `end_padding` samples.
-    pub fn decode_next(&mut self) -> Result<Option<Vec<f64>>, DecoderError> {
+    pub fn decode_next_into(&mut self, out: &mut Vec<f64>) -> Result<Option<usize>, DecoderError> {
         if self.finished {
             return Ok(None);
         }
@@ -1219,8 +1219,10 @@ impl StreamingDecoder {
             };
             sample_buf.copy_interleaved_ref(decoded);
 
-            let mut samples: Vec<f64> = sample_buf.samples().to_vec();
+            let samples = sample_buf.samples();
             let channels = self.info.channels;
+            let mut start = 0;
+            let mut end = samples.len();
 
             // === Delay trimming (skip first encoder_delay samples) ===
             // Symphonia reports encoder_delay in frames per channel, not interleaved samples.
@@ -1228,10 +1230,10 @@ impl StreamingDecoder {
             let delay_frames = self.info.encoder_delay as u64;
             let delay_samples = delay_frames * channels as u64; // Convert frames to interleaved samples
             if self.samples_output < delay_samples {
-                let skip = (delay_samples - self.samples_output).min(samples.len() as u64) as usize;
-                samples.drain(0..skip);
+                let skip = (delay_samples - self.samples_output).min(end as u64) as usize;
+                start += skip;
                 self.samples_output += skip as u64;
-                if samples.is_empty() {
+                if start == end {
                     continue; // Get next packet
                 }
             }
@@ -1243,7 +1245,7 @@ impl StreamingDecoder {
 
             // Check if we would exceed effective total
             let current_frame = self.samples_output / channels as u64;
-            let frames_in_chunk = samples.len() / channels;
+            let frames_in_chunk = (end - start) / channels;
 
             if current_frame + frames_in_chunk as u64 > effective_total {
                 let frames_to_keep = effective_total.saturating_sub(current_frame) as usize;
@@ -1251,11 +1253,26 @@ impl StreamingDecoder {
                     self.finished = true;
                     return Ok(None);
                 }
-                samples.truncate(frames_to_keep * channels);
+                end = start + frames_to_keep * channels;
             }
 
-            self.samples_output += samples.len() as u64;
-            return Ok(Some(samples));
+            let appended = end - start;
+            out.extend_from_slice(&samples[start..end]);
+            self.samples_output += appended as u64;
+            return Ok(Some(appended));
+        }
+    }
+
+    /// Decode the next packet and return f64 interleaved samples.
+    ///
+    /// Compatibility wrapper over [`Self::decode_next_into`]. New internal callers
+    /// should pass their destination buffer directly to avoid packet-level `Vec`
+    /// allocation.
+    pub fn decode_next(&mut self) -> Result<Option<Vec<f64>>, DecoderError> {
+        let mut samples = Vec::new();
+        match self.decode_next_into(&mut samples)? {
+            Some(_) => Ok(Some(samples)),
+            None => Ok(None),
         }
     }
 
@@ -1269,7 +1286,7 @@ impl StreamingDecoder {
         // before allocating and keep checking for streams with unknown duration.
         let (max_memory_mb, max_memory_bytes) = configured_decode_memory_limit();
 
-        if let Some(total_frames) = self.info.total_frames {
+        let initial_capacity = if let Some(total_frames) = self.info.total_frames {
             let estimated_bytes = total_frames as usize * self.info.channels * F64_SAMPLE_BYTES;
             if estimated_bytes > max_memory_bytes {
                 let estimated_mb = bytes_to_mib(estimated_bytes);
@@ -1287,12 +1304,13 @@ impl StreamingDecoder {
                 total_samples,
                 bytes_to_mib(total_samples * F64_SAMPLE_BYTES)
             );
-        }
+            total_samples
+        } else {
+            0
+        };
 
-        let mut all_samples = Vec::new();
-        while let Some(samples) = self.decode_next()? {
-            all_samples.extend(samples);
-
+        let mut all_samples = Vec::with_capacity(initial_capacity);
+        while self.decode_next_into(&mut all_samples)?.is_some() {
             let current_bytes = all_samples.len() * F64_SAMPLE_BYTES;
             if current_bytes > max_memory_bytes {
                 let current_mb = bytes_to_mib(current_bytes);
