@@ -59,18 +59,43 @@ fn main() {
         );
     }
 
-    let dl_report = benchmark_dynamic_loudness(&corpus, iterations);
+    let dl_transitioning_report = benchmark_dynamic_loudness(
+        &corpus,
+        iterations,
+        DynamicLoudnessScenario::TransitioningLowVolume,
+    );
     println!(
-        "dynamic_loudness_process current={:.3} ns/sample legacy_trig={:.3} ns/sample improvement={:.2}%",
-        dl_report.current_ns_per_sample,
-        dl_report.legacy_ns_per_sample,
-        dl_report.improvement_percent
+        "dynamic_loudness_process_transitioning current={:.3} ns/sample legacy_trig={:.3} ns/sample improvement={:.2}%",
+        dl_transitioning_report.current_ns_per_sample,
+        dl_transitioning_report.legacy_ns_per_sample,
+        dl_transitioning_report.improvement_percent
+    );
+
+    let dl_max_active_report = benchmark_dynamic_loudness(
+        &corpus,
+        iterations,
+        DynamicLoudnessScenario::MaxActiveSettled,
+    );
+    println!(
+        "dynamic_loudness_process_max_active current={:.3} ns/sample legacy_trig={:.3} ns/sample improvement={:.2}%",
+        dl_max_active_report.current_ns_per_sample,
+        dl_max_active_report.legacy_ns_per_sample,
+        dl_max_active_report.improvement_percent
+    );
+
+    let dl_identity_report =
+        benchmark_dynamic_loudness(&corpus, iterations, DynamicLoudnessScenario::IdentitySettled);
+    println!(
+        "dynamic_loudness_process_identity current={:.3} ns/sample legacy_trig={:.3} ns/sample improvement={:.2}%",
+        dl_identity_report.current_ns_per_sample,
+        dl_identity_report.legacy_ns_per_sample,
+        dl_identity_report.improvement_percent
     );
     if enforce {
         assert!(
-            dl_report.improvement_percent >= 3.0,
+            dl_max_active_report.improvement_percent >= 3.0,
             "DynamicLoudness process improvement below 3%: {:.2}%",
-            dl_report.improvement_percent
+            dl_max_active_report.improvement_percent
         );
     }
 }
@@ -94,6 +119,13 @@ struct ProcessReport {
     current_ns_per_sample: f64,
     legacy_ns_per_sample: f64,
     improvement_percent: f64,
+}
+
+#[derive(Clone, Copy)]
+enum DynamicLoudnessScenario {
+    TransitioningLowVolume,
+    MaxActiveSettled,
+    IdentitySettled,
 }
 
 fn benchmark_eq(corpus: &[f64], iterations: usize) -> EqReport {
@@ -169,14 +201,19 @@ fn benchmark_coefficients(iterations: usize) -> CoeffReport {
     }
 }
 
-fn benchmark_dynamic_loudness(corpus: &[f64], iterations: usize) -> ProcessReport {
+fn benchmark_dynamic_loudness(
+    corpus: &[f64],
+    iterations: usize,
+    scenario: DynamicLoudnessScenario,
+) -> ProcessReport {
+    let mut current_check = CachedDynamicLoudness::new(CHANNELS, SAMPLE_RATE);
+    let mut legacy_check = LegacyDynamicLoudness::new(CHANNELS, SAMPLE_RATE);
+    configure_dynamic_scenario(&mut current_check, &mut legacy_check, scenario);
+    assert_dynamic_outputs_match(&mut current_check, &mut legacy_check, corpus);
+
     let mut current = CachedDynamicLoudness::new(CHANNELS, SAMPLE_RATE);
-    current.set_volume_db(-40.0);
-
     let mut legacy = LegacyDynamicLoudness::new(CHANNELS, SAMPLE_RATE);
-    legacy.set_volume_db(-40.0);
-
-    assert_dynamic_outputs_match(&mut current, &mut legacy, corpus);
+    configure_dynamic_scenario(&mut current, &mut legacy, scenario);
 
     let current_duration = measure(
         || {
@@ -197,6 +234,37 @@ fn benchmark_dynamic_loudness(corpus: &[f64], iterations: usize) -> ProcessRepor
     );
 
     report_process(current_duration, legacy_duration, corpus.len() * iterations)
+}
+
+fn configure_dynamic_scenario(
+    current: &mut CachedDynamicLoudness,
+    legacy: &mut LegacyDynamicLoudness,
+    scenario: DynamicLoudnessScenario,
+) {
+    match scenario {
+        DynamicLoudnessScenario::TransitioningLowVolume => {
+            current.set_volume_db(-40.0);
+            legacy.set_volume_db(-40.0);
+        }
+        DynamicLoudnessScenario::MaxActiveSettled => {
+            current.set_volume_db(-40.0);
+            legacy.set_volume_db(-40.0);
+            settle_dynamic_loudness(current, legacy);
+            assert_eq!(current.active_band_count(), LOUDNESS_BANDS_N - 1);
+        }
+        DynamicLoudnessScenario::IdentitySettled => {
+            current.set_volume_db(-15.0);
+            legacy.set_volume_db(-15.0);
+            settle_dynamic_loudness(current, legacy);
+            assert_eq!(current.active_band_count(), 0);
+        }
+    }
+}
+
+fn settle_dynamic_loudness(current: &mut CachedDynamicLoudness, legacy: &mut LegacyDynamicLoudness) {
+    let mut silence = vec![0.0; CHANNELS * 48_000];
+    current.process(&mut silence);
+    legacy.process(&mut silence);
 }
 
 fn measure<T>(mut run: impl FnMut() -> T, iterations: usize) -> Duration {
@@ -883,7 +951,7 @@ impl CachedDynamicLoudness {
         Self {
             filters,
             smoothers,
-            last_applied_gains: [0.0; LOUDNESS_BANDS_N],
+            last_applied_gains: [f64::NAN; LOUDNESS_BANDS_N],
             active_bands: [false; LOUDNESS_BANDS_N],
             max_gains,
             ref_volume_db: -15.0,
@@ -910,7 +978,10 @@ impl CachedDynamicLoudness {
     }
 
     fn apply_band_gain_if_changed(&mut self, band: usize, gain_db: f64) {
-        if (gain_db - self.last_applied_gains[band]).abs() < GAIN_UPDATE_EPSILON_DB {
+        let should_be_active = gain_db.abs() >= BAND_ACTIVE_EPSILON_DB;
+        if (gain_db - self.last_applied_gains[band]).abs() < GAIN_UPDATE_EPSILON_DB
+            && self.active_bands[band] == should_be_active
+        {
             return;
         }
 
@@ -919,7 +990,11 @@ impl CachedDynamicLoudness {
             ch_filters[band].coeffs = coeffs.clone();
         }
         self.last_applied_gains[band] = gain_db;
-        self.active_bands[band] = gain_db.abs() >= BAND_ACTIVE_EPSILON_DB;
+        self.active_bands[band] = should_be_active;
+    }
+
+    fn active_band_count(&self) -> usize {
+        self.active_bands.iter().filter(|&&active| active).count()
     }
 
     fn set_volume_db(&mut self, volume_db: f64) {
