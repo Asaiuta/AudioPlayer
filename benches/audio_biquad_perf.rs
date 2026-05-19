@@ -9,6 +9,7 @@ const BLOCK_SIZE: usize = 64;
 const EQ_BANDS: usize = 10;
 const LOUDNESS_BANDS_N: usize = 7;
 const GAIN_UPDATE_EPSILON_DB: f64 = 0.01;
+const BAND_ACTIVE_EPSILON_DB: f64 = 0.0001;
 const LOUDNESS_BANDS: [(f64, f64, f64); LOUDNESS_BANDS_N] = [
     (40.0, 12.0, 0.0),
     (100.0, 10.0, 0.9),
@@ -857,10 +858,11 @@ struct CachedDynamicLoudness {
     filters: Vec<[CachedBenchFilter; LOUDNESS_BANDS_N]>,
     smoothers: Vec<LegacySmoother>,
     last_applied_gains: [f64; LOUDNESS_BANDS_N],
+    active_bands: [bool; LOUDNESS_BANDS_N],
     max_gains: [f64; LOUDNESS_BANDS_N],
     ref_volume_db: f64,
     transition_db: f64,
-    pre_gain_db: f64,
+    pre_gain_linear: f64,
     channels: usize,
     current_loudness_factor: f64,
     strength: f64,
@@ -882,10 +884,11 @@ impl CachedDynamicLoudness {
             filters,
             smoothers,
             last_applied_gains: [0.0; LOUDNESS_BANDS_N],
+            active_bands: [false; LOUDNESS_BANDS_N],
             max_gains,
             ref_volume_db: -15.0,
             transition_db: 25.0,
-            pre_gain_db: -3.0,
+            pre_gain_linear: 10.0_f64.powf(-3.0 / 20.0),
             channels,
             current_loudness_factor: 0.0,
             strength: 1.0,
@@ -916,6 +919,7 @@ impl CachedDynamicLoudness {
             ch_filters[band].coeffs = coeffs.clone();
         }
         self.last_applied_gains[band] = gain_db;
+        self.active_bands[band] = gain_db.abs() >= BAND_ACTIVE_EPSILON_DB;
     }
 
     fn set_volume_db(&mut self, volume_db: f64) {
@@ -943,12 +947,6 @@ impl CachedDynamicLoudness {
             return;
         }
 
-        let pre_gain = if self.pre_gain_db != 0.0 {
-            10.0_f64.powf(self.pre_gain_db / 20.0)
-        } else {
-            1.0
-        };
-
         for chunk_start in (0..frames).step_by(BLOCK_SIZE) {
             let chunk_end = (chunk_start + BLOCK_SIZE).min(frames);
             let chunk_frames = chunk_end - chunk_start;
@@ -962,9 +960,11 @@ impl CachedDynamicLoudness {
         for frame in 0..frames {
             for ch in 0..self.channels {
                 let idx = frame * self.channels + ch;
-                let mut sample = buffer[idx] * pre_gain;
-                for filter in &mut self.filters[ch] {
-                    sample = filter.process(sample);
+                let mut sample = buffer[idx] * self.pre_gain_linear;
+                for band in 0..LOUDNESS_BANDS_N {
+                    if self.active_bands[band] {
+                        sample = self.filters[ch][band].process(sample);
+                    }
                 }
                 buffer[idx] = sample;
             }

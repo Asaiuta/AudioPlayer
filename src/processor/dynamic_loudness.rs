@@ -372,6 +372,7 @@ pub const LOUDNESS_BANDS_N: usize = 7;
 /// Block size for coefficient updates (CPU optimization)
 const BLOCK_SIZE: usize = 64;
 const GAIN_UPDATE_EPSILON_DB: f64 = 0.01;
+const BAND_ACTIVE_EPSILON_DB: f64 = 0.0001;
 
 /// Dynamic Loudness Compensation processor
 ///
@@ -385,14 +386,16 @@ pub struct DynamicLoudness {
     smoothers: Vec<ParameterSmoother>,
     /// Last gain actually applied to each band coefficient set.
     last_applied_gains: [f64; LOUDNESS_BANDS_N],
+    /// Whether each band currently has non-identity coefficients.
+    active_bands: [bool; LOUDNESS_BANDS_N],
     /// Maximum boost per band (dB)
     max_gains: [f64; LOUDNESS_BANDS_N],
     /// Reference volume in dB (above this, no compensation)
     ref_volume_db: f64,
     /// Transition range in dB (from ref to max compensation)
     transition_db: f64,
-    /// Pre-gain to prevent clipping from bass boost (dB)
-    pre_gain_db: f64,
+    /// Cached linear pre-gain.
+    pre_gain_linear: f64,
     /// Sample rate
     sample_rate: f64,
     /// Number of channels
@@ -423,10 +426,12 @@ impl DynamicLoudness {
             filters,
             smoothers,
             last_applied_gains: [0.0; LOUDNESS_BANDS_N],
+            active_bands: [false; LOUDNESS_BANDS_N],
             max_gains,
             ref_volume_db: -15.0, // Reference: ~50% perceived loudness
             transition_db: 25.0,  // Compensation starts below -15 dB, max at -40 dB
-            pre_gain_db: -3.0,    // Headroom for bass boost
+            // Headroom for bass boost (-3 dB).
+            pre_gain_linear: 10.0_f64.powf(-3.0 / 20.0),
             sample_rate,
             channels,
             current_loudness_factor: 0.0,
@@ -469,6 +474,7 @@ impl DynamicLoudness {
             ch_filters[band].coeffs = coeffs;
         }
         self.last_applied_gains[band] = gain_db;
+        self.active_bands[band] = gain_db.abs() >= BAND_ACTIVE_EPSILON_DB;
     }
 
     /// Set user volume as linear value (0.0 - 1.0)
@@ -550,6 +556,8 @@ impl DynamicLoudness {
             for smoother in &mut self.smoothers {
                 smoother.reset();
             }
+            self.active_bands = [false; LOUDNESS_BANDS_N];
+            self.last_applied_gains = [f64::NAN; LOUDNESS_BANDS_N];
         }
         self.enabled = enabled;
     }
@@ -566,6 +574,7 @@ impl DynamicLoudness {
                 }
             }
             self.last_applied_gains = [0.0; LOUDNESS_BANDS_N];
+            self.active_bands = [false; LOUDNESS_BANDS_N];
 
             // Update smoothers
             for smoother in &mut self.smoothers {
@@ -586,12 +595,6 @@ impl DynamicLoudness {
         }
 
         // Apply pre-gain for headroom
-        let pre_gain = if self.pre_gain_db != 0.0 {
-            10.0_f64.powf(self.pre_gain_db / 20.0)
-        } else {
-            1.0
-        };
-
         // Update filter coefficients once per block for CPU efficiency
         for chunk_start in (0..frames).step_by(BLOCK_SIZE) {
             let chunk_end = (chunk_start + BLOCK_SIZE).min(frames);
@@ -605,21 +608,22 @@ impl DynamicLoudness {
         }
 
         // Process all samples
-        self.process_samples(buffer, pre_gain);
+        self.process_samples(buffer);
     }
 
     /// Internal: process samples after coefficient update
-    fn process_samples(&mut self, buffer: &mut [f64], pre_gain: f64) {
+    fn process_samples(&mut self, buffer: &mut [f64]) {
         let frames = buffer.len() / self.channels;
 
         for frame in 0..frames {
             for ch in 0..self.channels {
                 let idx = frame * self.channels + ch;
-                let mut sample = buffer[idx] * pre_gain;
+                let mut sample = buffer[idx] * self.pre_gain_linear;
 
-                if let Some(ch_filters) = self.filters.get_mut(ch) {
-                    for filter in ch_filters {
-                        sample = filter.process(sample);
+                let ch_filters = &mut self.filters[ch];
+                for band in 0..LOUDNESS_BANDS_N {
+                    if self.active_bands[band] {
+                        sample = ch_filters[band].process(sample);
                     }
                 }
 
@@ -640,6 +644,7 @@ impl DynamicLoudness {
         }
         self.current_loudness_factor = 0.0;
         self.last_applied_gains = [f64::NAN; LOUDNESS_BANDS_N];
+        self.active_bands = [false; LOUDNESS_BANDS_N];
     }
 
     /// Get current loudness factor (for display)
@@ -897,6 +902,22 @@ mod tests {
         let left = dl.filters[0][0].coeffs;
         let right = dl.filters[1][0].coeffs;
         assert_coeffs_bit_equal(&left, &right);
+    }
+
+    #[test]
+    fn test_identity_bands_are_inactive_and_skipped() {
+        let mut dl = DynamicLoudness::new(2, 48_000.0);
+        dl.set_volume_db(-40.0);
+        let mut buffer = vec![0.25; BLOCK_SIZE * 2];
+
+        dl.process(&mut buffer);
+
+        assert!(dl.active_bands[0]);
+        assert!(!dl.active_bands[3]);
+        assert_eq!(dl.filters[0][3].state.z1, 0.0);
+        assert_eq!(dl.filters[0][3].state.z2, 0.0);
+        assert_eq!(dl.filters[1][3].state.z1, 0.0);
+        assert_eq!(dl.filters[1][3].state.z2, 0.0);
     }
 
     #[test]
