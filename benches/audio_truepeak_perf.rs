@@ -7,6 +7,7 @@ const TRUE_PEAK_PHASES: usize = 4;
 const TRUE_PEAK_FIR_TAPS: usize = 49;
 const TRUE_PEAK_DELAY: usize = (TRUE_PEAK_FIR_TAPS + TRUE_PEAK_PHASES - 1) / TRUE_PEAK_PHASES;
 const TRUE_PEAK_HISTORY_LEN: usize = TRUE_PEAK_DELAY * 2;
+const TRUE_PEAK_INTER_SAMPLE_TAPS: usize = TRUE_PEAK_DELAY - 1;
 
 static TRUE_PEAK_FIR: OnceLock<TruePeakFir> = OnceLock::new();
 
@@ -29,40 +30,54 @@ fn main() {
     let report = benchmark_true_peak(&corpus, iterations);
     println!("audio_truepeak_perf frames={frames} iterations={iterations}");
     println!(
-        "true_peak indexed={:.3} ns/sample unrolled={:.3} ns/sample legacy_cubic={:.3} ns/sample indexed_ratio={:.2}x unrolled_ratio={:.2}x indexed_peak={:.6} unrolled_peak={:.6} legacy_peak={:.6}",
+        "true_peak indexed={:.3} ns/sample ring_slice={:.3} ns/sample ring_base={:.3} ns/sample shift_unrolled={:.3} ns/sample legacy_cubic={:.3} ns/sample indexed_ratio={:.2}x ring_slice_ratio={:.2}x ring_base_ratio={:.2}x shift_ratio={:.2}x indexed_peak={:.6} ring_slice_peak={:.6} ring_base_peak={:.6} shift_peak={:.6} legacy_peak={:.6}",
         report.indexed_ns_per_sample,
-        report.unrolled_ns_per_sample,
+        report.ring_slice_ns_per_sample,
+        report.ring_base_ns_per_sample,
+        report.shift_unrolled_ns_per_sample,
         report.legacy_ns_per_sample,
         report.indexed_ratio,
-        report.unrolled_ratio,
+        report.ring_slice_ratio,
+        report.ring_base_ratio,
+        report.shift_unrolled_ratio,
         report.indexed_peak,
-        report.unrolled_peak,
+        report.ring_slice_peak,
+        report.ring_base_peak,
+        report.shift_unrolled_peak,
         report.legacy_peak,
     );
 
     if enforce {
         assert!(
-            report.unrolled_ratio <= 1.0,
-            "unrolled FIR true-peak detector is slower than legacy cubic: {:.2}x",
-            report.unrolled_ratio
+            report.ring_slice_ratio <= 1.0,
+            "ring-slice FIR true-peak detector is slower than legacy cubic: {:.2}x",
+            report.ring_slice_ratio
         );
     }
 }
 
 struct TruePeakReport {
     indexed_ns_per_sample: f64,
-    unrolled_ns_per_sample: f64,
+    ring_slice_ns_per_sample: f64,
+    ring_base_ns_per_sample: f64,
+    shift_unrolled_ns_per_sample: f64,
     legacy_ns_per_sample: f64,
     indexed_ratio: f64,
-    unrolled_ratio: f64,
+    ring_slice_ratio: f64,
+    ring_base_ratio: f64,
+    shift_unrolled_ratio: f64,
     indexed_peak: f64,
-    unrolled_peak: f64,
+    ring_slice_peak: f64,
+    ring_base_peak: f64,
+    shift_unrolled_peak: f64,
     legacy_peak: f64,
 }
 
 fn benchmark_true_peak(corpus: &[f64], iterations: usize) -> TruePeakReport {
     let mut indexed = IndexedFirTruePeakDetector::new();
-    let mut unrolled = UnrolledFirTruePeakDetector::new();
+    let mut ring_slice = RingSliceFirTruePeakDetector::new();
+    let mut ring_base = RingBaseFirTruePeakDetector::new();
+    let mut shift_unrolled = ShiftUnrolledFirTruePeakDetector::new();
     let mut legacy = LegacyCubicTruePeakDetector::new();
 
     let indexed_duration = measure(
@@ -74,11 +89,29 @@ fn benchmark_true_peak(corpus: &[f64], iterations: usize) -> TruePeakReport {
         iterations,
     );
 
-    let unrolled_duration = measure(
+    let ring_slice_duration = measure(
         || {
-            unrolled.reset();
-            unrolled.process(black_box(corpus));
-            black_box(unrolled.max_true_peak())
+            ring_slice.reset();
+            ring_slice.process(black_box(corpus));
+            black_box(ring_slice.max_true_peak())
+        },
+        iterations,
+    );
+
+    let ring_base_duration = measure(
+        || {
+            ring_base.reset();
+            ring_base.process(black_box(corpus));
+            black_box(ring_base.max_true_peak())
+        },
+        iterations,
+    );
+
+    let shift_unrolled_duration = measure(
+        || {
+            shift_unrolled.reset();
+            shift_unrolled.process(black_box(corpus));
+            black_box(shift_unrolled.max_true_peak())
         },
         iterations,
     );
@@ -94,24 +127,44 @@ fn benchmark_true_peak(corpus: &[f64], iterations: usize) -> TruePeakReport {
 
     let samples = corpus.len() * iterations;
     let indexed_ns_per_sample = nanos_per_unit(indexed_duration, samples);
-    let unrolled_ns_per_sample = nanos_per_unit(unrolled_duration, samples);
+    let ring_slice_ns_per_sample = nanos_per_unit(ring_slice_duration, samples);
+    let ring_base_ns_per_sample = nanos_per_unit(ring_base_duration, samples);
+    let shift_unrolled_ns_per_sample = nanos_per_unit(shift_unrolled_duration, samples);
     let legacy_ns_per_sample = nanos_per_unit(legacy_duration, samples);
 
     assert!(
-        (indexed.max_true_peak() - unrolled.max_true_peak()).abs() < 1.0e-12,
-        "indexed/unrolled FIR outputs diverged: {} vs {}",
+        (indexed.max_true_peak() - ring_slice.max_true_peak()).abs() < 1.0e-12,
+        "indexed/ring-slice FIR outputs diverged: {} vs {}",
         indexed.max_true_peak(),
-        unrolled.max_true_peak()
+        ring_slice.max_true_peak()
+    );
+    assert!(
+        (indexed.max_true_peak() - ring_base.max_true_peak()).abs() < 1.0e-12,
+        "indexed/ring-base FIR outputs diverged: {} vs {}",
+        indexed.max_true_peak(),
+        ring_base.max_true_peak()
+    );
+    assert!(
+        (indexed.max_true_peak() - shift_unrolled.max_true_peak()).abs() < 1.0e-12,
+        "indexed/shift-unrolled FIR outputs diverged: {} vs {}",
+        indexed.max_true_peak(),
+        shift_unrolled.max_true_peak()
     );
 
     TruePeakReport {
         indexed_ns_per_sample,
-        unrolled_ns_per_sample,
+        ring_slice_ns_per_sample,
+        ring_base_ns_per_sample,
+        shift_unrolled_ns_per_sample,
         legacy_ns_per_sample,
         indexed_ratio: indexed_ns_per_sample / legacy_ns_per_sample,
-        unrolled_ratio: unrolled_ns_per_sample / legacy_ns_per_sample,
+        ring_slice_ratio: ring_slice_ns_per_sample / legacy_ns_per_sample,
+        ring_base_ratio: ring_base_ns_per_sample / legacy_ns_per_sample,
+        shift_unrolled_ratio: shift_unrolled_ns_per_sample / legacy_ns_per_sample,
         indexed_peak: indexed.max_true_peak(),
-        unrolled_peak: unrolled.max_true_peak(),
+        ring_slice_peak: ring_slice.max_true_peak(),
+        ring_base_peak: ring_base.max_true_peak(),
+        shift_unrolled_peak: shift_unrolled.max_true_peak(),
         legacy_peak: legacy.max_true_peak(),
     }
 }
@@ -203,13 +256,13 @@ impl IndexedFirTruePeakDetector {
     }
 }
 
-struct UnrolledFirTruePeakDetector {
+struct RingSliceFirTruePeakDetector {
     history: [f64; TRUE_PEAK_HISTORY_LEN],
     write_pos: usize,
     max_true_peak: f64,
 }
 
-impl UnrolledFirTruePeakDetector {
+impl RingSliceFirTruePeakDetector {
     fn new() -> Self {
         let _ = true_peak_fir();
         Self {
@@ -255,9 +308,158 @@ impl UnrolledFirTruePeakDetector {
     }
 }
 
+struct RingBaseFirTruePeakDetector {
+    history: [f64; TRUE_PEAK_HISTORY_LEN],
+    write_pos: usize,
+    max_true_peak: f64,
+}
+
+impl RingBaseFirTruePeakDetector {
+    fn new() -> Self {
+        let _ = true_peak_fir();
+        Self {
+            history: [0.0; TRUE_PEAK_HISTORY_LEN],
+            write_pos: 0,
+            max_true_peak: 0.0,
+        }
+    }
+
+    fn process(&mut self, samples: &[f64]) {
+        let fir = true_peak_fir();
+        for &sample in samples {
+            self.max_true_peak = self.max_true_peak.max(sample.abs());
+            self.history[self.write_pos] = sample;
+            self.history[self.write_pos + TRUE_PEAK_DELAY] = sample;
+
+            let dot_base = self.write_pos + TRUE_PEAK_DELAY - 11;
+            let phase1 = dot12_base(&self.history, dot_base, &fir.coeffs[1]);
+            let phase2 = dot12_base(&self.history, dot_base, &fir.coeffs[2]);
+            let phase3 = dot12_base(&self.history, dot_base, &fir.coeffs[3]);
+
+            self.max_true_peak = self
+                .max_true_peak
+                .max(phase1.abs())
+                .max(phase2.abs())
+                .max(phase3.abs());
+
+            self.write_pos += 1;
+            if self.write_pos == TRUE_PEAK_DELAY {
+                self.write_pos = 0;
+            }
+        }
+    }
+
+    fn reset(&mut self) {
+        self.history.fill(0.0);
+        self.write_pos = 0;
+        self.max_true_peak = 0.0;
+    }
+
+    fn max_true_peak(&self) -> f64 {
+        self.max_true_peak
+    }
+}
+
+struct ShiftUnrolledFirTruePeakDetector {
+    history: [f64; TRUE_PEAK_INTER_SAMPLE_TAPS],
+    max_true_peak: f64,
+}
+
+impl ShiftUnrolledFirTruePeakDetector {
+    fn new() -> Self {
+        let _ = true_peak_fir();
+        Self {
+            history: [0.0; TRUE_PEAK_INTER_SAMPLE_TAPS],
+            max_true_peak: 0.0,
+        }
+    }
+
+    fn process(&mut self, samples: &[f64]) {
+        let fir = true_peak_fir();
+        for &sample in samples {
+            self.max_true_peak = self.max_true_peak.max(sample.abs());
+            shift_history(&mut self.history, sample);
+
+            let phase1 = dot12_fixed(&self.history, &fir.coeffs[1]);
+            let phase2 = dot12_fixed(&self.history, &fir.coeffs[2]);
+            let phase3 = dot12_fixed(&self.history, &fir.coeffs[3]);
+
+            self.max_true_peak = self
+                .max_true_peak
+                .max(phase1.abs())
+                .max(phase2.abs())
+                .max(phase3.abs());
+        }
+    }
+
+    fn reset(&mut self) {
+        self.history.fill(0.0);
+        self.max_true_peak = 0.0;
+    }
+
+    fn max_true_peak(&self) -> f64 {
+        self.max_true_peak
+    }
+}
+
+#[inline]
+fn shift_history(history: &mut [f64; TRUE_PEAK_INTER_SAMPLE_TAPS], sample: f64) {
+    history[0] = history[1];
+    history[1] = history[2];
+    history[2] = history[3];
+    history[3] = history[4];
+    history[4] = history[5];
+    history[5] = history[6];
+    history[6] = history[7];
+    history[7] = history[8];
+    history[8] = history[9];
+    history[9] = history[10];
+    history[10] = history[11];
+    history[11] = sample;
+}
+
 #[inline]
 fn dot12_contiguous(
     history: &[f64],
+    coeffs: &[f32; TRUE_PEAK_DELAY],
+) -> f64 {
+    history[11] * coeffs[0] as f64
+        + history[10] * coeffs[1] as f64
+        + history[9] * coeffs[2] as f64
+        + history[8] * coeffs[3] as f64
+        + history[7] * coeffs[4] as f64
+        + history[6] * coeffs[5] as f64
+        + history[5] * coeffs[6] as f64
+        + history[4] * coeffs[7] as f64
+        + history[3] * coeffs[8] as f64
+        + history[2] * coeffs[9] as f64
+        + history[1] * coeffs[10] as f64
+        + history[0] * coeffs[11] as f64
+}
+
+#[inline]
+fn dot12_base(
+    history: &[f64; TRUE_PEAK_HISTORY_LEN],
+    base: usize,
+    coeffs: &[f32; TRUE_PEAK_DELAY],
+) -> f64 {
+    history[base + 11] * coeffs[0] as f64
+        + history[base + 10] * coeffs[1] as f64
+        + history[base + 9] * coeffs[2] as f64
+        + history[base + 8] * coeffs[3] as f64
+        + history[base + 7] * coeffs[4] as f64
+        + history[base + 6] * coeffs[5] as f64
+        + history[base + 5] * coeffs[6] as f64
+        + history[base + 4] * coeffs[7] as f64
+        + history[base + 3] * coeffs[8] as f64
+        + history[base + 2] * coeffs[9] as f64
+        + history[base + 1] * coeffs[10] as f64
+        + history[base] * coeffs[11] as f64
+}
+
+#[inline]
+fn dot12_fixed(
+    history: &[f64; TRUE_PEAK_INTER_SAMPLE_TAPS],
     coeffs: &[f32; TRUE_PEAK_DELAY],
 ) -> f64 {
     history[11] * coeffs[0] as f64
