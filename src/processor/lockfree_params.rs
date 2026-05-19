@@ -17,7 +17,7 @@ use std::sync::{
     Arc,
 };
 
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, Guard};
 use atomic_float::AtomicF64;
 
 use super::traits::LockfreeParams;
@@ -54,7 +54,7 @@ impl<T> SharedParams<T> {
         if std::ptr::eq(&**current, Arc::as_ref(cached)) {
             None
         } else {
-            Some(self.current.load_full())
+            Some(Guard::into_inner(current))
         }
     }
 
