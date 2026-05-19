@@ -6,6 +6,7 @@ use std::sync::OnceLock;
 const TRUE_PEAK_PHASES: usize = 4;
 const TRUE_PEAK_FIR_TAPS: usize = 64;
 const TRUE_PEAK_FIR_MASK: usize = TRUE_PEAK_FIR_TAPS - 1;
+const TRUE_PEAK_HISTORY_LEN: usize = TRUE_PEAK_FIR_TAPS * 2;
 const TRUE_PEAK_FIR_BETA: f64 = 8.6;
 const TRUE_PEAK_FIR_CUTOFF: f64 = 0.5;
 
@@ -158,8 +159,8 @@ impl LoudnessMeter {
 /// This is used for measurement, not limiting. The limiter above
 /// handles peak limiting without oversampling (acceptable for most use cases).
 pub struct TruePeakDetector {
-    /// Causal FIR history. Power-of-two length keeps wrap indexing cheap.
-    ring_buffer: [f64; TRUE_PEAK_FIR_TAPS],
+    /// Causal FIR history duplicated once so dot products read contiguous slices.
+    history: [f64; TRUE_PEAK_HISTORY_LEN],
     write_pos: usize,
     /// Maximum true peak detected
     max_true_peak: f64,
@@ -169,7 +170,7 @@ impl TruePeakDetector {
     pub fn new() -> Self {
         let _ = true_peak_fir();
         Self {
-            ring_buffer: [0.0; TRUE_PEAK_FIR_TAPS],
+            history: [0.0; TRUE_PEAK_HISTORY_LEN],
             write_pos: 0,
             max_true_peak: 0.0,
         }
@@ -195,16 +196,16 @@ impl TruePeakDetector {
     fn process_sample(&mut self, sample: f64) {
         self.max_true_peak = self.max_true_peak.max(sample.abs());
 
-        self.ring_buffer[self.write_pos] = sample;
+        self.history[self.write_pos] = sample;
+        self.history[self.write_pos + TRUE_PEAK_FIR_TAPS] = sample;
         self.write_pos = (self.write_pos + 1) & TRUE_PEAK_FIR_MASK;
+        let history = &self.history[self.write_pos..self.write_pos + TRUE_PEAK_FIR_TAPS];
 
         for phase in true_peak_fir() {
             let mut acc = 0.0;
-            let mut ring_index = self.write_pos.wrapping_sub(1) & TRUE_PEAK_FIR_MASK;
 
-            for &tap in phase {
-                acc += self.ring_buffer[ring_index] * tap as f64;
-                ring_index = ring_index.wrapping_sub(1) & TRUE_PEAK_FIR_MASK;
+            for (&sample, &tap) in history.iter().zip(phase.iter()) {
+                acc += sample * tap as f64;
             }
 
             self.max_true_peak = self.max_true_peak.max(acc.abs());
@@ -223,7 +224,7 @@ impl TruePeakDetector {
 
     /// Reset detector state
     pub fn reset(&mut self) {
-        self.ring_buffer.fill(0.0);
+        self.history.fill(0.0);
         self.write_pos = 0;
         self.max_true_peak = 0.0;
     }
@@ -263,6 +264,7 @@ fn generate_true_peak_fir() -> [[f32; TRUE_PEAK_FIR_TAPS]; TRUE_PEAK_PHASES] {
             sum += value;
         }
 
+        phase.reverse();
         for tap in phase {
             *tap = (*tap as f64 / sum) as f32;
         }
