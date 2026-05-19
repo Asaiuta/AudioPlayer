@@ -25,7 +25,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 // ============================================================================
 
 /// Biquad filter coefficients (normalized)
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 struct BiquadCoeffs {
     b0: f64,
     b1: f64,
@@ -234,6 +234,7 @@ impl BiquadFilter {
     }
 
     /// Update gain (recalculates coefficients)
+    #[cfg(test)]
     fn set_gain_db(&mut self, gain_db: f64) {
         self.coeffs = match self.filter_type {
             FilterType::Peaking => Self::calc_peaking_coeffs(&self.geometry, gain_db),
@@ -370,6 +371,7 @@ pub const LOUDNESS_BANDS_N: usize = 7;
 
 /// Block size for coefficient updates (CPU optimization)
 const BLOCK_SIZE: usize = 64;
+const GAIN_UPDATE_EPSILON_DB: f64 = 0.01;
 
 /// Dynamic Loudness Compensation processor
 ///
@@ -381,6 +383,8 @@ pub struct DynamicLoudness {
     filters: Vec<[BiquadFilter; LOUDNESS_BANDS_N]>,
     /// Per-band parameter smoothers
     smoothers: Vec<ParameterSmoother>,
+    /// Last gain actually applied to each band coefficient set.
+    last_applied_gains: [f64; LOUDNESS_BANDS_N],
     /// Maximum boost per band (dB)
     max_gains: [f64; LOUDNESS_BANDS_N],
     /// Reference volume in dB (above this, no compensation)
@@ -418,6 +422,7 @@ impl DynamicLoudness {
         Self {
             filters,
             smoothers,
+            last_applied_gains: [0.0; LOUDNESS_BANDS_N],
             max_gains,
             ref_volume_db: -15.0, // Reference: ~50% perceived loudness
             transition_db: 25.0,  // Compensation starts below -15 dB, max at -40 dB
@@ -441,6 +446,29 @@ impl DynamicLoudness {
                 BiquadFilter::peaking(freq, 0.0, q, sample_rate)
             }
         })
+    }
+
+    fn calculate_band_coeffs(&self, band: usize, gain_db: f64) -> BiquadCoeffs {
+        let filter = &self.filters[0][band];
+        match filter.filter_type {
+            FilterType::Peaking => BiquadFilter::calc_peaking_coeffs(&filter.geometry, gain_db),
+            FilterType::LowShelf => BiquadFilter::calc_low_shelf_coeffs(&filter.geometry, gain_db),
+            FilterType::HighShelf => {
+                BiquadFilter::calc_high_shelf_coeffs(&filter.geometry, gain_db)
+            }
+        }
+    }
+
+    fn apply_band_gain_if_changed(&mut self, band: usize, gain_db: f64) {
+        if (gain_db - self.last_applied_gains[band]).abs() < GAIN_UPDATE_EPSILON_DB {
+            return;
+        }
+
+        let coeffs = self.calculate_band_coeffs(band, gain_db);
+        for ch_filters in &mut self.filters {
+            ch_filters[band].coeffs = coeffs;
+        }
+        self.last_applied_gains[band] = gain_db;
     }
 
     /// Set user volume as linear value (0.0 - 1.0)
@@ -537,6 +565,7 @@ impl DynamicLoudness {
                     filter.set_sample_rate(sample_rate);
                 }
             }
+            self.last_applied_gains = [0.0; LOUDNESS_BANDS_N];
 
             // Update smoothers
             for smoother in &mut self.smoothers {
@@ -569,11 +598,9 @@ impl DynamicLoudness {
             let chunk_frames = chunk_end - chunk_start;
 
             // Update filter coefficients once per block
-            for (i, smoother) in self.smoothers.iter_mut().enumerate() {
-                let gain = smoother.next_block(chunk_frames);
-                for ch_filters in &mut self.filters {
-                    ch_filters[i].set_gain_db(gain);
-                }
+            for i in 0..self.smoothers.len() {
+                let gain = self.smoothers[i].next_block(chunk_frames);
+                self.apply_band_gain_if_changed(i, gain);
             }
         }
 
@@ -612,6 +639,7 @@ impl DynamicLoudness {
             smoother.reset();
         }
         self.current_loudness_factor = 0.0;
+        self.last_applied_gains = [f64::NAN; LOUDNESS_BANDS_N];
     }
 
     /// Get current loudness factor (for display)
@@ -848,6 +876,27 @@ mod tests {
                 assert!(filter.coeffs.a2.is_finite());
             }
         }
+    }
+
+    #[test]
+    fn test_band_gain_update_uses_last_applied_epsilon() {
+        let mut dl = DynamicLoudness::new(2, 48_000.0);
+
+        dl.apply_band_gain_if_changed(0, GAIN_UPDATE_EPSILON_DB * 0.5);
+        assert_eq!(dl.last_applied_gains[0], 0.0);
+
+        dl.apply_band_gain_if_changed(0, GAIN_UPDATE_EPSILON_DB * 1.5);
+        assert_eq!(dl.last_applied_gains[0], GAIN_UPDATE_EPSILON_DB * 1.5);
+    }
+
+    #[test]
+    fn test_band_gain_update_broadcasts_coefficients_to_channels() {
+        let mut dl = DynamicLoudness::new(2, 48_000.0);
+        dl.apply_band_gain_if_changed(0, 3.0);
+
+        let left = dl.filters[0][0].coeffs;
+        let right = dl.filters[1][0].coeffs;
+        assert_coeffs_bit_equal(&left, &right);
     }
 
     #[test]
