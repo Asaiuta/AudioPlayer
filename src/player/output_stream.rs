@@ -14,6 +14,7 @@ use crossbeam::channel::Sender;
 use assert_no_alloc::assert_no_alloc;
 
 use super::callback::{audio_callback_lockfree, CallbackScratch, LockfreeDspContext};
+use super::spectrum::SpectrumBatch;
 use super::state::{PlayerState, SharedState, EVENT_PLAYBACK_STARTED};
 use crate::config::PhaseResponse;
 use crate::processor::{
@@ -35,7 +36,7 @@ pub(super) struct OutputStreamContext<'a> {
     pub shared_state: &'a Arc<SharedState>,
     pub dsp_ctx: &'a Arc<LockfreeDspContext>,
     pub loudness_state: &'a Arc<AtomicLoudnessState>,
-    pub spectrum_tx: &'a Sender<f64>,
+    pub spectrum_tx: &'a Sender<SpectrumBatch>,
 }
 
 pub(super) struct DspParamRefs<'a> {

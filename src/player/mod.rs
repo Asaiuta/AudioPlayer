@@ -52,6 +52,7 @@ use crate::processor::{
 // Import internal modules
 use audio_thread::{audio_thread_main, AudioThreadStartup};
 use spectrum::spectrum_thread_main;
+use spectrum::SpectrumBatch;
 use state::{load_cache_with_header, save_cache_with_header};
 
 const RESAMPLER_OUTPUT_FRAME_RESERVE: usize = 64;
@@ -143,7 +144,7 @@ impl AudioPlayer {
         )));
         let loudness_state = loudness_normalizer.lock().atomic_state();
 
-        let (spectrum_tx, spectrum_rx) = crossbeam::channel::bounded::<f64>(4096);
+        let (spectrum_tx, spectrum_rx) = crossbeam::channel::bounded::<SpectrumBatch>(256);
 
         let spec_state = Arc::clone(&shared_state);
         let spec_analyzer = SpectrumAnalyzer::new(2048, 64);

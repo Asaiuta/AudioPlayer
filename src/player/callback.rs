@@ -9,6 +9,7 @@ use crossbeam::channel::Sender;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
+use super::spectrum::SpectrumBatch;
 use super::state::{
     PlayerState, SharedState, EVENT_NEEDS_PRELOAD_RESET, EVENT_TRACK_CHANGED, EVENT_TRACK_EOF,
 };
@@ -29,6 +30,7 @@ pub struct CallbackScratch {
     resample_leftover_pos: usize,
     resample_output: Vec<f64>,
     convolver_output: Vec<f64>,
+    spectrum_batch: SpectrumBatch,
 }
 
 impl CallbackScratch {
@@ -45,6 +47,7 @@ impl CallbackScratch {
             resample_leftover_pos: 0,
             resample_output: Vec::with_capacity(resample_samples),
             convolver_output: Vec::with_capacity(process_samples),
+            spectrum_batch: SpectrumBatch::new(),
         }
     }
 
@@ -399,7 +402,7 @@ pub fn audio_callback_lockfree(
     owned_convolver: &mut Option<FFTConvolver>,
     convolver_swap: &Arc<ArcSwapOption<FFTConvolver>>,
     loudness_state: &Arc<AtomicLoudnessState>,
-    spectrum_tx: &Sender<f64>,
+    spectrum_tx: &Sender<SpectrumBatch>,
     channels: usize,
     resampler: &mut Option<StreamingResampler>,
     scratch: &mut CallbackScratch,
@@ -683,6 +686,7 @@ pub fn audio_callback_lockfree(
     // Spectrum output
     if samples_written > 0 {
         let take = samples_written.min(1024);
+        scratch.spectrum_batch.clear();
         for i in (0..take).step_by(channels) {
             let mut sum = 0.0;
             for c in 0..channels {
@@ -690,7 +694,12 @@ pub fn audio_callback_lockfree(
                     sum += data[i + c] as f64;
                 }
             }
-            let _ = spectrum_tx.try_send(sum / channels as f64);
+            if !scratch.spectrum_batch.push(sum / channels as f64) {
+                break;
+            }
+        }
+        if !scratch.spectrum_batch.is_empty() {
+            let _ = spectrum_tx.try_send(scratch.spectrum_batch.clone());
         }
     }
 }

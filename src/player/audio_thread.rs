@@ -14,6 +14,7 @@ use super::output_stream::{
     activate_started_stream, build_fallback_output_stream, build_requested_output_stream,
     detect_output_bits, prepare_playback_output, DspParamRefs, OutputStreamContext,
 };
+use super::spectrum::SpectrumBatch;
 use super::state::{
     AudioCommand, PlayerState, SharedState, EVENT_LOAD_COMPLETE, EVENT_PLAYBACK_STARTED,
     EVENT_TRACK_CHANGED,
@@ -50,7 +51,7 @@ pub(super) struct AudioThreadStartup {
     pub dynamic_loudness_telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
     pub loudness_state: Arc<AtomicLoudnessState>,
     pub noise_shaper_bits: u32,
-    pub spectrum_tx: Sender<f64>,
+    pub spectrum_tx: Sender<SpectrumBatch>,
     pub phase_response: PhaseResponse,
     pub target_lufs: f64,
 }
@@ -97,7 +98,7 @@ struct AudioThreadRuntime {
     dsp_params: AudioThreadDspParams,
     loudness_state: Arc<AtomicLoudnessState>,
     noise_shaper_bits: u32,
-    spectrum_tx: Sender<f64>,
+    spectrum_tx: Sender<SpectrumBatch>,
     phase_response: PhaseResponse,
     target_lufs: f64,
 }
@@ -696,7 +697,7 @@ fn handle_wasapi_exclusive(
     shared_state: &Arc<SharedState>,
     dsp_ctx: &Arc<LockfreeDspContext>,
     loudness_state: &Arc<AtomicLoudnessState>,
-    spectrum_tx: &Sender<f64>,
+    spectrum_tx: &Sender<SpectrumBatch>,
     target_lufs: f64,
     dynamic_loudness_telemetry: &Arc<AtomicDynamicLoudnessTelemetry>,
 ) -> WasapiPlaybackOutcome {
