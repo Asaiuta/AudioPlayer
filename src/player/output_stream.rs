@@ -219,6 +219,10 @@ fn build_output_stream_with_callback(
         .build_output_stream(
             config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                crate::runtime::audio_thread_init();
+                #[cfg(debug_assertions)]
+                debug_assert!(crate::runtime::audio_thread_float_mode_is_enabled());
+
                 #[cfg(debug_assertions)]
                 assert_no_alloc(|| {
                     audio_callback_lockfree(

@@ -5,6 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
+const VOLUME_SMOOTHING_TIME_MS: f64 = 20.0;
+const INV_U64_MAX: f64 = 1.0 / u64::MAX as f64;
+
 // ============================================================================
 // Common DSP Utility Functions (P1-4: centralized, previously duplicated)
 // ============================================================================
@@ -33,6 +36,7 @@ pub struct VolumeController {
     current: f64,
     target: f64,
     smoothing: f64,
+    one_minus_smoothing: f64,
     sample_rate: u32,
 }
 
@@ -49,14 +53,15 @@ impl VolumeController {
     pub fn with_sample_rate(sample_rate: u32) -> Self {
         // Target: ~20ms smoothing time
         // smoothing = exp(-1 / tau) where tau = samples for 20ms
-        let smoothing_time_ms = 20.0;
-        let smoothing_samples = (smoothing_time_ms / 1000.0) * sample_rate as f64;
+        let smoothing_samples = (VOLUME_SMOOTHING_TIME_MS / 1000.0) * sample_rate as f64;
         let smoothing = (-1.0 / smoothing_samples).exp();
+        let one_minus_smoothing = 1.0 - smoothing;
 
         Self {
             current: 1.0,
             target: 1.0,
             smoothing,
+            one_minus_smoothing,
             sample_rate,
         }
     }
@@ -65,9 +70,9 @@ impl VolumeController {
     pub fn set_sample_rate(&mut self, sample_rate: u32) {
         if sample_rate != self.sample_rate {
             self.sample_rate = sample_rate;
-            let smoothing_time_ms = 20.0;
-            let smoothing_samples = (smoothing_time_ms / 1000.0) * sample_rate as f64;
+            let smoothing_samples = (VOLUME_SMOOTHING_TIME_MS / 1000.0) * sample_rate as f64;
             self.smoothing = (-1.0 / smoothing_samples).exp();
+            self.one_minus_smoothing = 1.0 - self.smoothing;
         }
     }
 
@@ -77,7 +82,7 @@ impl VolumeController {
 
     #[inline]
     pub fn next_volume(&mut self) -> f64 {
-        self.current += (self.target - self.current) * (1.0 - self.smoothing);
+        self.current += (self.target - self.current) * self.one_minus_smoothing;
         self.current
     }
 
@@ -200,6 +205,10 @@ pub struct NoiseShaper {
     coeffs: [f64; 9],
     /// Target bit depth
     bits: u32,
+    /// Cached 2^(bits-1)
+    cached_scale: f64,
+    /// Cached reciprocal of `cached_scale`
+    cached_lsb: f64,
     /// Enable/disable flag
     enabled: bool,
     /// Current curve preset
@@ -215,11 +224,15 @@ impl NoiseShaper {
     pub fn new(channels: usize, sample_rate: u32, bits: u32) -> Self {
         let curve = NoiseShaperCurve::auto_select(sample_rate);
         let coeffs = curve.coeffs();
+        let bits = bits.clamp(8, 32);
+        let (cached_scale, cached_lsb) = Self::scale_for_bits(bits);
 
         Self {
             error_history: vec![[0.0; 9]; channels],
             coeffs,
             bits,
+            cached_scale,
+            cached_lsb,
             enabled: true,
             curve,
             sample_rate,
@@ -236,8 +249,17 @@ impl NoiseShaper {
     pub fn set_bits(&mut self, bits: u32) {
         if bits != self.bits && bits >= 8 && bits <= 32 {
             self.bits = bits;
+            let (cached_scale, cached_lsb) = Self::scale_for_bits(bits);
+            self.cached_scale = cached_scale;
+            self.cached_lsb = cached_lsb;
             log::info!("NoiseShaper bit depth: {} bits", bits);
         }
+    }
+
+    #[inline]
+    fn scale_for_bits(bits: u32) -> (f64, f64) {
+        let scale = 2.0_f64.powi(bits as i32 - 1);
+        (scale, 1.0 / scale)
     }
 
     /// Get current curve
@@ -307,8 +329,8 @@ impl NoiseShaper {
     #[inline(always)]
     fn tpdf(&mut self) -> f64 {
         // Two independent U(0,1) samples
-        let r1 = self.next_u64() as f64 / u64::MAX as f64;
-        let r2 = self.next_u64() as f64 / u64::MAX as f64;
+        let r1 = self.next_u64() as f64 * INV_U64_MAX;
+        let r2 = self.next_u64() as f64 * INV_U64_MAX;
         // Triangular distribution: U(0,1) - U(0,1) = T(-1, 1)
         r1 - r2
     }
@@ -341,9 +363,6 @@ impl NoiseShaper {
             return sample;
         }
 
-        let scale = 2.0_f64.powi(self.bits as i32 - 1);
-        let lsb = 1.0 / scale;
-
         // 1. Generate TPDF dither FIRST (before borrowing error_history)
         //    tpdf() returns (-1, 1) which is ±1 LSB in the integer domain
         //    This is the standard TPDF amplitude for dither
@@ -356,7 +375,7 @@ impl NoiseShaper {
         // 3. Quantize
         //    x is in the integer domain (sample * scale shifts to integer range)
         //    dither adds ±1 LSB to prevent quantization distortion
-        let x = sample * scale + feedback;
+        let x = sample * self.cached_scale + feedback;
         let quantized = (x + dither).round();
 
         // 4. Update error history with clamp
@@ -369,7 +388,7 @@ impl NoiseShaper {
         e.copy_within(0..8, 1);
         e[0] = clamped_error;
 
-        quantized * lsb
+        quantized * self.cached_lsb
     }
 
     /// Process a buffer of samples (convenience method)
@@ -541,6 +560,34 @@ mod tests {
         for &e in ns.error_history[0].iter() {
             assert_eq!(e, 0.0, "Error history should be cleared after silence");
         }
+    }
+
+    #[test]
+    fn test_noise_shaper_cached_scale_updates_with_bits() {
+        let mut ns = NoiseShaper::new(1, 44100, 24);
+        assert_eq!(ns.cached_scale, 2.0_f64.powi(23));
+        assert_eq!(ns.cached_lsb, 1.0 / 2.0_f64.powi(23));
+
+        ns.set_bits(16);
+        assert_eq!(ns.bits(), 16);
+        assert_eq!(ns.cached_scale, 2.0_f64.powi(15));
+        assert_eq!(ns.cached_lsb, 1.0 / 2.0_f64.powi(15));
+
+        ns.set_bits(64);
+        assert_eq!(ns.bits(), 16);
+        assert_eq!(ns.cached_scale, 2.0_f64.powi(15));
+        assert_eq!(ns.cached_lsb, 1.0 / 2.0_f64.powi(15));
+    }
+
+    #[test]
+    fn test_volume_controller_one_minus_smoothing_updates_with_sample_rate() {
+        let mut volume = VolumeController::with_sample_rate(44_100);
+        let initial = volume.one_minus_smoothing;
+
+        volume.set_sample_rate(96_000);
+
+        assert_ne!(volume.one_minus_smoothing, initial);
+        assert_eq!(volume.one_minus_smoothing, 1.0 - volume.smoothing);
     }
 
     #[test]

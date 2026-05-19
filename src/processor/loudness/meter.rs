@@ -8,8 +8,6 @@ pub struct LoudnessMeter {
     ebur128: Option<ebur128::EbuR128>,
     sample_rate: u32,
     channels: usize,
-    // Pre-allocated planar buffer (avoids heap allocation in process)
-    planar_buffer: Vec<Vec<f32>>,
     // Cached results
     integrated_loudness: f64,
     short_term_loudness: f64,
@@ -26,9 +24,6 @@ impl LoudnessMeter {
         let ebur128 =
             ebur128::EbuR128::new(channels as u32, sample_rate, ebur128::Mode::all()).ok();
 
-        // Pre-allocate planar buffer
-        let planar_buffer = vec![Vec::new(); channels];
-
         // Create true peak detector for each channel
         let true_peak_detectors = (0..channels).map(|_| TruePeakDetector::new()).collect();
 
@@ -36,7 +31,6 @@ impl LoudnessMeter {
             ebur128,
             sample_rate,
             channels,
-            planar_buffer,
             integrated_loudness: -70.0,
             short_term_loudness: -70.0,
             momentary_loudness: -70.0,
@@ -58,10 +52,6 @@ impl LoudnessMeter {
         self.loudness_range = 0.0;
         self.true_peak = -70.0;
         self.samples_processed = 0;
-        // Clear planar buffers (reuse pre-allocated memory)
-        for ch in &mut self.planar_buffer {
-            ch.clear();
-        }
         // Reset true peak detectors
         for detector in &mut self.true_peak_detectors {
             detector.reset();
@@ -69,7 +59,6 @@ impl LoudnessMeter {
     }
 
     /// Process interleaved f64 samples
-    /// Uses pre-allocated planar buffer to avoid heap allocation in audio callback
     pub fn process(&mut self, samples: &[f64]) {
         let Some(ref mut ebur) = self.ebur128 else {
             return;
@@ -79,21 +68,10 @@ impl LoudnessMeter {
         if frames == 0 {
             return;
         }
+        let sample_count = frames * self.channels;
+        let samples = &samples[..sample_count];
 
-        // Clear and reuse pre-allocated planar buffer
-        for ch in &mut self.planar_buffer {
-            ch.clear();
-            ch.reserve(frames);
-        }
-
-        // Convert f64 interleaved to planar f32
-        for (i, &sample) in samples.iter().enumerate() {
-            self.planar_buffer[i % self.channels].push(sample as f32);
-        }
-
-        // Add frames to meter
-        let slices: Vec<&[f32]> = self.planar_buffer.iter().map(|c| c.as_slice()).collect();
-        if let Err(e) = ebur.add_frames_planar_f32(&slices) {
+        if let Err(e) = ebur.add_frames_f64(samples) {
             log::warn!("EBU R128 add_frames error: {:?}", e);
             return;
         }
@@ -120,14 +98,7 @@ impl LoudnessMeter {
         // True peak using ITU-R BS.1770-4 compliant 4x oversampling
         // Process each channel through its dedicated TruePeakDetector
         for (ch, detector) in self.true_peak_detectors.iter_mut().enumerate() {
-            // Extract channel samples
-            let channel_samples: Vec<f64> = samples
-                .iter()
-                .skip(ch)
-                .step_by(self.channels)
-                .copied()
-                .collect();
-            detector.process(&channel_samples);
+            detector.process_strided(samples, ch, self.channels);
         }
 
         // Get maximum true peak across all channels
@@ -191,27 +162,41 @@ impl TruePeakDetector {
     /// Process samples and update true peak measurement
     pub fn process(&mut self, samples: &[f64]) {
         for &sample in samples {
-            // Shift previous samples
-            self.prev_samples[0] = self.prev_samples[1];
-            self.prev_samples[1] = self.prev_samples[2];
-            self.prev_samples[2] = self.prev_samples[3];
-            self.prev_samples[3] = sample;
-
-            // Check interpolated peaks at 4x positions
-            for t in [0.25, 0.5, 0.75] {
-                let interp = cubic_interpolate(
-                    self.prev_samples[0],
-                    self.prev_samples[1],
-                    self.prev_samples[2],
-                    self.prev_samples[3],
-                    t,
-                );
-                self.max_true_peak = self.max_true_peak.max(interp.abs());
-            }
-
-            // Also check the actual sample
-            self.max_true_peak = self.max_true_peak.max(sample.abs());
+            self.process_sample(sample);
         }
+    }
+
+    /// Process one channel from an interleaved buffer without allocating.
+    pub fn process_strided(&mut self, samples: &[f64], offset: usize, stride: usize) {
+        let mut index = offset;
+        while index < samples.len() {
+            self.process_sample(samples[index]);
+            index += stride;
+        }
+    }
+
+    #[inline]
+    fn process_sample(&mut self, sample: f64) {
+        // Shift previous samples
+        self.prev_samples[0] = self.prev_samples[1];
+        self.prev_samples[1] = self.prev_samples[2];
+        self.prev_samples[2] = self.prev_samples[3];
+        self.prev_samples[3] = sample;
+
+        // Check interpolated peaks at 4x positions
+        for t in [0.25, 0.5, 0.75] {
+            let interp = cubic_interpolate(
+                self.prev_samples[0],
+                self.prev_samples[1],
+                self.prev_samples[2],
+                self.prev_samples[3],
+                t,
+            );
+            self.max_true_peak = self.max_true_peak.max(interp.abs());
+        }
+
+        // Also check the actual sample
+        self.max_true_peak = self.max_true_peak.max(sample.abs());
     }
 
     /// Get maximum true peak detected (linear)
@@ -247,4 +232,78 @@ pub(super) fn cubic_interpolate(y0: f64, y1: f64, y2: f64, y3: f64, t: f64) -> f
     let d = -0.5 * y0 + 1.5 * y1 - 1.5 * y2 + 0.5 * y3;
 
     a + b * t + c * t * t + d * t * t * t
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn deterministic_interleaved(frames: usize, channels: usize) -> Vec<f64> {
+        let mut samples = Vec::with_capacity(frames * channels);
+        for frame in 0..frames {
+            for ch in 0..channels {
+                let sample = ((frame as f64 * 0.017) + ch as f64 * 0.13).sin() * 0.5;
+                samples.push(sample);
+            }
+        }
+        samples
+    }
+
+    #[test]
+    fn true_peak_strided_matches_channel_extract_for_common_channel_counts() {
+        for channels in [1, 2, 6, 8] {
+            let samples = deterministic_interleaved(512, channels);
+
+            for ch in 0..channels {
+                let channel_samples: Vec<f64> =
+                    samples.iter().skip(ch).step_by(channels).copied().collect();
+                let mut contiguous = TruePeakDetector::new();
+                let mut strided = TruePeakDetector::new();
+
+                contiguous.process(&channel_samples);
+                strided.process_strided(&samples, ch, channels);
+
+                assert_eq!(
+                    contiguous.max_true_peak().to_bits(),
+                    strided.max_true_peak().to_bits(),
+                    "channels={channels}, channel={ch}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn loudness_meter_truncates_partial_frames() {
+        let mut meter = LoudnessMeter::new(2, 48_000);
+        let samples = vec![0.1, -0.1, 0.2];
+
+        meter.process(&samples);
+
+        assert_eq!(meter.samples_processed(), 1);
+    }
+
+    #[test]
+    fn loudness_meter_process_is_steady_state_no_alloc() {
+        let mut meter = LoudnessMeter::new(2, 48_000);
+        let samples = deterministic_interleaved(64, 2);
+
+        assert_no_alloc::assert_no_alloc(|| {
+            for _ in 0..1_000 {
+                meter.process(&samples);
+            }
+        });
+    }
+
+    #[test]
+    fn loudness_meter_handles_surround_channel_counts() {
+        for channels in [1, 2, 6, 8] {
+            let mut meter = LoudnessMeter::new(channels, 48_000);
+            let samples = deterministic_interleaved(256, channels);
+
+            meter.process(&samples);
+
+            assert_eq!(meter.samples_processed(), 256);
+            assert!(meter.true_peak().is_finite());
+        }
+    }
 }

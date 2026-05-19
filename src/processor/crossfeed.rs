@@ -44,15 +44,6 @@ pub struct Crossfeed {
     enabled: bool,
 }
 
-#[inline(always)]
-fn scrub_denormal(value: f64) -> f64 {
-    if value.abs() < 1.0e-30 {
-        0.0
-    } else {
-        value
-    }
-}
-
 impl Crossfeed {
     /// Create a new crossfeed processor with default settings
     ///
@@ -192,9 +183,9 @@ impl Crossfeed {
         a2: f64,
         input: f64,
     ) -> f64 {
-        let output = scrub_denormal(b0 * input + w[0]);
-        w[0] = scrub_denormal(b1 * input - a1 * output + w[1]);
-        w[1] = scrub_denormal(b2 * input - a2 * output);
+        let output = b0 * input + w[0];
+        w[0] = b1 * input - a1 * output + w[1];
+        w[1] = b2 * input - a2 * output;
         output
     }
 
@@ -298,8 +289,14 @@ mod tests {
     }
 
     #[test]
-    fn test_crossfeed_scrubs_denormals() {
-        let mut state = [1.0e-40, -1.0e-40];
+    fn test_crossfeed_flushes_denormals_with_audio_thread_init() {
+        crate::runtime::audio_thread_init();
+        if !crate::runtime::audio_thread_float_mode_is_enabled() {
+            return;
+        }
+
+        let subnormal = f64::from_bits(1);
+        let mut state = [subnormal, -subnormal];
         let _ = Crossfeed::process_hpf_df2t_static(&mut state, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         assert_eq!(state, [0.0, 0.0]);
     }

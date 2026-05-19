@@ -65,6 +65,25 @@ pub mod wasapi_exclusive {
 
     pub type DspCallback = Box<dyn FnMut(&mut [f32], usize) -> bool + Send>;
 
+    #[inline]
+    fn copy_f32_slice_to_le_bytes(src: &[f32], dst: &mut [u8]) {
+        let byte_len = src.len() * std::mem::size_of::<f32>();
+        debug_assert!(dst.len() >= byte_len);
+
+        if cfg!(target_endian = "little") {
+            // SAFETY: f32 is a plain 4-byte scalar, src is valid for byte_len
+            // bytes, and Windows/WASAPI targets are little-endian. The resulting
+            // byte slice is read-only and copied before src is mutated again.
+            let src_bytes =
+                unsafe { std::slice::from_raw_parts(src.as_ptr().cast::<u8>(), byte_len) };
+            dst[..byte_len].copy_from_slice(src_bytes);
+        } else {
+            for (sample, out) in src.iter().zip(dst[..byte_len].chunks_exact_mut(4)) {
+                out.copy_from_slice(&sample.to_le_bytes());
+            }
+        }
+    }
+
     pub struct WasapiExclusivePlayer {
         shared_state: Arc<WasapiSharedState>,
         cmd_tx: Sender<WasapiCommand>,
@@ -172,6 +191,7 @@ pub mod wasapi_exclusive {
         mut dsp_callback: DspCallback,
     ) {
         log::info!("WASAPI exclusive thread started");
+        crate::runtime::audio_thread_init();
 
         // Initialize COM for this thread - returns HRESULT in wasapi 0.22
         let hr = initialize_mta();
@@ -463,7 +483,8 @@ pub mod wasapi_exclusive {
 
         // Playback loop
         let mut paused = false;
-        let mut resample_leftover: Vec<f32> = Vec::new();
+        let mut resample_leftover: Vec<f32> = Vec::with_capacity(16384 * channels);
+        let mut resample_leftover_pos = 0usize;
         let mut resample_output_f64: Vec<f64> = Vec::with_capacity(8192 * channels);
         let mut resample_scratch: Vec<f64> = Vec::with_capacity(16384 * channels);
 
@@ -500,6 +521,7 @@ pub mod wasapi_exclusive {
 
                         // Clear out our internal left-over resampling buffer so we don't play stale audio
                         resample_leftover.clear();
+                        resample_leftover_pos = 0;
 
                         // Flush hardware buffer: stop -> start
                         // This effectively clears the buffer by letting the old data play out
@@ -555,13 +577,18 @@ pub mod wasapi_exclusive {
             if let Some(ref mut rs) = resampler {
                 let mut samples_written = 0;
                 while samples_written < samples_to_write {
-                    if !resample_leftover.is_empty() {
-                        let take = resample_leftover
-                            .len()
-                            .min(samples_to_write - samples_written);
+                    if resample_leftover_pos < resample_leftover.len() {
+                        let available = resample_leftover.len() - resample_leftover_pos;
+                        let take = available.min(samples_to_write - samples_written);
+                        let start = resample_leftover_pos;
+                        let end = start + take;
                         output_f32_buffer[samples_written..samples_written + take]
-                            .copy_from_slice(&resample_leftover[0..take]);
-                        resample_leftover.drain(0..take);
+                            .copy_from_slice(&resample_leftover[start..end]);
+                        resample_leftover_pos += take;
+                        if resample_leftover_pos >= resample_leftover.len() {
+                            resample_leftover.clear();
+                            resample_leftover_pos = 0;
+                        }
                         samples_written += take;
                     }
 
@@ -582,10 +609,16 @@ pub mod wasapi_exclusive {
                     }
 
                     // P1-9 fix: Convert f32 -> f64 using pre-allocated buffer
-                    resample_output_f64.clear();
-                    resample_output_f64
-                        .extend(temp_f32_buffer[..temp_samples].iter().map(|&f| f as f64));
-                    let temp_f64 = &resample_output_f64;
+                    if resample_output_f64.len() < temp_samples {
+                        resample_output_f64.resize(temp_samples, 0.0);
+                    }
+                    for (dst, src) in resample_output_f64[..temp_samples]
+                        .iter_mut()
+                        .zip(temp_f32_buffer[..temp_samples].iter())
+                    {
+                        *dst = *src as f64;
+                    }
+                    let temp_f64 = &resample_output_f64[..temp_samples];
 
                     let needed_output = rs.max_output_len_for_input(temp_f64.len());
                     if resample_scratch.len() < needed_output {
@@ -594,8 +627,17 @@ pub mod wasapi_exclusive {
                     let written_frames = rs.process_chunk_into(temp_f64, &mut resample_scratch);
 
                     let new_samples = written_frames * channels;
-                    for i in 0..new_samples {
-                        resample_leftover.push(resample_scratch[i] as f32);
+                    if resample_leftover_pos >= resample_leftover.len() {
+                        resample_leftover.clear();
+                        resample_leftover_pos = 0;
+                    }
+                    let append_start = resample_leftover.len();
+                    resample_leftover.resize(append_start + new_samples, 0.0);
+                    for (dst, src) in resample_leftover[append_start..]
+                        .iter_mut()
+                        .zip(resample_scratch[..new_samples].iter())
+                    {
+                        *dst = *src as f32;
                     }
 
                     if is_eof && new_samples == 0 {
@@ -630,8 +672,13 @@ pub mod wasapi_exclusive {
             // P1-9 fix: Only convert the actual samples needed (samples_to_write), not the entire pre-allocated buffer
             if is_float && bits_per_sample == 32 {
                 // 32-bit float
+                copy_f32_slice_to_le_bytes(&output_f32_buffer[..samples_to_write], data);
+            } else if bits_per_sample == 32 {
+                // 32-bit integer
                 for (i, sample) in output_f32_buffer[..samples_to_write].iter().enumerate() {
-                    let bytes = sample.to_le_bytes();
+                    let sample_i32 =
+                        (*sample as f64 * 2147483647.0).clamp(-2147483647.0, 2147483647.0) as i32;
+                    let bytes = sample_i32.to_le_bytes();
                     let offset = i * 4;
                     if offset + 4 <= data.len() {
                         data[offset..offset + 4].copy_from_slice(&bytes);

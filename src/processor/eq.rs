@@ -1,5 +1,7 @@
 //! IIR Biquad Equalizer - 10-band parametric EQ
 
+pub use super::lockfree_params::EQ_BANDS;
+
 /// IIR Biquad filter section (SOS - Second Order Section)
 #[derive(Clone)]
 pub struct BiquadSection {
@@ -65,45 +67,47 @@ impl BiquadSection {
 
 /// 10-band Parametric EQ
 pub struct Equalizer {
-    bands: Vec<Vec<BiquadSection>>, // current active filters [channel][band]
-    target_bands: Vec<Vec<BiquadSection>>, // target filters (new params) [channel][band]
-    target_gains: Vec<f64>,         // target gain per band (dB)
-    smooth_counter: Vec<u32>,       // samples remaining in crossfade per band
+    bands: Vec<[BiquadSection; EQ_BANDS]>, // current active filters [channel][band]
+    target_bands: Vec<[BiquadSection; EQ_BANDS]>, // target filters (new params) [channel][band]
+    target_gains: Vec<f64>,                // target gain per band (dB)
+    smooth_counter: Vec<u32>,              // samples remaining in crossfade per band
     channels: usize,
     enabled: bool,
 }
 
 const EQ_SMOOTH_SAMPLES: u32 = 1024; // ~23ms @ 44100Hz
+const INV_EQ_SMOOTH: f64 = 1.0 / EQ_SMOOTH_SAMPLES as f64;
 
 impl Equalizer {
-    const FREQUENCIES: [f64; 10] = [
+    const FREQUENCIES: [f64; EQ_BANDS] = [
         31.0, 62.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
     ];
     const Q: f64 = 1.41;
 
     pub fn new(channels: usize, sample_rate: f64) -> Self {
-        let bands: Vec<Vec<BiquadSection>> = (0..channels)
-            .map(|_| {
-                Self::FREQUENCIES
-                    .iter()
-                    .map(|&f| BiquadSection::peaking_eq(f, 0.0, Self::Q, sample_rate))
-                    .collect()
-            })
+        let bands: Vec<[BiquadSection; EQ_BANDS]> = (0..channels)
+            .map(|_| Self::build_channel_bank(sample_rate))
             .collect();
         let target_bands = bands.clone();
 
         Self {
             bands,
             target_bands,
-            target_gains: vec![0.0; 10],
-            smooth_counter: vec![0u32; 10],
+            target_gains: vec![0.0; EQ_BANDS],
+            smooth_counter: vec![0u32; EQ_BANDS],
             channels,
             enabled: false,
         }
     }
 
+    fn build_channel_bank(sample_rate: f64) -> [BiquadSection; EQ_BANDS] {
+        std::array::from_fn(|idx| {
+            BiquadSection::peaking_eq(Self::FREQUENCIES[idx], 0.0, Self::Q, sample_rate)
+        })
+    }
+
     pub fn set_band_gain(&mut self, band_idx: usize, gain_db: f64, sample_rate: f64) {
-        if band_idx >= 10 {
+        if band_idx >= EQ_BANDS {
             return;
         }
         let gain_db = gain_db.clamp(-15.0, 15.0);
@@ -118,7 +122,7 @@ impl Equalizer {
         self.smooth_counter[band_idx] = EQ_SMOOTH_SAMPLES;
     }
 
-    pub fn set_all_bands(&mut self, gains: &[f64; 10], sample_rate: f64) {
+    pub fn set_all_bands(&mut self, gains: &[f64; EQ_BANDS], sample_rate: f64) {
         for (idx, &gain) in gains.iter().enumerate() {
             self.set_band_gain(idx, gain, sample_rate);
         }
@@ -136,6 +140,8 @@ impl Equalizer {
         if !self.enabled {
             return;
         }
+        debug_assert!(self.bands.len() >= self.channels);
+        debug_assert!(self.target_bands.len() >= self.channels);
         let frames = buffer.len() / self.channels;
 
         for frame in 0..frames {
@@ -147,7 +153,7 @@ impl Equalizer {
 
             // Update smooth counters once per frame (after all channels processed)
             // This fixes the multi-channel sync issue (MINOR-04)
-            for b in 0..self.bands[0].len() {
+            for b in 0..EQ_BANDS {
                 if self.smooth_counter[b] > 0 {
                     self.smooth_counter[b] -= 1;
                     // Crossfade done: snap current to target
@@ -165,15 +171,13 @@ impl Equalizer {
     /// Counter updates are handled in process() for proper multi-channel sync
     #[inline]
     fn process_sample_no_counter_update(&mut self, mut sample: f64, ch: usize) -> f64 {
-        if ch >= self.channels {
-            return sample;
-        }
-        for b in 0..self.bands[ch].len() {
+        debug_assert!(ch < self.channels);
+        for b in 0..EQ_BANDS {
             if self.smooth_counter[b] > 0 {
                 // Blend: run both filters on the same input
                 let current_out = self.bands[ch][b].process(sample);
                 let target_out = self.target_bands[ch][b].process(sample);
-                let t = self.smooth_counter[b] as f64 / EQ_SMOOTH_SAMPLES as f64;
+                let t = self.smooth_counter[b] as f64 * INV_EQ_SMOOTH;
                 sample = current_out * t + target_out * (1.0 - t);
             } else {
                 sample = self.bands[ch][b].process(sample);
@@ -197,5 +201,47 @@ impl Equalizer {
                 band.reset();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_band_banks_are_allocated_per_channel() {
+        for channels in [1, 2, 6, 8] {
+            let eq = Equalizer::new(channels, 48_000.0);
+            assert_eq!(eq.bands.len(), channels);
+            assert_eq!(eq.target_bands.len(), channels);
+            assert!(eq.bands.iter().all(|bank| bank.len() == EQ_BANDS));
+            assert!(eq.target_bands.iter().all(|bank| bank.len() == EQ_BANDS));
+        }
+    }
+
+    #[test]
+    fn reset_clears_current_and_target_bank_state() {
+        let mut eq = Equalizer::new(2, 48_000.0);
+        eq.set_enabled(true);
+        eq.set_band_gain(0, 6.0, 48_000.0);
+
+        let mut buffer = vec![0.25; 256];
+        eq.process(&mut buffer);
+
+        assert!(eq
+            .bands
+            .iter()
+            .flatten()
+            .chain(eq.target_bands.iter().flatten())
+            .any(|band| band.z1 != 0.0 || band.z2 != 0.0));
+
+        eq.reset();
+
+        assert!(eq
+            .bands
+            .iter()
+            .flatten()
+            .chain(eq.target_bands.iter().flatten())
+            .all(|band| band.z1 == 0.0 && band.z2 == 0.0));
     }
 }

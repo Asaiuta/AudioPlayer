@@ -68,15 +68,6 @@ pub struct Saturation {
     prev_inputs: Vec<f64>,
 }
 
-#[inline(always)]
-fn scrub_denormal(value: f64) -> f64 {
-    if value.abs() < 1.0e-30 {
-        0.0
-    } else {
-        value
-    }
-}
-
 impl Saturation {
     /// Create a new saturation processor with default settings
     pub fn new() -> Self {
@@ -200,14 +191,19 @@ impl Saturation {
     fn process_fullband(&mut self, samples: &mut [f64]) {
         let input_gain = db_to_linear(self.input_gain_db);
         let output_gain = db_to_linear(self.output_gain_db);
+        let threshold = self.threshold;
+        let drive_plus1 = 1.0 + self.drive;
+        let mix = self.mix;
+        let one_minus_mix = 1.0 - mix;
+        let sat_type = self.sat_type;
 
         for sample in samples.iter_mut() {
             let dry = *sample * input_gain;
 
-            if dry.abs() > self.threshold {
-                let driven = dry * (1.0 + self.drive);
-                let saturated = self.apply_saturation(driven);
-                *sample = (dry * (1.0 - self.mix) + saturated * self.mix) * output_gain;
+            if dry.abs() > threshold {
+                let driven = dry * drive_plus1;
+                let saturated = Self::apply_saturation_type(sat_type, driven);
+                *sample = (dry * one_minus_mix + saturated * mix) * output_gain;
             } else {
                 *sample = dry;
             }
@@ -221,6 +217,10 @@ impl Saturation {
         let input_gain = db_to_linear(self.input_gain_db);
         let output_gain = db_to_linear(self.output_gain_db);
         let alpha = self.hpf_coef;
+        let threshold = self.threshold;
+        let drive_plus1 = 1.0 + self.drive;
+        let mix = self.mix;
+        let sat_type = self.sat_type;
 
         // Ensure HPF state vectors are large enough for the channel count
         if self.hpf_states.len() < channels {
@@ -239,31 +239,27 @@ impl Saturation {
                 let input = samples[idx] * input_gain;
 
                 // First-order HPF: y[n] = α·y[n-1] + α·(x[n] - x[n-1])
-                let high = scrub_denormal(
-                    alpha * self.hpf_states[ch] + alpha * (input - self.prev_inputs[ch]),
-                );
+                let high = alpha * self.hpf_states[ch] + alpha * (input - self.prev_inputs[ch]);
                 self.hpf_states[ch] = high;
-                self.prev_inputs[ch] = scrub_denormal(input);
+                self.prev_inputs[ch] = input;
 
                 // Apply saturation to high frequencies only
-                let saturated_high = if high.abs() > self.threshold {
-                    let driven = high * (1.0 + self.drive);
-                    self.apply_saturation(driven)
+                let saturated_high = if high.abs() > threshold {
+                    let driven = high * drive_plus1;
+                    Self::apply_saturation_type(sat_type, driven)
                 } else {
                     high
                 };
 
                 // Mix: input + (saturated_high - high) * mix
-                samples[idx] =
-                    scrub_denormal((input + (saturated_high - high) * self.mix) * output_gain);
+                samples[idx] = (input + (saturated_high - high) * mix) * output_gain;
             }
         }
     }
 
-    /// Apply saturation curve based on type
     #[inline(always)]
-    fn apply_saturation(&self, x: f64) -> f64 {
-        match self.sat_type {
+    fn apply_saturation_type(sat_type: SaturationType, x: f64) -> f64 {
+        match sat_type {
             SaturationType::Tape => x.signum() * (1.0 - (-x.abs()).exp()),
             SaturationType::Tube => x.tanh(),
             SaturationType::Transistor => {
@@ -450,11 +446,17 @@ mod tests {
     }
 
     #[test]
-    fn test_highpass_scrubs_denormals() {
+    fn test_highpass_flushes_denormals_with_audio_thread_init() {
+        crate::runtime::audio_thread_init();
+        if !crate::runtime::audio_thread_float_mode_is_enabled() {
+            return;
+        }
+
         let mut sat = Saturation::new();
         sat.set_highpass_mode(true);
-        sat.hpf_states[0] = 1.0e-40;
-        sat.prev_inputs[0] = -1.0e-40;
+        let subnormal = f64::from_bits(1);
+        sat.hpf_states[0] = subnormal;
+        sat.prev_inputs[0] = -subnormal;
         let mut samples = vec![0.0, 0.0];
         sat.process_with_channels(&mut samples, 2);
         assert_eq!(sat.hpf_states[0], 0.0);

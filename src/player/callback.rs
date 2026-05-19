@@ -610,8 +610,11 @@ pub fn audio_callback_lockfree(
             }
         } else {
             let take = process_buf.len().min(output_len - samples_written);
-            for i in 0..take {
-                data[samples_written + i] = process_buf[i] as f32;
+            for (dst, src) in data[samples_written..samples_written + take]
+                .iter_mut()
+                .zip(process_buf[..take].iter())
+            {
+                *dst = *src as f32;
             }
             samples_written += take;
         }
@@ -624,9 +627,7 @@ pub fn audio_callback_lockfree(
             ((output_len - samples_written) / channels) as u64,
             Ordering::Relaxed,
         );
-        for i in samples_written..output_len {
-            data[i] = 0.0;
-        }
+        data[samples_written..output_len].fill(0.0);
     }
 
     // Spectrum output
