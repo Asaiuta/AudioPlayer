@@ -242,6 +242,17 @@ impl Saturation {
                 let high = alpha * self.hpf_states[ch] + alpha * (input - self.prev_inputs[ch]);
                 self.hpf_states[ch] = high;
                 self.prev_inputs[ch] = input;
+                #[cfg(not(any(
+                    target_arch = "x86",
+                    target_arch = "x86_64",
+                    target_arch = "aarch64"
+                )))]
+                {
+                    self.hpf_states[ch] =
+                        crate::runtime::flush_subnormal_sample(self.hpf_states[ch]);
+                    self.prev_inputs[ch] =
+                        crate::runtime::flush_subnormal_sample(self.prev_inputs[ch]);
+                }
 
                 // Apply saturation to high frequencies only
                 let saturated_high = if high.abs() > threshold {

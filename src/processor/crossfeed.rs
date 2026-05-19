@@ -186,6 +186,11 @@ impl Crossfeed {
         let output = b0 * input + w[0];
         w[0] = b1 * input - a1 * output + w[1];
         w[1] = b2 * input - a2 * output;
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            w[0] = crate::runtime::flush_subnormal_sample(w[0]);
+            w[1] = crate::runtime::flush_subnormal_sample(w[1]);
+        }
         output
     }
 

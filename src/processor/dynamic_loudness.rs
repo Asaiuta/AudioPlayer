@@ -248,6 +248,11 @@ impl BiquadFilter {
         let y = self.coeffs.b0 * x + self.state.z1;
         self.state.z1 = self.coeffs.b1 * x - self.coeffs.a1 * y + self.state.z2;
         self.state.z2 = self.coeffs.b2 * x - self.coeffs.a2 * y;
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            self.state.z1 = crate::runtime::flush_subnormal_sample(self.state.z1);
+            self.state.z2 = crate::runtime::flush_subnormal_sample(self.state.z2);
+        }
         y
     }
 

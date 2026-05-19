@@ -194,6 +194,16 @@ fn audio_thread_float_mode_is_enabled_unchecked() -> bool {
     false
 }
 
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+#[inline(always)]
+pub fn flush_subnormal_sample(sample: f64) -> f64 {
+    if sample != 0.0 && sample.abs() < f64::MIN_POSITIVE {
+        0.0
+    } else {
+        sample
+    }
+}
+
 fn read_path_env(key: &str) -> Option<PathBuf> {
     env::var(key)
         .ok()
