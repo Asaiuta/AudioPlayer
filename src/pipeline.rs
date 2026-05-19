@@ -410,9 +410,10 @@ impl AudioPipeline {
     /// Returns number of frames actually read
     pub fn read(&self, output: &mut [f64]) -> usize {
         let read_pos = self.current_read_pos.load(Ordering::Relaxed);
-        let buffer = self.ring_buffer.read();
+        let Some(buffer) = self.ring_buffer.try_read() else {
+            return 0;
+        };
         let frames_read = buffer.read(read_pos, output);
-        drop(buffer);
 
         if frames_read > 0 {
             self.current_read_pos
@@ -564,5 +565,29 @@ mod tests {
         let mut expected = first[2 * channels..].to_vec();
         expected.extend_from_slice(&second);
         assert_eq!(output, expected);
+    }
+
+    #[test]
+    fn audio_pipeline_read_returns_zero_when_ring_buffer_locked() {
+        let ring_buffer = Arc::new(RwLock::new(RingBuffer::new(4, 2)));
+        let pipeline = AudioPipeline {
+            ring_buffer: Arc::clone(&ring_buffer),
+            is_running: Arc::new(AtomicBool::new(false)),
+            is_finished: Arc::new(AtomicBool::new(false)),
+            buffered_frames: Arc::new(AtomicU64::new(0)),
+            total_frames: Arc::new(AtomicU64::new(0)),
+            current_read_pos: Arc::new(AtomicU64::new(0)),
+            worker_handle: None,
+            channels: 2,
+            sample_rate: 48_000,
+            original_sample_rate: 48_000,
+        };
+
+        let _write_guard = ring_buffer.write();
+        let mut output = vec![42.0; 4];
+
+        assert_eq!(pipeline.read(&mut output), 0);
+        assert_eq!(pipeline.read_position(), 0);
+        assert_eq!(output, vec![42.0; 4]);
     }
 }
