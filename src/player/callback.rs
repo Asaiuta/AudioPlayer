@@ -29,7 +29,6 @@ pub struct CallbackScratch {
     resample_leftover: Vec<f64>,
     resample_leftover_pos: usize,
     resample_output: Vec<f64>,
-    convolver_output: Vec<f64>,
     spectrum_batch: SpectrumBatch,
 }
 
@@ -46,25 +45,8 @@ impl CallbackScratch {
             resample_leftover: Vec::with_capacity(resample_samples),
             resample_leftover_pos: 0,
             resample_output: Vec::with_capacity(resample_samples),
-            convolver_output: Vec::with_capacity(process_samples),
             spectrum_batch: SpectrumBatch::new(),
         }
-    }
-
-    fn convolver_output_for_len(buffer: &mut Vec<f64>, len: usize) -> &mut [f64] {
-        debug_assert!(len <= buffer.capacity());
-
-        if buffer.len() < len {
-            // SAFETY: `CallbackScratch::new` pre-allocates this buffer to the
-            // maximum audio callback process size. The returned prefix is
-            // immediately and fully overwritten by `FFTConvolver::process_into`
-            // before any value is read.
-            unsafe {
-                buffer.set_len(len);
-            }
-        }
-
-        &mut buffer[..len]
     }
 }
 
@@ -626,13 +608,7 @@ pub fn audio_callback_lockfree(
         // so we can safely call process_inplace(&mut self).
         // New convolvers are delivered via ArcSwap at the top of this function.
         if let Some(ref mut conv) = owned_convolver {
-            // Use pre-allocated convolver_output buffer to avoid allocation
-            let buf_len = scratch.process_buffer.len();
-            let process_buffer = &mut scratch.process_buffer;
-            let convolver_output =
-                CallbackScratch::convolver_output_for_len(&mut scratch.convolver_output, buf_len);
-            conv.process_into(process_buffer, convolver_output);
-            process_buffer.copy_from_slice(convolver_output);
+            conv.process_inplace(&mut scratch.process_buffer);
         }
 
         // Resample or direct output
@@ -745,10 +721,6 @@ mod tests {
         assert_eq!(
             scratch.resample_output.capacity(),
             AUDIO_RESAMPLE_BUFFER_FRAMES * 2
-        );
-        assert_eq!(
-            scratch.convolver_output.capacity(),
-            AUDIO_PROCESS_BUFFER_FRAMES * 2
         );
         assert_eq!(scratch.resample_leftover_pos, 0);
     }
