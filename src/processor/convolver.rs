@@ -124,8 +124,9 @@ impl FFTConvolver {
         let step_size = fft_size - ir_len + 1;
         let inv_n = 1.0 / fft_size as f64;
 
-        // Clear output buffer
-        output.fill(0.0);
+        // `total_frames` intentionally ignores an incomplete trailing frame.
+        // Keep that remainder deterministic without clearing the whole buffer.
+        output[total_frames * channels..].fill(0.0);
 
         for ch in 0..channels {
             let mut processed_frames = 0;
@@ -135,7 +136,6 @@ impl FFTConvolver {
 
                 // Use pre-allocated scratch buffer
                 let scratch = &mut self.scratch_complex;
-                scratch.fill(Complex::new(0.0, 0.0));
 
                 // 1. 填充重叠部分 (来自上一个块的末尾)
                 for i in 0..ir_len - 1 {
@@ -147,6 +147,7 @@ impl FFTConvolver {
                     scratch[i + ir_len - 1] =
                         Complex::new(input[(processed_frames + i) * channels + ch], 0.0);
                 }
+                scratch[ir_len - 1 + chunk_len..].fill(Complex::new(0.0, 0.0));
 
                 // 3. FFT (using cached plan)
                 self.fft_forward.process(scratch);
@@ -177,9 +178,7 @@ impl FFTConvolver {
                     let shift = chunk_len;
                     let keep = ir_len - 1 - shift;
                     // Shift left
-                    for i in 0..keep {
-                        overlap[i] = overlap[i + shift];
-                    }
+                    overlap.copy_within(shift..shift + keep, 0);
                     // Append new
                     for i in 0..shift {
                         overlap[keep + i] = input[(processed_frames + i) * channels + ch];
@@ -232,7 +231,6 @@ impl FFTConvolver {
 
                 // Use pre-allocated scratch buffer
                 let scratch = &mut self.scratch_complex;
-                scratch.fill(Complex::new(0.0, 0.0));
 
                 // 1. 填充重叠部分 (来自上一个块的末尾)
                 for i in 0..ir_len - 1 {
@@ -244,6 +242,7 @@ impl FFTConvolver {
                     scratch[i + ir_len - 1] =
                         Complex::new(buf[(processed_frames + i) * channels + ch], 0.0);
                 }
+                scratch[ir_len - 1 + chunk_len..].fill(Complex::new(0.0, 0.0));
 
                 // 3. FFT (using cached plan)
                 self.fft_forward.process(scratch);
@@ -269,9 +268,7 @@ impl FFTConvolver {
                 } else {
                     let shift = chunk_len;
                     let keep = ir_len - 1 - shift;
-                    for i in 0..keep {
-                        overlap[i] = overlap[i + shift];
-                    }
+                    overlap.copy_within(shift..shift + keep, 0);
                     for i in 0..shift {
                         overlap[keep + i] = buf[(processed_frames + i) * channels + ch];
                     }
@@ -396,6 +393,49 @@ mod tests {
                 buf_inplace[i]
             );
         }
+    }
+
+    fn assert_processing_paths_equivalent(channels: usize, ir_frames: usize, input_frames: usize) {
+        let ir: Vec<f64> = (0..ir_frames * channels)
+            .map(|i| ((i + 1) as f64 * 0.17).sin() * 0.05)
+            .collect();
+        let input: Vec<f64> = (0..input_frames * channels)
+            .map(|i| ((i + 3) as f64 * 0.11).cos() * 0.5)
+            .collect();
+
+        let mut process_conv = FFTConvolver::new(&ir, channels);
+        let mut into_conv = FFTConvolver::new(&ir, channels);
+        let mut inplace_conv = FFTConvolver::new(&ir, channels);
+
+        let process_output = process_conv.process(&input);
+
+        let mut into_output = vec![f64::NAN; input.len()];
+        into_conv.process_into(&input, &mut into_output);
+
+        let mut inplace_output = input.clone();
+        inplace_conv.process_inplace(&mut inplace_output);
+
+        for i in 0..input.len() {
+            assert!(
+                (process_output[i] - into_output[i]).abs() < 1e-10,
+                "process/process_into mismatch at {i}: {} vs {}",
+                process_output[i],
+                into_output[i]
+            );
+            assert!(
+                (process_output[i] - inplace_output[i]).abs() < 1e-10,
+                "process/process_inplace mismatch at {i}: {} vs {}",
+                process_output[i],
+                inplace_output[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_processing_paths_equivalent_for_boundary_chunk_sizes() {
+        assert_processing_paths_equivalent(1, 8, 4);
+        assert_processing_paths_equivalent(2, 8, 8);
+        assert_processing_paths_equivalent(6, 8, 20);
     }
 
     #[test]

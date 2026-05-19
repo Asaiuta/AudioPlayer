@@ -47,6 +47,22 @@ impl CallbackScratch {
             convolver_output: Vec::with_capacity(process_samples),
         }
     }
+
+    fn convolver_output_for_len(buffer: &mut Vec<f64>, len: usize) -> &mut [f64] {
+        debug_assert!(len <= buffer.capacity());
+
+        if buffer.len() < len {
+            // SAFETY: `CallbackScratch::new` pre-allocates this buffer to the
+            // maximum audio callback process size. The returned prefix is
+            // immediately and fully overwritten by `FFTConvolver::process_into`
+            // before any value is read.
+            unsafe {
+                buffer.set_len(len);
+            }
+        }
+
+        &mut buffer[..len]
+    }
 }
 
 // ============================================================================
@@ -609,12 +625,11 @@ pub fn audio_callback_lockfree(
         if let Some(ref mut conv) = owned_convolver {
             // Use pre-allocated convolver_output buffer to avoid allocation
             let buf_len = scratch.process_buffer.len();
-            scratch.convolver_output.clear();
-            scratch.convolver_output.resize(buf_len, 0.0);
-            conv.process_into(&scratch.process_buffer, &mut scratch.convolver_output);
-            scratch
-                .process_buffer
-                .copy_from_slice(&scratch.convolver_output[..buf_len]);
+            let process_buffer = &mut scratch.process_buffer;
+            let convolver_output =
+                CallbackScratch::convolver_output_for_len(&mut scratch.convolver_output, buf_len);
+            conv.process_into(process_buffer, convolver_output);
+            process_buffer.copy_from_slice(convolver_output);
         }
 
         // Resample or direct output
