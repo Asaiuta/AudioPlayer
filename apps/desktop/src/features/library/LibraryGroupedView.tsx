@@ -85,7 +85,11 @@ export function LibraryGroupedView(props: LibraryGroupedViewProps) {
           <For each={props.groups}>
             {(group) => {
               const active = () => selectedGroup()?.key === group.key;
-              const coverVisible = () => props.kind !== "albums" || !uiSettings.hiddenCovers.album;
+              const coverVisible = () => {
+                if (props.kind === "artists") return false;
+                if (props.kind === "albums") return !uiSettings.hiddenCovers.album;
+                return true;
+              };
               const artworkInitial = () => (group.label.trim().slice(0, 1) || "#").toUpperCase();
               return (
                 <button

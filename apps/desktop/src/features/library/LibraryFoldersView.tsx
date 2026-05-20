@@ -1,5 +1,5 @@
-import { For, Show, createMemo } from "solid-js";
-import { IconFolder, IconMusic } from "../../components/icons";
+import { For, Show, createMemo, createSignal } from "solid-js";
+import { IconChevronDown, IconChevronRight, IconFolder, IconMusic } from "../../components/icons";
 import {
   MediaList,
   type MediaContextAction,
@@ -31,18 +31,59 @@ interface LibraryFoldersViewProps {
   onContextAction: (action: MediaContextAction, item: LibraryListItem) => void;
 }
 
+interface DisplayFolderNode {
+  key: string;
+  label: string;
+  totalCount: number;
+  depth: number;
+  children: DisplayFolderNode[];
+}
+
 const totalFolderCount = (nodes: readonly LibraryFolderNode[]): number =>
   nodes.reduce((total, node) => total + node.totalCount, 0);
 
+/**
+ * Mirror SPlayer's folder-tree merging: when a node has no direct songs and
+ * only one child, collapse the child into the parent so the visible label
+ * reads `Parent/Child` and the row jumps straight to the deepest folder.
+ */
+const mergeNode = (node: LibraryFolderNode, depth: number): DisplayFolderNode => {
+  let label = node.label;
+  let key = node.key;
+  let children = node.children;
+  let directCount = node.directCount;
+
+  while (children.length === 1 && directCount === 0) {
+    const child = children[0];
+    const sep = key.includes("\\") ? "\\" : "/";
+    label = `${label}${sep}${child.label}`;
+    key = child.key;
+    children = child.children;
+    directCount = child.directCount;
+  }
+
+  return {
+    key,
+    label,
+    totalCount: node.totalCount,
+    depth,
+    children: children.map((child) => mergeNode(child, depth + 1))
+  };
+};
+
 interface FolderNodeButtonProps {
-  node: LibraryFolderNode;
+  node: DisplayFolderNode;
   selectedFolder: string;
+  expandedKeys: ReadonlySet<string>;
   onSelectFolder: (folderKey: string) => void;
+  onToggleExpand: (folderKey: string) => void;
 }
 
 function FolderNodeButton(props: FolderNodeButtonProps) {
   const { t } = useTranslation();
   const active = () => props.selectedFolder === props.node.key;
+  const hasChildren = () => props.node.children.length > 0;
+  const isExpanded = () => props.expandedKeys.has(props.node.key);
 
   return (
     <>
@@ -53,6 +94,21 @@ function FolderNodeButton(props: FolderNodeButtonProps) {
         style={{ "padding-left": `${12 + props.node.depth * 14}px` }}
         onClick={() => props.onSelectFolder(props.node.key)}
       >
+        <Show when={hasChildren()} fallback={<span class="local-folder-node-toggle local-folder-node-toggle--placeholder" aria-hidden="true" />}>
+          <span
+            class="local-folder-node-toggle"
+            classList={{ "is-expanded": isExpanded() }}
+            aria-label={isExpanded() ? t("library.folderFilter.collapse") : t("library.folderFilter.expand")}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onToggleExpand(props.node.key);
+            }}
+          >
+            <Show when={isExpanded()} fallback={<IconChevronRight />}>
+              <IconChevronDown />
+            </Show>
+          </span>
+        </Show>
         <span class="local-folder-node-icon" aria-hidden="true">
           <IconFolder />
         </span>
@@ -63,15 +119,19 @@ function FolderNodeButton(props: FolderNodeButtonProps) {
           </span>
         </span>
       </button>
-      <For each={props.node.children}>
-        {(child) => (
-          <FolderNodeButton
-            node={child}
-            selectedFolder={props.selectedFolder}
-            onSelectFolder={props.onSelectFolder}
-          />
-        )}
-      </For>
+      <Show when={hasChildren() && isExpanded()}>
+        <For each={props.node.children}>
+          {(child) => (
+            <FolderNodeButton
+              node={child}
+              selectedFolder={props.selectedFolder}
+              expandedKeys={props.expandedKeys}
+              onSelectFolder={props.onSelectFolder}
+              onToggleExpand={props.onToggleExpand}
+            />
+          )}
+        </For>
+      </Show>
     </>
   );
 }
@@ -79,6 +139,19 @@ function FolderNodeButton(props: FolderNodeButtonProps) {
 export function LibraryFoldersView(props: LibraryFoldersViewProps) {
   const { t } = useTranslation();
   const allCount = createMemo<number>(() => totalFolderCount(props.nodes));
+  const mergedNodes = createMemo<DisplayFolderNode[]>(() =>
+    props.nodes.map((node) => mergeNode(node, 0))
+  );
+  const [expandedKeys, setExpandedKeys] = createSignal<ReadonlySet<string>>(new Set());
+
+  const toggleExpand = (key: string) => {
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   return (
     <Show
@@ -100,6 +173,7 @@ export function LibraryFoldersView(props: LibraryFoldersViewProps) {
             classList={{ "is-active": props.selectedFolder === ALL_FOLDERS_VALUE }}
             onClick={() => props.onSelectFolder(ALL_FOLDERS_VALUE)}
           >
+            <span class="local-folder-node-toggle local-folder-node-toggle--placeholder" aria-hidden="true" />
             <span class="local-folder-node-icon" aria-hidden="true">
               <IconMusic />
             </span>
@@ -110,12 +184,14 @@ export function LibraryFoldersView(props: LibraryFoldersViewProps) {
               </span>
             </span>
           </button>
-          <For each={props.nodes}>
+          <For each={mergedNodes()}>
             {(node) => (
               <FolderNodeButton
                 node={node}
                 selectedFolder={props.selectedFolder}
+                expandedKeys={expandedKeys()}
                 onSelectFolder={props.onSelectFolder}
+                onToggleExpand={toggleExpand}
               />
             )}
           </For>

@@ -1,7 +1,9 @@
 import { For, Show } from "solid-js";
 import type { Resource } from "solid-js";
 import { AlbumCard } from "../../../components/AlbumCard";
+import { IconPlay } from "../../../components/icons";
 import { MediaList } from "../../../components/media/MediaList";
+import { CoverGridSkeleton } from "../../../components/page/Skeleton";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
 import { DISCOVER_PAGE_LIMIT, isTranslationKey } from "../shared/parsers";
@@ -60,7 +62,16 @@ export function DiscoverPlaylistShowcase(props: DiscoverPlaylistShowcaseProps) {
           <span>{props.discoverSectionSubtitle}</span>
         </div>
       </div>
-      <Show when={props.allPlaylists.length > 0} fallback={<div class="panel-note">{props.isLoadingPlaylists ? t("ncm.playlist.loading") : t("ncm.home.empty")}</div>}>
+      <Show
+        when={props.allPlaylists.length > 0}
+        fallback={
+          props.isLoadingPlaylists ? (
+            <CoverGridSkeleton count={20} />
+          ) : (
+            <div class="panel-note">{t("ncm.home.empty")}</div>
+          )
+        }
+      >
         <div class="album-grid">
           <For each={props.allPlaylists}>
             {(item) => (
@@ -145,7 +156,16 @@ export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
           <span>{props.discoverSectionSubtitle}</span>
         </div>
       </div>
-      <Show when={props.allArtists.length > 0} fallback={<div class="panel-note">{props.isLoadingArtists ? t("ncm.playlist.loading") : t("ncm.home.empty")}</div>}>
+      <Show
+        when={props.allArtists.length > 0}
+        fallback={
+          props.isLoadingArtists ? (
+            <CoverGridSkeleton count={20} shape="round" />
+          ) : (
+            <div class="panel-note">{t("ncm.home.empty")}</div>
+          )
+        }
+      >
         <div class="album-grid">
           <For each={props.allArtists}>
             {(item) => (
@@ -214,6 +234,9 @@ export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
                     <Show when={item.coverUrl} fallback={<span>{item.title.slice(0, 1)}</span>}>
                       {(coverUrl) => <img src={coverUrl()} alt="" loading="lazy" />}
                     </Show>
+                    <span class="online-toplist-cover-play" aria-hidden="true">
+                      <IconPlay />
+                    </span>
                   </div>
                 </Show>
                 <div class="online-toplist-copy">
@@ -320,7 +343,16 @@ export function DiscoverNewShowcase(props: DiscoverNewShowcaseProps) {
           <span>{props.discoverSectionSubtitle}</span>
         </div>
       </div>
-      <Show when={hasVisibleItems()} fallback={<div class="panel-note">{props.isLoadingAlbums ? t("ncm.playlist.loading") : t("ncm.home.empty")}</div>}>
+      <Show
+        when={hasVisibleItems()}
+        fallback={
+          props.isLoadingAlbums ? (
+            <CoverGridSkeleton count={20} />
+          ) : (
+            <div class="panel-note">{t("ncm.home.empty")}</div>
+          )
+        }
+      >
         <Show when={props.discoverNewKind === "albums"} fallback={
           <div class="online-discover-card-stack">
             <MediaList

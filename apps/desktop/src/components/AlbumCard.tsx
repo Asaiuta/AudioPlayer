@@ -14,6 +14,7 @@ interface AlbumCardProps {
   description?: string | null;
   coverVisible?: boolean;
   onClick?: () => void;
+  onContextMenu?: (event: MouseEvent) => void;
 }
 
 const sizeClass = (size?: "sm" | "md" | "lg") =>
@@ -47,6 +48,11 @@ export function AlbumCard(props: AlbumCardProps) {
       type="button"
       class={`album-card${sizeClass(props.size)}${shapeClass(props.shape)}${props.active ? " is-active" : ""}${coverVisible() ? "" : " is-cover-hidden"}`}
       onClick={() => props.onClick?.()}
+      onContextMenu={(event) => {
+        if (!props.onContextMenu) return;
+        event.preventDefault();
+        props.onContextMenu(event);
+      }}
     >
       <Show when={coverVisible()}>
         <div class="album-card-art" aria-hidden="true">

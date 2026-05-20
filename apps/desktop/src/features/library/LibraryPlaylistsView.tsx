@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { AlbumCard } from "../../components/AlbumCard";
 import {
+  IconChevronLeft,
   IconDelete,
   IconMusic,
   IconPlaylist,
@@ -15,6 +16,7 @@ import {
   type MediaSortOrder,
   type MediaSortState
 } from "../../components/media/MediaList";
+import { CoverGridSkeleton } from "../../components/page/Skeleton";
 import type { LocalPlaylist } from "../../shared/api/types";
 import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
@@ -98,19 +100,23 @@ export function LibraryPlaylistsView(props: LibraryPlaylistsViewProps) {
     <Show
       when={props.playlists.length > 0}
       fallback={
-        <div class="local-playlist-placeholder" role="status">
-          <span class="empty-tab-icon" aria-hidden="true">
-            <IconPlaylist />
-          </span>
-          <div class="local-playlist-placeholder-copy">
-            <strong>{t("library.tabs.playlists")}</strong>
-            <span>{t("library.playlists.empty")}</span>
+        props.isLoading ? (
+          <CoverGridSkeleton count={12} />
+        ) : (
+          <div class="local-playlist-placeholder" role="status">
+            <span class="empty-tab-icon" aria-hidden="true">
+              <IconPlaylist />
+            </span>
+            <div class="local-playlist-placeholder-copy">
+              <strong>{t("library.tabs.playlists")}</strong>
+              <span>{t("library.playlists.empty")}</span>
+            </div>
+            <button type="button" class="primary-button page-action" onClick={props.onCreatePlaylist}>
+              <IconPlus />
+              <span>{t("library.action.createPlaylist")}</span>
+            </button>
           </div>
-          <button type="button" class="primary-button page-action" onClick={props.onCreatePlaylist}>
-            <IconPlus />
-            <span>{t("library.action.createPlaylist")}</span>
-          </button>
-        </div>
+        )
       }
     >
       <Show
@@ -156,7 +162,18 @@ export function LibraryPlaylistsView(props: LibraryPlaylistsViewProps) {
                   </div>
                 </Show>
                 <div class="playlist-detail-copy">
-                  <h2 title={playlist().name}>{playlist().name}</h2>
+                  <div class="playlist-detail-title-row">
+                    <button
+                      type="button"
+                      class="ghost-button playlist-detail-back"
+                      onClick={() => props.onSelectPlaylist("")}
+                      aria-label={t("library.action.backToList")}
+                      title={t("library.action.backToList")}
+                    >
+                      <IconChevronLeft />
+                    </button>
+                    <h2 title={playlist().name}>{playlist().name}</h2>
+                  </div>
                   <div class="playlist-detail-collapse">
                     <Show when={uiSettings.playlistPageElements.description && playlist().description}>
                       {(description) => <p class="playlist-detail-desc">{description()}</p>}

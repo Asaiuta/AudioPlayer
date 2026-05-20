@@ -1,11 +1,13 @@
-import { For, Show, createMemo, createResource } from "solid-js";
+import { For, Show, createMemo, createResource, createSignal } from "solid-js";
 import { AlbumCard } from "../../components/AlbumCard";
 import { DailySongsCard, type DailySongsCardCover } from "../../components/DailySongsCard";
 import { HorizontalCardRow } from "../../components/HorizontalCardRow";
-import { IconAlbum, IconArtist, IconPause, IconPlay, IconPlaylist, IconSkipNext, IconThumbDown } from "../../components/icons";
+import { IconAlbum, IconArtist, IconCopy, IconPause, IconPlay, IconPlaylist, IconSkipNext, IconThumbDown } from "../../components/icons";
+import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
 import { createApiClient, type NcmHomeFeed } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { cacheFetch } from "../../shared/state/cacheFetch";
+import { useNcmAccount } from "../../shared/state/NcmAccountContext";
 import { useUISettings, type CoverHiddenKey, type HomeSectionKey } from "../../shared/state/useUISettings";
 import type { OnlinePlaylistSummary } from "./ncmPlaylistSummary";
 import type { DiscoverTab, FeedCardItem } from "./shared/types";
@@ -66,16 +68,16 @@ function HomeFeedSkeleton() {
       <section class="card-row ncm-home-feed-skeleton" aria-hidden="true">
         <header class="card-row-head">
           <div class="card-row-copy">
-            <span class="card-row-title ncm-home-feed-skeleton-title" />
+            <span class="card-row-title ncm-home-feed-skeleton-title skeleton" />
           </div>
         </header>
         <div class="card-row-grid" role="list">
-          <For each={[0, 1, 2, 3, 4, 5]}>
+          <For each={[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}>
             {() => (
-              <div class="album-card ncm-home-feed-skeleton-card">
-                <span class="album-card-art ncm-home-feed-skeleton-cover" />
-                <span class="ncm-home-feed-skeleton-line ncm-home-feed-skeleton-line--title" />
-                <span class="ncm-home-feed-skeleton-line" />
+              <div class="album-card skeleton-card">
+                <span class="album-card-art skeleton" />
+                <span class="skeleton skeleton-line skeleton-line--title" />
+                <span class="skeleton skeleton-line" />
               </div>
             )}
           </For>
@@ -84,15 +86,15 @@ function HomeFeedSkeleton() {
       <section class="card-row ncm-home-feed-skeleton" aria-hidden="true">
         <header class="card-row-head">
           <div class="card-row-copy">
-            <span class="card-row-title ncm-home-feed-skeleton-title" />
+            <span class="card-row-title ncm-home-feed-skeleton-title skeleton" />
           </div>
         </header>
         <div class="card-row-grid" role="list">
-          <For each={[0, 1, 2, 3, 4, 5]}>
+          <For each={[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}>
             {() => (
-              <div class="album-card album-card--round ncm-home-feed-skeleton-card">
-                <span class="album-card-art ncm-home-feed-skeleton-cover" />
-                <span class="ncm-home-feed-skeleton-line ncm-home-feed-skeleton-line--title" />
+              <div class="album-card album-card--round skeleton-card">
+                <span class="album-card-art skeleton skeleton--circle" />
+                <span class="skeleton skeleton-line skeleton-line--title" />
               </div>
             )}
           </For>
@@ -104,11 +106,30 @@ function HomeFeedSkeleton() {
 
 export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
   const { t } = useTranslation();
+  const account = useNcmAccount();
 
   const [homeFeed] = createResource(
     () => (props.isLoggedIn && props.userId !== null ? props.userId : "anonymous"),
     (source) => loadHomeFeed(typeof source === "number" ? source : null)
   );
+
+  const greetingKey = (): string => {
+    const hour = new Date().getHours();
+    if (hour < 6) return "ncm.home.greeting.lateNight";
+    if (hour < 9) return "ncm.home.greeting.earlyMorning";
+    if (hour < 12) return "ncm.home.greeting.morning";
+    if (hour < 14) return "ncm.home.greeting.noon";
+    if (hour < 17) return "ncm.home.greeting.afternoon";
+    if (hour < 19) return "ncm.home.greeting.dusk";
+    if (hour < 22) return "ncm.home.greeting.evening";
+    return "ncm.home.greeting.lateNight";
+  };
+
+  const greetingText = createMemo(() => {
+    const base = t(greetingKey() as never);
+    const nickname = account.activeAccount()?.nickname;
+    return nickname ? `${base}，${nickname}` : base;
+  });
 
   const feed = createMemo(() => homeFeed() ?? EMPTY_HOME_FEED);
 
@@ -136,6 +157,58 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
       trackCount: null,
       subscribed: false
     });
+
+  type CardMenuKind = "playlist" | "album" | "artist" | "video" | "radio";
+  interface MenuContext {
+    open: boolean;
+    x: number;
+    y: number;
+    item: FeedCardItem | null;
+    kind: CardMenuKind;
+  }
+  const closedMenu: MenuContext = { open: false, x: 0, y: 0, item: null, kind: "playlist" };
+  const [menu, setMenu] = createSignal<MenuContext>(closedMenu);
+  const closeMenu = () => setMenu(closedMenu);
+
+  const openCardMenu = (event: MouseEvent, item: FeedCardItem, kind: CardMenuKind) => {
+    setMenu({ open: true, x: event.clientX, y: event.clientY, item, kind });
+  };
+
+  const menuItems = (): ContextMenuItem[] => {
+    const ctx = menu();
+    if (!ctx.item) return [];
+    const items: ContextMenuItem[] = [
+      { key: "open", label: t("media.context.play"), icon: <IconPlay /> }
+    ];
+    items.push({ key: "copy-name", label: t("media.context.copyName"), icon: <IconCopy /> });
+    return items;
+  };
+
+  const handleMenuSelect = (key: string) => {
+    const ctx = menu();
+    if (!ctx.item) return;
+    if (key === "open") {
+      switch (ctx.kind) {
+        case "playlist":
+          handlePlaylist(ctx.item);
+          break;
+        case "album":
+          props.onSelectAlbum?.(ctx.item);
+          break;
+        case "artist":
+          props.onSelectArtist?.(ctx.item);
+          break;
+        case "video":
+          props.onSelectVideo?.(ctx.item);
+          break;
+        case "radio":
+          props.onSelectRadio?.(ctx.item);
+          break;
+      }
+    } else if (key === "copy-name") {
+      void navigator.clipboard?.writeText(ctx.item.title);
+    }
+  };
 
   const personalFmTitle = createMemo(() => feed().personalFmPreview?.title ?? t("ncm.fm.preview.title"));
   const personalFmArtist = createMemo(() => feed().personalFmPreview?.artist ?? t("ncm.fm.preview.artist"));
@@ -170,6 +243,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     playCount={item.playCount}
                     description={item.description}
                     onClick={() => handlePlaylist(item)}
+                    onContextMenu={(event) => openCardMenu(event, item, "playlist")}
                   />
                 )}
               </For>
@@ -190,6 +264,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     playCount={item.playCount}
                     description={item.description}
                     onClick={() => handlePlaylist(item)}
+                    onContextMenu={(event) => openCardMenu(event, item, "playlist")}
                   />
                 )}
               </For>
@@ -210,6 +285,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     playCount={item.playCount}
                     description={item.description}
                     onClick={() => handlePlaylist(item)}
+                    onContextMenu={(event) => openCardMenu(event, item, "playlist")}
                   />
                 )}
               </For>
@@ -229,6 +305,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     shape="round"
                     size="sm"
                     onClick={() => props.onSelectArtist?.(item)}
+                    onContextMenu={(event) => openCardMenu(event, item, "artist")}
                   />
                 )}
               </For>
@@ -249,6 +326,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     playCount={item.playCount}
                     description={item.description}
                     onClick={() => props.onSelectVideo?.(item)}
+                    onContextMenu={(event) => openCardMenu(event, item, "video")}
                   />
                 )}
               </For>
@@ -269,6 +347,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     playCount={item.playCount}
                     description={item.description}
                     onClick={() => props.onSelectRadio?.(item)}
+                    onContextMenu={(event) => openCardMenu(event, item, "radio")}
                   />
                 )}
               </For>
@@ -288,6 +367,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                     coverVisible={showCover("home")}
                     description={item.description}
                     onClick={() => props.onSelectAlbum?.(item)}
+                    onContextMenu={(event) => openCardMenu(event, item, "album")}
                   />
                 )}
               </For>
@@ -299,6 +379,11 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
 
   return (
     <div class="ncm-home-feed">
+      <header class="ncm-home-feed-greeting">
+        <h1 class="ncm-home-feed-greeting-title">{greetingText()}</h1>
+        <span class="ncm-home-feed-greeting-subtitle">{t("ncm.home.welcome")}</span>
+      </header>
+
       <Show when={props.isLoggedIn && (props.onSelectDailySongs || props.onSelectLikedSongs || props.onPlayPersonalFm)}>
         <div class="ncm-home-feed-main-rec">
           <div class="ncm-home-feed-main-rec-list">
@@ -418,6 +503,15 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
       <For each={visibleSections()}>
         {(key) => renderSection(key)}
       </For>
+
+      <ContextMenu
+        open={menu().open}
+        x={menu().x}
+        y={menu().y}
+        items={menuItems()}
+        onSelect={handleMenuSelect}
+        onClose={closeMenu}
+      />
     </div>
   );
 }
