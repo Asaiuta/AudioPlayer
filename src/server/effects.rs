@@ -1,8 +1,8 @@
 use super::*;
-use actix_web::{web, HttpResponse};
-use std::sync::Arc;
 use crate::config::normalize_eq_bands;
 use crate::server::state_helpers::eq_band_name_to_index;
+use actix_web::{web, HttpResponse};
+use std::sync::Arc;
 
 fn not_implemented_error(err: &str) -> bool {
     err.to_ascii_lowercase().contains("not yet implemented")

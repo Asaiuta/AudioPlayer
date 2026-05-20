@@ -1,14 +1,13 @@
 use super::{
-    active_ncm_cookie, ncm_upstream_error_response, read_song_detail,
-    read_song_dynamic_cover_url, read_song_url, AppState, NcmTrackResolveError,
-    ResolveNcmTrackRequest, ResolveNcmTrackSupplementRequest, ResolvedNcmTrack,
-    ResolvedNcmTrackSupplement,
+    active_ncm_cookie, ncm_upstream_error_response, read_song_detail, read_song_dynamic_cover_url,
+    read_song_url, AppState, NcmTrackResolveError, ResolveNcmTrackRequest,
+    ResolveNcmTrackSupplementRequest, ResolvedNcmTrack, ResolvedNcmTrackSupplement,
 };
+use crate::server::lyrics;
+use crate::server::{bad_gateway_response, bad_request_response, internal_server_error_response};
 use actix_web::{web, HttpResponse};
 use ncm_api_rs::Query;
 use std::sync::Arc;
-use crate::server::{bad_gateway_response, bad_request_response, internal_server_error_response};
-use crate::server::lyrics;
 
 pub(super) async fn resolve_ncm_track(
     data: web::Data<Arc<AppState>>,
@@ -235,7 +234,11 @@ pub(super) async fn resolve_ncm_track_supplement(
     let dynamic_cover_enabled = request.dynamic_cover.unwrap_or(false);
     let dynamic_cover_future = async {
         if dynamic_cover_enabled {
-            Some(data.ncm_client.song_dynamic_cover(&dynamic_cover_query).await)
+            Some(
+                data.ncm_client
+                    .song_dynamic_cover(&dynamic_cover_query)
+                    .await,
+            )
         } else {
             None
         }

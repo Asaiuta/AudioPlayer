@@ -212,10 +212,7 @@ mod tests {
 
     #[test]
     fn media_ids_with_start_leaves_ids_without_start_media() {
-        let ids = media_ids_with_start(
-            &["a".to_string(), "b".to_string(), "c".to_string()],
-            None,
-        );
+        let ids = media_ids_with_start(&["a".to_string(), "b".to_string(), "c".to_string()], None);
 
         assert_eq!(ids, vec!["a".to_string(), "b".to_string(), "c".to_string()]);
     }

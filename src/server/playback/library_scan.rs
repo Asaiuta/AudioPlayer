@@ -620,8 +620,8 @@ pub(super) fn scan_webdav_library(
 #[cfg(test)]
 mod tests {
     use super::{
-        collect_supported_local_media_paths, external_cover_for_media, metadata_with_external_cover,
-        UNKNOWN_SONG_TITLE,
+        collect_supported_local_media_paths, external_cover_for_media,
+        metadata_with_external_cover, UNKNOWN_SONG_TITLE,
     };
     use std::fs;
     use std::path::Path;

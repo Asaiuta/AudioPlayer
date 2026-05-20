@@ -30,38 +30,36 @@ use discover::{
     list_ncm_discover_toplists,
 };
 use parsers::{
-    discover_initial_param, filter_playlist_summaries, personal_fm_preview,
-    read_artist_tracks, read_cloud_tracks_page, read_daily_song_tracks,
-    read_discover_album_cards, read_discover_artist_cards, read_discover_playlist_cards,
-    read_discover_playlist_categories, read_discover_toplists, read_likelist_ids,
-    read_newest_album_cards, read_non_empty_string, read_page_has_more,
-    read_personal_fm_tracks, read_personalized_dj_cards, read_personalized_mv_cards,
-    read_personalized_playlist_cards, read_playlist_tracks,
+    discover_initial_param, filter_playlist_summaries, personal_fm_preview, read_artist_tracks,
+    read_cloud_tracks_page, read_daily_song_tracks, read_discover_album_cards,
+    read_discover_artist_cards, read_discover_playlist_cards, read_discover_playlist_categories,
+    read_discover_toplists, read_likelist_ids, read_newest_album_cards, read_non_empty_string,
+    read_page_has_more, read_personal_fm_tracks, read_personalized_dj_cards,
+    read_personalized_mv_cards, read_personalized_playlist_cards, read_playlist_tracks,
     read_radar_playlist_card, read_recommend_resource_cards, read_search_playlists,
-    read_search_tracks, read_song_detail, read_song_detail_tracks, read_song_dynamic_cover_url, read_song_url,
-    read_top_artist_cards, read_top_song_tracks, read_user_playlists, track_covers,
+    read_search_tracks, read_song_detail, read_song_detail_tracks, read_song_dynamic_cover_url,
+    read_song_url, read_top_artist_cards, read_top_song_tracks, read_user_playlists, track_covers,
 };
 use playback_actions::{
     enqueue_ncm_track, play_ncm_track, resolve_ncm_track, resolve_ncm_track_supplement,
 };
 use playlists::{list_ncm_playlist_tracks, list_ncm_user_playlists};
-use proxy::{
-    handle_request, parse_bool,
-};
+use proxy::{handle_request, parse_bool};
 use search::{search_ncm_playlists, search_ncm_tracks};
 use tracks::{
     list_ncm_album_tracks, list_ncm_artist_tracks, list_ncm_daily_song_tracks,
     list_ncm_personal_fm_tracks, list_ncm_song_detail_tracks, trash_ncm_personal_fm_track,
 };
+use types::NcmProfileSnapshot;
 use types::{
     ActiveNcmAccountRequest, CloudDeleteRequest, CloudTracksRequest, DiscoverAlbumsRequest,
     DiscoverArtistsRequest, DiscoverPlaylistsRequest, DiscoverSongsRequest, EntityTracksRequest,
     HomeFeedRequest, LikelistRequest, NcmAccountPath, NcmAccountStateResponse, NcmHomeFeed,
-    NcmHomeFeedError, NcmTrackResolveError, PersonalFmTrashRequest, PlaylistTracksRequest, ResolveNcmTrackRequest,
-    ResolveNcmTrackSupplementRequest, ResolvedNcmTrack, ResolvedNcmTrackSupplement, SearchTracksRequest,
-    SongDetailTracksRequest, UpsertNcmAccountRequest, UserPlaylistsRequest,
+    NcmHomeFeedError, NcmTrackResolveError, PersonalFmTrashRequest, PlaylistTracksRequest,
+    ResolveNcmTrackRequest, ResolveNcmTrackSupplementRequest, ResolvedNcmTrack,
+    ResolvedNcmTrackSupplement, SearchTracksRequest, SongDetailTracksRequest,
+    UpsertNcmAccountRequest, UserPlaylistsRequest,
 };
-use types::NcmProfileSnapshot;
 
 #[cfg(test)]
 use accounts::read_profile_snapshot;

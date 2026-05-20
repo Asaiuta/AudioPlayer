@@ -1,5 +1,5 @@
-use rusqlite::{params, params_from_iter, OptionalExtension};
 use rusqlite::types::ValueRef;
+use rusqlite::{params, params_from_iter, OptionalExtension};
 use std::collections::{HashMap, HashSet};
 
 use super::{

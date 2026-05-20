@@ -19,8 +19,8 @@ pub(crate) fn validate_path(path: &str) -> Result<String, String> {
         if path.contains("..") || path.contains('\\') {
             return Err("Invalid URL: path traversal characters not allowed".into());
         }
-        let url = reqwest::Url::parse(path)
-            .map_err(|e| format!("Invalid URL '{}': {}", path, e))?;
+        let url =
+            reqwest::Url::parse(path).map_err(|e| format!("Invalid URL '{}': {}", path, e))?;
         validate_remote_media_url(&url)?;
         return Ok(url.to_string());
     }
@@ -220,7 +220,11 @@ mod tests {
             "http://[fc00::1]/song.flac",
             "http://[::ffff:127.0.0.1]/song.flac",
         ] {
-            assert!(validate_path(url).is_err(), "expected '{}' to be rejected", url);
+            assert!(
+                validate_path(url).is_err(),
+                "expected '{}' to be rejected",
+                url
+            );
         }
     }
 
@@ -232,7 +236,11 @@ mod tests {
             "http://0x7f000001/song.flac",
             "http://0x7f.0x00.0x00.0x01/song.flac",
         ] {
-            assert!(validate_path(url).is_err(), "expected '{}' to be rejected", url);
+            assert!(
+                validate_path(url).is_err(),
+                "expected '{}' to be rejected",
+                url
+            );
         }
     }
 
@@ -243,7 +251,11 @@ mod tests {
             "https://example.com/music\\secret.flac",
             "https://user:password@example.com/song.flac",
         ] {
-            assert!(validate_path(url).is_err(), "expected '{}' to be rejected", url);
+            assert!(
+                validate_path(url).is_err(),
+                "expected '{}' to be rejected",
+                url
+            );
         }
     }
 

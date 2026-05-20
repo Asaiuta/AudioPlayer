@@ -119,11 +119,11 @@ async fn upsert_webdav_source(
         Err(e) => return bad_request_response(e),
     };
 
-    let display_name = match normalize_webdav_display_name(body.display_name.as_deref(), &source_key)
-    {
-        Ok(value) => value,
-        Err(e) => return bad_request_response(e),
-    };
+    let display_name =
+        match normalize_webdav_display_name(body.display_name.as_deref(), &source_key) {
+            Ok(value) => value,
+            Err(e) => return bad_request_response(e),
+        };
     let config = match build_webdav_config(&body.base_url, &body.username, &body.password) {
         Ok(config) => config,
         Err(e) => return bad_request_response(e),
@@ -253,8 +253,8 @@ fn normalize_webdav_base_url(base_url: &str) -> Result<String, String> {
     } else {
         format!("http://{}", trimmed)
     };
-    let url = reqwest::Url::parse(&candidate)
-        .map_err(|e| format!("Invalid WebDAV base_url: {}", e))?;
+    let url =
+        reqwest::Url::parse(&candidate).map_err(|e| format!("Invalid WebDAV base_url: {}", e))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err("WebDAV base_url must use http or https".to_string());
     }
@@ -283,7 +283,9 @@ fn normalize_webdav_source_key(source_key: &str) -> Result<String, String> {
         .chars()
         .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
     {
-        return Err("source_key may only contain ASCII letters, numbers, '-', '_' or '.'".to_string());
+        return Err(
+            "source_key may only contain ASCII letters, numbers, '-', '_' or '.'".to_string(),
+        );
     }
     Ok(trimmed.to_string())
 }
@@ -306,7 +308,10 @@ fn normalize_webdav_display_name(
 }
 
 fn normalize_webdav_browse_path(path: Option<&str>) -> Result<String, String> {
-    let value = path.map(str::trim).filter(|value| !value.is_empty()).unwrap_or("/");
+    let value = path
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("/");
     if value.len() > WEBDAV_BROWSE_PATH_MAX_LEN {
         return Err("WebDAV browse path is too long".to_string());
     }
@@ -328,10 +333,7 @@ fn has_parent_path_segment(value: &str) -> bool {
         .split_once("://")
         .and_then(|(_, rest)| rest.find('/').map(|slash| &rest[slash..]))
         .unwrap_or(value);
-    let path = path
-        .split(['?', '#'])
-        .next()
-        .unwrap_or(path);
+    let path = path.split(['?', '#']).next().unwrap_or(path);
     path.split('/').any(is_parent_path_segment)
 }
 
@@ -364,7 +366,10 @@ mod tests {
 
     #[test]
     fn normalize_webdav_source_key_rejects_path_like_input() {
-        assert_eq!(normalize_webdav_source_key(" archive-1 ").unwrap(), "archive-1");
+        assert_eq!(
+            normalize_webdav_source_key(" archive-1 ").unwrap(),
+            "archive-1"
+        );
         assert!(normalize_webdav_source_key("").is_err());
         assert!(normalize_webdav_source_key("../archive").is_err());
         assert!(normalize_webdav_source_key("archive/key").is_err());
@@ -373,7 +378,10 @@ mod tests {
     #[test]
     fn normalize_webdav_browse_path_rejects_absolute_or_traversal_input() {
         assert_eq!(normalize_webdav_browse_path(None).unwrap(), "/");
-        assert_eq!(normalize_webdav_browse_path(Some("music")).unwrap(), "music");
+        assert_eq!(
+            normalize_webdav_browse_path(Some("music")).unwrap(),
+            "music"
+        );
         assert!(normalize_webdav_browse_path(Some("https://evil.example/dav")).is_err());
         assert!(normalize_webdav_browse_path(Some("/music/../secret")).is_err());
         assert!(normalize_webdav_browse_path(Some("/music/%2e%2e/secret")).is_err());

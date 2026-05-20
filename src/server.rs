@@ -4,9 +4,7 @@
 
 use actix_cors::Cors;
 use actix_web::http::header;
-use actix_web::{
-    dev::ServerHandle, http::Method, middleware, web, App, HttpResponse, HttpServer,
-};
+use actix_web::{dev::ServerHandle, http::Method, middleware, web, App, HttpResponse, HttpServer};
 use parking_lot::Mutex;
 use serde::Serialize;
 use serde_json::Value as JsonValue;
