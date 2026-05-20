@@ -7,6 +7,8 @@ pub(crate) use queue_state::{
 };
 #[path = "playback/analysis.rs"]
 mod analysis;
+#[path = "playback/automix_handlers.rs"]
+mod automix_handlers;
 #[path = "playback/device_config.rs"]
 mod device_config;
 #[path = "playback/library.rs"]
@@ -36,6 +38,7 @@ mod types;
 use crate::player::{PlayerState, RepeatMode, SharedState, ShuffleMode};
 use actix_web::web;
 use analysis::*;
+use automix_handlers::*;
 use device_config::*;
 use library::*;
 use library_domain_handlers::*;

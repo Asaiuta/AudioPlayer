@@ -26,6 +26,10 @@ pub(super) fn configure_routes(cfg: &mut web::ServiceConfig) {
             web::post().to(super::configure_normalization),
         )
         .route("/loudness_info", web::get().to(super::get_loudness_info))
+        .route(
+            "/automix/analyze",
+            web::post().to(super::analyze_automix_track),
+        )
         .route("/scan_loudness", web::post().to(super::scan_track_loudness))
         .route(
             "/scan_loudness_background",
@@ -62,6 +66,14 @@ pub(super) fn configure_routes(cfg: &mut web::ServiceConfig) {
         .route(
             "/domain/library/track_summaries",
             web::get().to(super::get_library_track_summaries),
+        )
+        .route(
+            "/domain/library/view",
+            web::post().to(super::get_library_track_view),
+        )
+        .route(
+            "/domain/library/groups",
+            web::post().to(super::get_library_track_groups),
         )
         .route(
             "/domain/library/tracks/{track_key}",

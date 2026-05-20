@@ -144,6 +144,11 @@ impl Equalizer {
         debug_assert!(self.target_bands.len() >= self.channels);
         let frames = buffer.len() / self.channels;
 
+        if self.channels == 2 && self.smooth_counter.iter().all(|&counter| counter == 0) {
+            self.process_settled_stereo(buffer);
+            return;
+        }
+
         for frame in 0..frames {
             // Process all channels for this frame
             for ch in 0..self.channels {
@@ -164,6 +169,29 @@ impl Equalizer {
                     }
                 }
             }
+        }
+    }
+
+    fn process_settled_stereo(&mut self, buffer: &mut [f64]) {
+        debug_assert_eq!(self.channels, 2);
+        debug_assert!(self.smooth_counter.iter().all(|&counter| counter == 0));
+
+        let (left_banks, right_banks) = self.bands.split_at_mut(1);
+        let left_bands = &mut left_banks[0];
+        let right_bands = &mut right_banks[0];
+
+        for frame in buffer.chunks_exact_mut(2) {
+            let mut left = frame[0];
+            for band in left_bands.iter_mut() {
+                left = band.process(left);
+            }
+            frame[0] = left;
+
+            let mut right = frame[1];
+            for band in right_bands.iter_mut() {
+                right = band.process(right);
+            }
+            frame[1] = right;
         }
     }
 
@@ -243,5 +271,52 @@ mod tests {
             .flatten()
             .chain(eq.target_bands.iter().flatten())
             .all(|band| band.z1 == 0.0 && band.z2 == 0.0));
+    }
+
+    #[test]
+    fn settled_stereo_fast_path_matches_regular_path() {
+        let gains = [12.0, 9.0, 6.0, 3.0, -3.0, -6.0, -9.0, -12.0, 6.0, -6.0];
+        let mut regular = Equalizer::new(2, 48_000.0);
+        let mut fast = Equalizer::new(2, 48_000.0);
+        regular.set_enabled(true);
+        fast.set_enabled(true);
+        regular.set_all_bands(&gains, 48_000.0);
+        fast.set_all_bands(&gains, 48_000.0);
+
+        let mut silence = vec![0.0; 2 * (EQ_SMOOTH_SAMPLES as usize + 1)];
+        regular.process(&mut silence);
+        fast.process(&mut silence);
+        assert!(regular.smooth_counter.iter().all(|&counter| counter == 0));
+        assert!(fast.smooth_counter.iter().all(|&counter| counter == 0));
+
+        let mut regular_buffer = (0..2048)
+            .map(|sample| {
+                let t = sample as f64 / 48_000.0;
+                (2.0 * std::f64::consts::PI * 997.0 * t).sin() * 0.25
+            })
+            .collect::<Vec<_>>();
+        let mut fast_buffer = regular_buffer.clone();
+
+        regular.process_sample_by_sample_for_test(&mut regular_buffer);
+        fast.process(&mut fast_buffer);
+
+        let max_abs = regular_buffer
+            .iter()
+            .zip(&fast_buffer)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        assert!(max_abs <= 1.0e-12, "max_abs={max_abs:.3e}");
+    }
+
+    impl Equalizer {
+        fn process_sample_by_sample_for_test(&mut self, buffer: &mut [f64]) {
+            let frames = buffer.len() / self.channels;
+            for frame in 0..frames {
+                for ch in 0..self.channels {
+                    let idx = frame * self.channels + ch;
+                    buffer[idx] = self.process_sample_no_counter_update(buffer[idx], ch);
+                }
+            }
+        }
     }
 }

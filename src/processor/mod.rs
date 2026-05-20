@@ -23,6 +23,7 @@
 //! - [`adapters`] - Processor adapters implementing AudioProcessor trait
 //! - [`dsp_chain`] - Composable DSP processing chain
 
+mod automix_analysis;
 mod convolver;
 mod crossfeed;
 mod dsp;
@@ -42,6 +43,9 @@ pub mod lockfree_params;
 pub mod traits;
 
 // Re-export all public items for backward compatibility
+pub use automix_analysis::{
+    analyze_automix, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
+};
 pub use convolver::FFTConvolver;
 pub use crossfeed::{Crossfeed, CrossfeedSettings};
 pub use dsp::{db_to_linear, linear_to_db, NoiseShaper, NoiseShaperCurve, VolumeController};

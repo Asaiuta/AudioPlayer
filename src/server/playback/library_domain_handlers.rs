@@ -1,4 +1,8 @@
 use super::*;
+use crate::app_database::{
+    LibraryTrackGroupKind, LibraryTrackGroupsQuery, LibraryTrackViewQuery, LibraryTrackViewRange,
+    LibraryTrackViewSort, LibraryTrackViewSortField, LibraryTrackViewSortOrder,
+};
 use actix_web::{web, HttpResponse};
 use std::sync::atomic::Ordering;
 
@@ -83,6 +87,117 @@ pub(super) async fn get_library_track_summaries(data: web::Data<Arc<AppState>>) 
                 "tracks": tracks
             }))
         }
+        Err(e) => internal_server_error_response(e),
+    }
+}
+
+pub(super) async fn get_library_track_view(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<LibraryTrackViewRequest>,
+) -> HttpResponse {
+    let query = LibraryTrackViewQuery {
+        queries: body.queries.clone(),
+        folder_path: body.folder_path.clone(),
+        sort: LibraryTrackViewSort {
+            field: match body.sort.field {
+                LibraryTrackViewSortFieldRequest::Default => LibraryTrackViewSortField::Default,
+                LibraryTrackViewSortFieldRequest::Title => LibraryTrackViewSortField::Title,
+                LibraryTrackViewSortFieldRequest::Artist => LibraryTrackViewSortField::Artist,
+                LibraryTrackViewSortFieldRequest::Album => LibraryTrackViewSortField::Album,
+                LibraryTrackViewSortFieldRequest::TrackNumber => {
+                    LibraryTrackViewSortField::TrackNumber
+                }
+                LibraryTrackViewSortFieldRequest::Filename => LibraryTrackViewSortField::Filename,
+                LibraryTrackViewSortFieldRequest::Duration => LibraryTrackViewSortField::Duration,
+                LibraryTrackViewSortFieldRequest::Size => LibraryTrackViewSortField::Size,
+                LibraryTrackViewSortFieldRequest::CreateTime => {
+                    LibraryTrackViewSortField::CreateTime
+                }
+                LibraryTrackViewSortFieldRequest::UpdatedTime => {
+                    LibraryTrackViewSortField::UpdatedTime
+                }
+            },
+            order: match body.sort.order {
+                LibraryTrackViewSortOrderRequest::Default => LibraryTrackViewSortOrder::Default,
+                LibraryTrackViewSortOrderRequest::Asc => LibraryTrackViewSortOrder::Asc,
+                LibraryTrackViewSortOrderRequest::Desc => LibraryTrackViewSortOrder::Desc,
+            },
+        },
+        range: body.range.as_ref().map(|range| LibraryTrackViewRange {
+            start: range.start,
+            end: range.end,
+        }),
+        include_media_ids: body.include_media_ids,
+    };
+
+    match data.app_db.library_track_view(query) {
+        Ok(view) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "revision": view.revision,
+            "library_total_count": view.library_total_count,
+            "library_total_size_bytes": view.library_total_size_bytes,
+            "total_count": view.total_count,
+            "total_size_bytes": view.total_size_bytes,
+            "folders": view.folders,
+            "rows": view.rows,
+            "media_ids": view.media_ids
+        })),
+        Err(e) => internal_server_error_response(e),
+    }
+}
+
+pub(super) async fn get_library_track_groups(
+    data: web::Data<Arc<AppState>>,
+    body: web::Json<LibraryTrackGroupsRequest>,
+) -> HttpResponse {
+    let query = LibraryTrackGroupsQuery {
+        kind: match body.kind {
+            LibraryTrackGroupKindRequest::Artists => LibraryTrackGroupKind::Artists,
+            LibraryTrackGroupKindRequest::Albums => LibraryTrackGroupKind::Albums,
+        },
+        queries: body.queries.clone(),
+        folder_path: body.folder_path.clone(),
+        sort: LibraryTrackViewSort {
+            field: match body.sort.field {
+                LibraryTrackViewSortFieldRequest::Default => LibraryTrackViewSortField::Default,
+                LibraryTrackViewSortFieldRequest::Title => LibraryTrackViewSortField::Title,
+                LibraryTrackViewSortFieldRequest::Artist => LibraryTrackViewSortField::Artist,
+                LibraryTrackViewSortFieldRequest::Album => LibraryTrackViewSortField::Album,
+                LibraryTrackViewSortFieldRequest::TrackNumber => {
+                    LibraryTrackViewSortField::TrackNumber
+                }
+                LibraryTrackViewSortFieldRequest::Filename => LibraryTrackViewSortField::Filename,
+                LibraryTrackViewSortFieldRequest::Duration => LibraryTrackViewSortField::Duration,
+                LibraryTrackViewSortFieldRequest::Size => LibraryTrackViewSortField::Size,
+                LibraryTrackViewSortFieldRequest::CreateTime => {
+                    LibraryTrackViewSortField::CreateTime
+                }
+                LibraryTrackViewSortFieldRequest::UpdatedTime => {
+                    LibraryTrackViewSortField::UpdatedTime
+                }
+            },
+            order: match body.sort.order {
+                LibraryTrackViewSortOrderRequest::Default => LibraryTrackViewSortOrder::Default,
+                LibraryTrackViewSortOrderRequest::Asc => LibraryTrackViewSortOrder::Asc,
+                LibraryTrackViewSortOrderRequest::Desc => LibraryTrackViewSortOrder::Desc,
+            },
+        },
+        selected_group_key: body.selected_group_key.clone(),
+    };
+
+    match data.app_db.library_track_groups(query) {
+        Ok(view) => HttpResponse::Ok().json(serde_json::json!({
+            "status": "success",
+            "revision": view.revision,
+            "library_total_count": view.library_total_count,
+            "library_total_size_bytes": view.library_total_size_bytes,
+            "total_count": view.total_count,
+            "total_size_bytes": view.total_size_bytes,
+            "folders": view.folders,
+            "groups": view.groups,
+            "selected_group_key": view.selected_group_key,
+            "rows": view.rows
+        })),
         Err(e) => internal_server_error_response(e),
     }
 }

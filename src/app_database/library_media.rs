@@ -5,8 +5,10 @@ use std::collections::{HashMap, HashSet};
 use super::{
     media_id_for_path, media_item_from_row, media_item_from_row_with_offset,
     normalize_media_path_for_id, AppDatabase, LibraryFolderSummaryRecord,
-    LibrarySummaryStatsRecord, LibraryTrackDetailRecord, LibraryTrackSummaryRecord,
-    MediaItemRecord,
+    LibrarySummaryStatsRecord, LibraryTrackDetailRecord, LibraryTrackGroupKind,
+    LibraryTrackGroupSummaryRecord, LibraryTrackGroupsQuery, LibraryTrackGroupsRecord,
+    LibraryTrackSummaryRecord, LibraryTrackViewQuery, LibraryTrackViewRecord,
+    LibraryTrackViewSortField, LibraryTrackViewSortOrder, MediaItemRecord,
 };
 
 fn library_track_summary_from_row(
@@ -67,6 +69,214 @@ fn stable_key_for_text(value: &str) -> String {
         (acc ^ u64::from(*byte)).wrapping_mul(FNV_PRIME)
     });
     format!("{:016x}", hash)
+}
+
+fn normalize_query(value: &str) -> String {
+    value.trim().to_lowercase()
+}
+
+fn track_matches_queries(track: &LibraryTrackSummaryRecord, queries: &[String]) -> bool {
+    if queries.is_empty() {
+        return true;
+    }
+    let haystack = [
+        track.title.as_deref(),
+        track.artist.as_deref(),
+        track.album.as_deref(),
+        Some(track.file_name.as_str()),
+        Some(track.folder_label.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n")
+    .to_lowercase();
+    queries.iter().all(|query| haystack.contains(query))
+}
+
+fn normalized_folder_path(value: &str) -> String {
+    normalize_media_path_for_id(value)
+        .replace('\\', "/")
+        .trim_end_matches('/')
+        .to_lowercase()
+}
+
+fn track_is_in_folder(track: &LibraryTrackSummaryRecord, folder_path: &str) -> bool {
+    let parent = normalized_folder_path(folder_path);
+    let child = normalized_folder_path(&track.folder_path);
+    child == parent || child.starts_with(&format!("{}/", parent))
+}
+
+fn compare_text(left: Option<&str>, right: Option<&str>) -> std::cmp::Ordering {
+    left.unwrap_or("")
+        .trim()
+        .to_lowercase()
+        .cmp(&right.unwrap_or("").trim().to_lowercase())
+}
+
+fn fallback_group_key(kind: LibraryTrackGroupKind) -> &'static str {
+    match kind {
+        LibraryTrackGroupKind::Artists => "__unknown_artist",
+        LibraryTrackGroupKind::Albums => "__unknown_album",
+    }
+}
+
+fn split_artist_groups(artist: Option<&str>, fallback_key: &str) -> Vec<(String, Option<String>)> {
+    let Some(artist) = artist.map(str::trim).filter(|value| !value.is_empty()) else {
+        return vec![(fallback_key.to_string(), None)];
+    };
+    let groups = artist
+        .split(|ch| matches!(ch, '/' | '、' | '，' | ',' | ';' | '&'))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| (value.to_string(), Some(value.to_string())))
+        .collect::<Vec<_>>();
+    if groups.is_empty() {
+        vec![(fallback_key.to_string(), None)]
+    } else {
+        groups
+    }
+}
+
+fn track_group_keys(
+    track: &LibraryTrackSummaryRecord,
+    kind: LibraryTrackGroupKind,
+) -> Vec<(String, Option<String>)> {
+    let fallback_key = fallback_group_key(kind);
+    match kind {
+        LibraryTrackGroupKind::Artists => {
+            split_artist_groups(track.artist.as_deref(), fallback_key)
+        }
+        LibraryTrackGroupKind::Albums => {
+            let label = track
+                .album
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty());
+            match label {
+                Some(value) => vec![(value.to_string(), Some(value.to_string()))],
+                None => vec![(fallback_key.to_string(), None)],
+            }
+        }
+    }
+}
+
+fn group_summaries_for_tracks(
+    tracks: &[LibraryTrackSummaryRecord],
+    kind: LibraryTrackGroupKind,
+) -> Vec<LibraryTrackGroupSummaryRecord> {
+    #[derive(Default)]
+    struct GroupAccumulator {
+        label: Option<String>,
+        count: u64,
+        artwork_track_key: Option<i64>,
+        has_cover_art: bool,
+        external_artwork_url: Option<String>,
+    }
+
+    let mut groups = HashMap::<String, GroupAccumulator>::new();
+    for track in tracks {
+        for (key, label) in track_group_keys(track, kind) {
+            let entry = groups.entry(key).or_insert_with(|| GroupAccumulator {
+                label: label.clone(),
+                ..Default::default()
+            });
+            if entry.label.is_none() {
+                entry.label = label;
+            }
+            entry.count += 1;
+            if entry.artwork_track_key.is_none()
+                && (track.has_cover_art || track.external_artwork_url.is_some())
+            {
+                entry.artwork_track_key = Some(track.track_key);
+                entry.has_cover_art = track.has_cover_art;
+                entry.external_artwork_url = track.external_artwork_url.clone();
+            }
+        }
+    }
+
+    let mut summaries = groups
+        .into_iter()
+        .map(|(key, group)| LibraryTrackGroupSummaryRecord {
+            key,
+            label: group.label,
+            count: group.count,
+            artwork_track_key: group.artwork_track_key,
+            has_cover_art: group.has_cover_art,
+            external_artwork_url: group.external_artwork_url,
+        })
+        .collect::<Vec<_>>();
+    summaries.sort_by(|left, right| {
+        left.label
+            .as_deref()
+            .unwrap_or(&left.key)
+            .to_lowercase()
+            .cmp(&right.label.as_deref().unwrap_or(&right.key).to_lowercase())
+    });
+    summaries
+}
+
+fn track_is_in_group(
+    track: &LibraryTrackSummaryRecord,
+    kind: LibraryTrackGroupKind,
+    group_key: &str,
+) -> bool {
+    track_group_keys(track, kind)
+        .iter()
+        .any(|(key, _)| key == group_key)
+}
+
+fn sort_tracks_for_view(
+    tracks: &mut [LibraryTrackSummaryRecord],
+    field: LibraryTrackViewSortField,
+    order: LibraryTrackViewSortOrder,
+) {
+    if field == LibraryTrackViewSortField::Default || order == LibraryTrackViewSortOrder::Default {
+        return;
+    }
+    tracks.sort_by(|left, right| {
+        let result = match field {
+            LibraryTrackViewSortField::Default => std::cmp::Ordering::Equal,
+            LibraryTrackViewSortField::Title => compare_text(
+                left.title.as_deref().or(Some(left.file_name.as_str())),
+                right.title.as_deref().or(Some(right.file_name.as_str())),
+            ),
+            LibraryTrackViewSortField::Artist => {
+                compare_text(left.artist.as_deref(), right.artist.as_deref())
+            }
+            LibraryTrackViewSortField::Album => {
+                compare_text(left.album.as_deref(), right.album.as_deref())
+            }
+            LibraryTrackViewSortField::TrackNumber => left
+                .track_number
+                .unwrap_or(0)
+                .cmp(&right.track_number.unwrap_or(0)),
+            LibraryTrackViewSortField::Filename => compare_text(
+                Some(left.file_name.as_str()),
+                Some(right.file_name.as_str()),
+            ),
+            LibraryTrackViewSortField::Duration => left
+                .duration_secs
+                .unwrap_or(0.0)
+                .total_cmp(&right.duration_secs.unwrap_or(0.0)),
+            LibraryTrackViewSortField::Size => left
+                .size_bytes
+                .unwrap_or(0)
+                .cmp(&right.size_bytes.unwrap_or(0)),
+            LibraryTrackViewSortField::CreateTime => {
+                left.added_at_epoch_secs.cmp(&right.added_at_epoch_secs)
+            }
+            LibraryTrackViewSortField::UpdatedTime => {
+                left.updated_at_epoch_secs.cmp(&right.updated_at_epoch_secs)
+            }
+        };
+        if order == LibraryTrackViewSortOrder::Desc {
+            result.reverse()
+        } else {
+            result
+        }
+    });
 }
 
 impl AppDatabase {
@@ -183,6 +393,126 @@ impl AppDatabase {
 
         rows.collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("Failed to decode library summaries: {}", e))
+    }
+
+    pub fn library_track_view(
+        &self,
+        query: LibraryTrackViewQuery,
+    ) -> Result<LibraryTrackViewRecord, String> {
+        let stats = self.library_summary_stats()?;
+        let tracks = self.list_library_track_summaries()?;
+        let queries = query
+            .queries
+            .iter()
+            .map(|value| normalize_query(value))
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+
+        let query_filtered = tracks
+            .into_iter()
+            .filter(|track| track_matches_queries(track, &queries))
+            .collect::<Vec<_>>();
+        let folders = self.library_folder_summaries_for_tracks(&query_filtered);
+        let mut folder_filtered = match query.folder_path.as_deref() {
+            Some(folder_path) if !folder_path.trim().is_empty() => query_filtered
+                .into_iter()
+                .filter(|track| track_is_in_folder(track, folder_path))
+                .collect::<Vec<_>>(),
+            _ => query_filtered,
+        };
+        sort_tracks_for_view(&mut folder_filtered, query.sort.field, query.sort.order);
+
+        let total_count = folder_filtered.len() as u64;
+        let total_size_bytes = folder_filtered
+            .iter()
+            .map(|track| track.size_bytes.unwrap_or(0))
+            .sum::<u64>();
+        let media_ids = query.include_media_ids.then(|| {
+            folder_filtered
+                .iter()
+                .map(|track| track.media_id.clone())
+                .collect()
+        });
+        let rows = match query.range {
+            Some(range) => {
+                let start = range.start.min(folder_filtered.len());
+                let end = range.end.max(start).min(folder_filtered.len());
+                folder_filtered[start..end].to_vec()
+            }
+            None => folder_filtered,
+        };
+
+        Ok(LibraryTrackViewRecord {
+            revision: stats.revision,
+            library_total_count: stats.total_count,
+            library_total_size_bytes: stats.total_size_bytes,
+            total_count,
+            total_size_bytes,
+            folders,
+            rows,
+            media_ids,
+        })
+    }
+
+    pub fn library_track_groups(
+        &self,
+        query: LibraryTrackGroupsQuery,
+    ) -> Result<LibraryTrackGroupsRecord, String> {
+        let stats = self.library_summary_stats()?;
+        let tracks = self.list_library_track_summaries()?;
+        let queries = query
+            .queries
+            .iter()
+            .map(|value| normalize_query(value))
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+
+        let query_filtered = tracks
+            .into_iter()
+            .filter(|track| track_matches_queries(track, &queries))
+            .collect::<Vec<_>>();
+        let folders = self.library_folder_summaries_for_tracks(&query_filtered);
+        let mut folder_filtered = match query.folder_path.as_deref() {
+            Some(folder_path) if !folder_path.trim().is_empty() => query_filtered
+                .into_iter()
+                .filter(|track| track_is_in_folder(track, folder_path))
+                .collect::<Vec<_>>(),
+            _ => query_filtered,
+        };
+        sort_tracks_for_view(&mut folder_filtered, query.sort.field, query.sort.order);
+
+        let groups = group_summaries_for_tracks(&folder_filtered, query.kind);
+        let selected_group_key = query
+            .selected_group_key
+            .filter(|key| groups.iter().any(|group| group.key == *key))
+            .or_else(|| groups.first().map(|group| group.key.clone()));
+        let rows = selected_group_key
+            .as_deref()
+            .map(|group_key| {
+                folder_filtered
+                    .iter()
+                    .filter(|track| track_is_in_group(track, query.kind, group_key))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let total_count = folder_filtered.len() as u64;
+        let total_size_bytes = folder_filtered
+            .iter()
+            .map(|track| track.size_bytes.unwrap_or(0))
+            .sum::<u64>();
+
+        Ok(LibraryTrackGroupsRecord {
+            revision: stats.revision,
+            library_total_count: stats.total_count,
+            library_total_size_bytes: stats.total_size_bytes,
+            total_count,
+            total_size_bytes,
+            folders,
+            groups,
+            selected_group_key,
+            rows,
+        })
     }
 
     pub fn library_folder_summaries_for_tracks(

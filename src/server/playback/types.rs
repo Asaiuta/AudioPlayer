@@ -8,6 +8,14 @@ pub(super) struct ScanTaskPath {
 }
 
 #[derive(Deserialize)]
+pub(super) struct AutomixAnalyzeRequest {
+    pub(super) path: String,
+    #[serde(default)]
+    pub(super) mode: crate::processor::AutomixAnalysisMode,
+    pub(super) max_analyze_time_sec: Option<f64>,
+}
+
+#[derive(Deserialize)]
 pub(super) struct LibraryRootPath {
     pub(super) root_id: i64,
 }
@@ -59,6 +67,88 @@ pub(super) struct MediaItemsDeleteRequest {
 #[derive(Deserialize)]
 pub(super) struct LibraryTrackPath {
     pub(super) track_key: i64,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum LibraryTrackViewSortFieldRequest {
+    Default,
+    Title,
+    Artist,
+    Album,
+    TrackNumber,
+    Filename,
+    Duration,
+    Size,
+    CreateTime,
+    UpdatedTime,
+}
+
+impl Default for LibraryTrackViewSortFieldRequest {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum LibraryTrackViewSortOrderRequest {
+    Default,
+    Asc,
+    Desc,
+}
+
+impl Default for LibraryTrackViewSortOrderRequest {
+    fn default() -> Self {
+        Self::Default
+    }
+}
+
+#[derive(Default, Deserialize)]
+pub(super) struct LibraryTrackViewSortRequest {
+    #[serde(default)]
+    pub(super) field: LibraryTrackViewSortFieldRequest,
+    #[serde(default)]
+    pub(super) order: LibraryTrackViewSortOrderRequest,
+}
+
+#[derive(Deserialize)]
+pub(super) struct LibraryTrackViewRangeRequest {
+    pub(super) start: usize,
+    pub(super) end: usize,
+}
+
+#[derive(Deserialize)]
+pub(super) struct LibraryTrackViewRequest {
+    #[serde(default)]
+    pub(super) queries: Vec<String>,
+    #[serde(default, alias = "folderPath")]
+    pub(super) folder_path: Option<String>,
+    #[serde(default)]
+    pub(super) sort: LibraryTrackViewSortRequest,
+    pub(super) range: Option<LibraryTrackViewRangeRequest>,
+    #[serde(default, alias = "includeMediaIds")]
+    pub(super) include_media_ids: bool,
+}
+
+#[derive(Clone, Copy, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum LibraryTrackGroupKindRequest {
+    Artists,
+    Albums,
+}
+
+#[derive(Deserialize)]
+pub(super) struct LibraryTrackGroupsRequest {
+    pub(super) kind: LibraryTrackGroupKindRequest,
+    #[serde(default)]
+    pub(super) queries: Vec<String>,
+    #[serde(default, alias = "folderPath")]
+    pub(super) folder_path: Option<String>,
+    #[serde(default)]
+    pub(super) sort: LibraryTrackViewSortRequest,
+    #[serde(default, alias = "selectedGroupKey")]
+    pub(super) selected_group_key: Option<String>,
 }
 
 #[derive(Deserialize)]

@@ -26,7 +26,8 @@ pub use decoder::StreamingDecoder;
 pub use pipeline::AudioPipeline;
 pub use player::{AudioDeviceInfo, AudioPlayer, PlayerState, SharedState};
 pub use processor::{
-    AtomicLoudnessState, DatabaseStats, Equalizer, FFTConvolver, GainRamp, LoudnessDatabase,
+    analyze_automix, AtomicLoudnessState, AutomixAnalysis, AutomixAnalysisMode,
+    AutomixAnalysisOptions, DatabaseStats, Equalizer, FFTConvolver, GainRamp, LoudnessDatabase,
     LoudnessInfo, LoudnessMeter, LoudnessNormalizer, NoiseShaper, PeakLimiter, Resampler,
     SpectrumAnalyzer, StreamingResampler, TrackLoudness, TruePeakDetector, VolumeController,
     CURRENT_SCAN_VERSION,

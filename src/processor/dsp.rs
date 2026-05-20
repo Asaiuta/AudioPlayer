@@ -172,6 +172,15 @@ impl NoiseShaperCurve {
         }
     }
 
+    #[inline]
+    fn active_taps(&self) -> usize {
+        match self {
+            Self::Lipshitz5 => 5,
+            Self::TpdfOnly => 0,
+            Self::FWeighted9 | Self::ModifiedE9 | Self::ImprovedE9 => 9,
+        }
+    }
+
     /// Check if this curve is recommended for given sample rate
     /// Unified boundary at 50_000 Hz based on NTF degradation analysis:
     /// - At 48kHz: all curves have ≤6dB 4kHz notch degradation (acceptable)
@@ -202,8 +211,14 @@ impl Default for NoiseShaperCurve {
 pub struct NoiseShaper {
     /// Per-channel error history (9 samples each)
     error_history: Vec<[f64; 9]>,
+    /// Per-channel duplicated ring history for 9-tap curves.
+    error_history_9tap: Vec<[f64; 18]>,
+    /// Current head index in the duplicated 9-tap ring per channel.
+    error_history_9tap_heads: Vec<usize>,
     /// Current coefficients
     coeffs: [f64; 9],
+    /// Number of non-zero feedback taps for the current curve
+    active_taps: usize,
     /// Target bit depth
     bits: u32,
     /// Cached 2^(bits-1)
@@ -230,7 +245,10 @@ impl NoiseShaper {
 
         Self {
             error_history: vec![[0.0; 9]; channels],
+            error_history_9tap: vec![[0.0; 18]; channels],
+            error_history_9tap_heads: vec![0; channels],
             coeffs,
+            active_taps: curve.active_taps(),
             bits,
             cached_scale,
             cached_lsb,
@@ -296,11 +314,16 @@ impl NoiseShaper {
 
         self.curve = curve;
         self.coeffs = curve.coeffs();
+        self.active_taps = curve.active_taps();
 
         // MUST clear history when switching curves
         for h in &mut self.error_history {
             *h = [0.0; 9];
         }
+        for h in &mut self.error_history_9tap {
+            *h = [0.0; 18];
+        }
+        self.error_history_9tap_heads.fill(0);
 
         log::info!("NoiseShaper curve: {:?} @ {} Hz", curve, self.sample_rate);
     }
@@ -346,6 +369,15 @@ impl NoiseShaper {
     /// * Quantized sample in [-1, 1] range
     #[inline(always)]
     pub fn process_sample(&mut self, sample: f64, ch: usize) -> f64 {
+        match self.active_taps {
+            0 => self.process_sample_with_taps::<0>(sample, ch),
+            5 => self.process_sample_with_taps::<5>(sample, ch),
+            _ => self.process_sample_9tap_ring(sample, ch),
+        }
+    }
+
+    #[inline(always)]
+    fn process_sample_with_taps<const TAPS: usize>(&mut self, sample: f64, ch: usize) -> f64 {
         if !self.enabled || ch >= self.error_history.len() {
             return sample;
         }
@@ -371,15 +403,25 @@ impl NoiseShaper {
 
         // 2. Get error history and compute feedback
         let e = &mut self.error_history[ch];
-        let feedback = self.coeffs[0] * e[0]
-            + self.coeffs[1] * e[1]
-            + self.coeffs[2] * e[2]
-            + self.coeffs[3] * e[3]
-            + self.coeffs[4] * e[4]
-            + self.coeffs[5] * e[5]
-            + self.coeffs[6] * e[6]
-            + self.coeffs[7] * e[7]
-            + self.coeffs[8] * e[8];
+        let feedback = if TAPS == 0 {
+            0.0
+        } else if TAPS == 5 {
+            self.coeffs[0] * e[0]
+                + self.coeffs[1] * e[1]
+                + self.coeffs[2] * e[2]
+                + self.coeffs[3] * e[3]
+                + self.coeffs[4] * e[4]
+        } else {
+            self.coeffs[0] * e[0]
+                + self.coeffs[1] * e[1]
+                + self.coeffs[2] * e[2]
+                + self.coeffs[3] * e[3]
+                + self.coeffs[4] * e[4]
+                + self.coeffs[5] * e[5]
+                + self.coeffs[6] * e[6]
+                + self.coeffs[7] * e[7]
+                + self.coeffs[8] * e[8]
+        };
 
         // 3. Quantize
         //    x is in the integer domain (sample * scale shifts to integer range)
@@ -393,16 +435,76 @@ impl NoiseShaper {
         let raw_error = x - quantized;
         let clamped_error = raw_error.clamp(-2.0, 2.0);
 
-        // Shift history and insert new error
-        e[8] = e[7];
-        e[7] = e[6];
-        e[6] = e[5];
-        e[5] = e[4];
-        e[4] = e[3];
-        e[3] = e[2];
-        e[2] = e[1];
-        e[1] = e[0];
-        e[0] = clamped_error;
+        // Shift only the active feedback window. TPDF-only has no feedback state.
+        if TAPS == 5 {
+            e[4] = e[3];
+            e[3] = e[2];
+            e[2] = e[1];
+            e[1] = e[0];
+            e[0] = clamped_error;
+        } else if TAPS == 9 {
+            e[8] = e[7];
+            e[7] = e[6];
+            e[6] = e[5];
+            e[5] = e[4];
+            e[4] = e[3];
+            e[3] = e[2];
+            e[2] = e[1];
+            e[1] = e[0];
+            e[0] = clamped_error;
+        }
+
+        quantized * self.cached_lsb
+    }
+
+    #[inline(always)]
+    fn process_sample_lipshitz5(&mut self, sample: f64, ch: usize) -> f64 {
+        self.process_sample_with_taps::<5>(sample, ch)
+    }
+
+    #[inline(always)]
+    fn process_sample_tpdf_only(&mut self, sample: f64, ch: usize) -> f64 {
+        self.process_sample_with_taps::<0>(sample, ch)
+    }
+
+    #[inline(always)]
+    fn process_sample_9tap(&mut self, sample: f64, ch: usize) -> f64 {
+        self.process_sample_9tap_ring(sample, ch)
+    }
+
+    #[inline(always)]
+    fn process_sample_9tap_ring(&mut self, sample: f64, ch: usize) -> f64 {
+        if !self.enabled || ch >= self.error_history_9tap.len() {
+            return sample;
+        }
+
+        const SILENCE_THRESHOLD: f64 = 1e-6;
+
+        if sample.abs() < SILENCE_THRESHOLD {
+            self.error_history_9tap[ch] = [0.0; 18];
+            self.error_history_9tap_heads[ch] = 0;
+            return sample;
+        }
+
+        let dither = self.tpdf();
+        let head = self.error_history_9tap_heads[ch];
+        let e = &mut self.error_history_9tap[ch];
+        let feedback = self.coeffs[0] * e[head]
+            + self.coeffs[1] * e[head + 1]
+            + self.coeffs[2] * e[head + 2]
+            + self.coeffs[3] * e[head + 3]
+            + self.coeffs[4] * e[head + 4]
+            + self.coeffs[5] * e[head + 5]
+            + self.coeffs[6] * e[head + 6]
+            + self.coeffs[7] * e[head + 7]
+            + self.coeffs[8] * e[head + 8];
+        let x = sample * self.cached_scale + feedback;
+        let quantized = (x + dither).round();
+        let clamped_error = (x - quantized).clamp(-2.0, 2.0);
+        let next_head = if head == 0 { 8 } else { head - 1 };
+        e[next_head] = clamped_error;
+        e[next_head + 9] = clamped_error;
+        self.error_history_9tap_heads[ch] = next_head;
 
         quantized * self.cached_lsb
     }
@@ -414,10 +516,30 @@ impl NoiseShaper {
         }
 
         let frames = buffer.len() / channels;
-        for frame in 0..frames {
-            for ch in 0..channels {
-                let idx = frame * channels + ch;
-                buffer[idx] = self.process_sample(buffer[idx], ch);
+        match self.active_taps {
+            0 => {
+                for frame in 0..frames {
+                    for ch in 0..channels {
+                        let idx = frame * channels + ch;
+                        buffer[idx] = self.process_sample_tpdf_only(buffer[idx], ch);
+                    }
+                }
+            }
+            5 => {
+                for frame in 0..frames {
+                    for ch in 0..channels {
+                        let idx = frame * channels + ch;
+                        buffer[idx] = self.process_sample_lipshitz5(buffer[idx], ch);
+                    }
+                }
+            }
+            _ => {
+                for frame in 0..frames {
+                    for ch in 0..channels {
+                        let idx = frame * channels + ch;
+                        buffer[idx] = self.process_sample_9tap(buffer[idx], ch);
+                    }
+                }
             }
         }
     }
@@ -427,6 +549,10 @@ impl NoiseShaper {
         for h in &mut self.error_history {
             *h = [0.0; 9];
         }
+        for h in &mut self.error_history_9tap {
+            *h = [0.0; 18];
+        }
+        self.error_history_9tap_heads.fill(0);
         // Reset RNG state for reproducibility
         self.rng_state = 0x1234_5678_9ABC_DEF0;
     }
@@ -435,6 +561,17 @@ impl NoiseShaper {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn active_history(ns: &NoiseShaper, ch: usize) -> Vec<f64> {
+        match ns.active_taps {
+            0 => Vec::new(),
+            5 => ns.error_history[ch][..5].to_vec(),
+            _ => {
+                let head = ns.error_history_9tap_heads[ch];
+                ns.error_history_9tap[ch][head..head + 9].to_vec()
+            }
+        }
+    }
 
     fn legacy_process_sample(ns: &mut NoiseShaper, sample: f64, ch: usize) -> f64 {
         if !ns.enabled || ch >= ns.error_history.len() {
@@ -542,6 +679,23 @@ mod tests {
     }
 
     #[test]
+    fn test_curve_switch_clears_9tap_ring_history() {
+        let mut ns = NoiseShaper::new(1, 44100, 24);
+        ns.set_curve(NoiseShaperCurve::FWeighted9);
+
+        for i in 0..100 {
+            ns.process_sample(0.5 * (i as f64 / 100.0).sin(), 0);
+        }
+
+        assert!(ns.error_history_9tap[0].iter().any(|&e| e != 0.0));
+
+        ns.set_curve(NoiseShaperCurve::ImprovedE9);
+
+        assert!(ns.error_history_9tap[0].iter().all(|&e| e == 0.0));
+        assert_eq!(ns.error_history_9tap_heads[0], 0);
+    }
+
+    #[test]
     fn test_idle_tone_free() {
         // With adaptive dither, zero input returns zero output (silence bypass)
         // Test that near-silence (above threshold) produces dithered output
@@ -633,13 +787,29 @@ mod tests {
                         ch
                     );
                     assert_eq!(
-                        optimized.error_history[ch], legacy.error_history[ch],
-                        "curve {:?}, frame {}, channel {} history mismatch",
-                        curve, frame, ch
+                        active_history(&optimized, ch),
+                        legacy.error_history[ch][..curve.active_taps()].to_vec(),
+                        "curve {:?}, frame {}, channel {} active history mismatch",
+                        curve,
+                        frame,
+                        ch
                     );
                 }
             }
         }
+    }
+
+    #[test]
+    fn test_tpdf_only_does_not_update_error_history() {
+        let mut ns = NoiseShaper::new(1, 96_000, 24);
+        ns.set_curve(NoiseShaperCurve::TpdfOnly);
+
+        for i in 0..128 {
+            let sample = ((i + 1) as f64 * 0.031).sin() * 0.5;
+            let _ = ns.process_sample(sample, 0);
+        }
+
+        assert!(ns.error_history[0].iter().all(|&e| e == 0.0));
     }
 
     #[test]
@@ -657,6 +827,25 @@ mod tests {
 
         assert!(ns.error_history[0].iter().all(|&e| e == 0.0));
         assert!(ns.error_history[1].iter().any(|&e| e != 0.0));
+    }
+
+    #[test]
+    fn test_noise_shaper_9tap_ring_silence_reset_is_channel_local() {
+        let mut ns = NoiseShaper::new(2, 44100, 24);
+        ns.set_curve(NoiseShaperCurve::FWeighted9);
+
+        for _ in 0..16 {
+            ns.process_sample(0.25, 0);
+            ns.process_sample(-0.25, 1);
+        }
+        assert!(ns.error_history_9tap[0].iter().any(|&e| e != 0.0));
+        assert!(ns.error_history_9tap[1].iter().any(|&e| e != 0.0));
+
+        ns.process_sample(0.0, 0);
+
+        assert!(ns.error_history_9tap[0].iter().all(|&e| e == 0.0));
+        assert_eq!(ns.error_history_9tap_heads[0], 0);
+        assert!(ns.error_history_9tap[1].iter().any(|&e| e != 0.0));
     }
 
     #[test]

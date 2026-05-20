@@ -1274,3 +1274,148 @@ fn library_track_key_lookup_preserves_order_and_keeps_summaries_light() {
     assert!(serialized.get("folder_path").is_none());
     assert!(serialized.get("media_id").is_some());
 }
+
+#[test]
+fn library_track_view_filters_sorts_paginates_and_returns_media_ids() {
+    let db = AppDatabase::in_memory().unwrap();
+    let media_a = db
+        .record_external_media_metadata(
+            "D:/music/root/a.flac",
+            Some("Gamma"),
+            Some("Ada"),
+            Some("First"),
+            Some(210.0),
+            None,
+        )
+        .unwrap();
+    let media_b = db
+        .record_external_media_metadata(
+            "D:/music/root/b.flac",
+            Some("Alpha"),
+            Some("Ada"),
+            Some("First"),
+            Some(120.0),
+            None,
+        )
+        .unwrap();
+    let _media_c = db
+        .record_external_media_metadata(
+            "D:/music/other/c.flac",
+            Some("Beta"),
+            Some("Bea"),
+            Some("Second"),
+            Some(180.0),
+            None,
+        )
+        .unwrap();
+
+    let view = db
+        .library_track_view(LibraryTrackViewQuery {
+            queries: vec!["ada".to_string()],
+            folder_path: Some("D:/music/root".to_string()),
+            sort: LibraryTrackViewSort {
+                field: LibraryTrackViewSortField::Title,
+                order: LibraryTrackViewSortOrder::Asc,
+            },
+            range: Some(LibraryTrackViewRange { start: 0, end: 1 }),
+            include_media_ids: true,
+        })
+        .unwrap();
+
+    assert_eq!(view.library_total_count, 3);
+    assert_eq!(view.total_count, 2);
+    assert_eq!(view.rows.len(), 1);
+    assert_eq!(view.rows[0].media_id, media_b);
+    assert_eq!(
+        view.media_ids.unwrap(),
+        vec![media_b.clone(), media_a.clone()]
+    );
+    assert_eq!(view.folders.len(), 1);
+    assert_eq!(view.folders[0].path, "D:/music/root");
+    assert_eq!(view.folders[0].count, 2);
+}
+
+#[test]
+fn library_track_groups_split_artists_and_return_selected_rows() {
+    let db = AppDatabase::in_memory().unwrap();
+    let media_a = db
+        .record_external_media_metadata(
+            "D:/music/root/a.flac",
+            Some("Gamma"),
+            Some("Ada, Bea"),
+            Some("First"),
+            Some(210.0),
+            None,
+        )
+        .unwrap();
+    let _media_b = db
+        .record_external_media_metadata(
+            "D:/music/root/b.flac",
+            Some("Alpha"),
+            Some("Ada"),
+            None,
+            Some(120.0),
+            None,
+        )
+        .unwrap();
+    let _media_c = db
+        .record_external_media_metadata(
+            "D:/music/other/c.flac",
+            Some("Beta"),
+            None,
+            Some("Second"),
+            Some(180.0),
+            None,
+        )
+        .unwrap();
+
+    let artists = db
+        .library_track_groups(LibraryTrackGroupsQuery {
+            kind: LibraryTrackGroupKind::Artists,
+            queries: vec![],
+            folder_path: Some("D:/music/root".to_string()),
+            sort: LibraryTrackViewSort {
+                field: LibraryTrackViewSortField::Title,
+                order: LibraryTrackViewSortOrder::Asc,
+            },
+            selected_group_key: Some("Bea".to_string()),
+        })
+        .unwrap();
+
+    assert_eq!(artists.total_count, 2);
+    assert!(artists
+        .groups
+        .iter()
+        .any(|group| group.key == "Ada" && group.count == 2));
+    assert!(artists
+        .groups
+        .iter()
+        .any(|group| group.key == "Bea" && group.count == 1));
+    assert_eq!(artists.selected_group_key.as_deref(), Some("Bea"));
+    assert_eq!(artists.rows.len(), 1);
+    assert_eq!(artists.rows[0].media_id, media_a);
+
+    let albums = db
+        .library_track_groups(LibraryTrackGroupsQuery {
+            kind: LibraryTrackGroupKind::Albums,
+            queries: vec![],
+            folder_path: Some("D:/music/root".to_string()),
+            sort: LibraryTrackViewSort {
+                field: LibraryTrackViewSortField::Title,
+                order: LibraryTrackViewSortOrder::Asc,
+            },
+            selected_group_key: Some("__unknown_album".to_string()),
+        })
+        .unwrap();
+
+    assert!(albums
+        .groups
+        .iter()
+        .any(|group| group.key == "__unknown_album" && group.label.is_none()));
+    assert_eq!(
+        albums.selected_group_key.as_deref(),
+        Some("__unknown_album")
+    );
+    assert_eq!(albums.rows.len(), 1);
+    assert_eq!(albums.rows[0].title.as_deref(), Some("Alpha"));
+}

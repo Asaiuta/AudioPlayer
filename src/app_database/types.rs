@@ -109,6 +109,99 @@ pub struct LibraryFolderSummaryRecord {
     pub count: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryTrackViewSortField {
+    Default,
+    Title,
+    Artist,
+    Album,
+    TrackNumber,
+    Filename,
+    Duration,
+    Size,
+    CreateTime,
+    UpdatedTime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryTrackViewSortOrder {
+    Default,
+    Asc,
+    Desc,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LibraryTrackViewSort {
+    pub field: LibraryTrackViewSortField,
+    pub order: LibraryTrackViewSortOrder,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LibraryTrackViewRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct LibraryTrackViewQuery {
+    pub queries: Vec<String>,
+    pub folder_path: Option<String>,
+    pub sort: LibraryTrackViewSort,
+    pub range: Option<LibraryTrackViewRange>,
+    pub include_media_ids: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryTrackViewRecord {
+    pub revision: String,
+    pub library_total_count: u64,
+    pub library_total_size_bytes: u64,
+    pub total_count: u64,
+    pub total_size_bytes: u64,
+    pub folders: Vec<LibraryFolderSummaryRecord>,
+    pub rows: Vec<LibraryTrackSummaryRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_ids: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryTrackGroupKind {
+    Artists,
+    Albums,
+}
+
+#[derive(Debug, Clone)]
+pub struct LibraryTrackGroupsQuery {
+    pub kind: LibraryTrackGroupKind,
+    pub queries: Vec<String>,
+    pub folder_path: Option<String>,
+    pub sort: LibraryTrackViewSort,
+    pub selected_group_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryTrackGroupSummaryRecord {
+    pub key: String,
+    pub label: Option<String>,
+    pub count: u64,
+    pub artwork_track_key: Option<i64>,
+    pub has_cover_art: bool,
+    pub external_artwork_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryTrackGroupsRecord {
+    pub revision: String,
+    pub library_total_count: u64,
+    pub library_total_size_bytes: u64,
+    pub total_count: u64,
+    pub total_size_bytes: u64,
+    pub folders: Vec<LibraryFolderSummaryRecord>,
+    pub groups: Vec<LibraryTrackGroupSummaryRecord>,
+    pub selected_group_key: Option<String>,
+    pub rows: Vec<LibraryTrackSummaryRecord>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LibraryTrackDetailRecord {
     pub track_key: i64,

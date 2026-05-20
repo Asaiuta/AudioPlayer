@@ -621,8 +621,19 @@ impl DynamicLoudness {
             }
         }
 
+        if self.active_bands.iter().all(|&active| !active) {
+            self.apply_pre_gain_only(buffer, frames);
+            return;
+        }
+
         // Process all samples
         self.process_samples(buffer);
+    }
+
+    fn apply_pre_gain_only(&self, buffer: &mut [f64], frames: usize) {
+        for sample in buffer.iter_mut().take(frames * self.channels) {
+            *sample *= self.pre_gain_linear;
+        }
     }
 
     /// Internal: process samples after coefficient update
@@ -952,6 +963,26 @@ mod tests {
             .iter()
             .enumerate()
             .any(|(band, &active)| band != 3 && active));
+    }
+
+    #[test]
+    fn test_identity_path_applies_pregain_without_touching_filters() {
+        let mut dl = DynamicLoudness::new(2, 48_000.0);
+        dl.set_volume_db(-15.0);
+        let input = vec![0.25, -0.5, 0.125, -0.25];
+        let mut buffer = input.clone();
+
+        dl.process(&mut buffer);
+
+        for (actual, original) in buffer.iter().zip(input.iter()) {
+            assert!((actual - original * dl.pre_gain_linear).abs() < 1.0e-12);
+        }
+        assert!(dl.active_bands.iter().all(|&active| !active));
+        assert!(dl
+            .filters
+            .iter()
+            .flatten()
+            .all(|filter| filter.state.z1 == 0.0 && filter.state.z2 == 0.0));
     }
 
     #[test]

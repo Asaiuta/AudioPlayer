@@ -16,6 +16,7 @@ mod state;
 // Re-exports
 pub use callback::{audio_callback_lockfree, normalize_channels, LockfreeDspContext};
 pub use gapless::GaplessManager;
+pub use spectrum::SpectrumBatch;
 pub use state::{
     AtomicPlayerState, AudioCommand, AudioDeviceInfo, PlayerState, RepeatMode, SharedState,
     ShuffleMode, EVENT_LOAD_COMPLETE, EVENT_LOAD_ERROR, EVENT_NEEDS_PRELOAD,
@@ -52,7 +53,6 @@ use crate::processor::{
 // Import internal modules
 use audio_thread::{audio_thread_main, AudioThreadStartup};
 use spectrum::spectrum_thread_main;
-use spectrum::SpectrumBatch;
 use state::{load_cache_with_header, save_cache_with_header};
 
 const RESAMPLER_OUTPUT_FRAME_RESERVE: usize = 64;
