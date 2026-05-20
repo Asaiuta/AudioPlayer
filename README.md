@@ -36,10 +36,12 @@
 | 层级 | 技术 |
 |------|------|
 | 音频引擎 | Rust (symphonia, soxr, cpal, rustfft) |
-| 桌面框架 | Tauri |
+| 桌面框架 | Tauri 2.x |
 | 前端 | SolidJS + TypeScript |
 | 样式 | UnoCSS |
 | 数据库 | SQLite (rusqlite) |
+| HTTP 服务器 | Actix-web |
+| 异步运行时 | Tokio |
 | 构建 | Vite + Cargo |
 
 ## 项目结构
@@ -50,21 +52,49 @@ AudioPlayer/
 │   ├── player/             # 播放器核心（音频线程、回调、频谱）
 │   ├── processor/          # DSP 处理器（均衡器、响度、重采样）
 │   ├── server/             # HTTP/WebSocket 服务器
-│   └── app_database/       # SQLite 数据库操作
+│   ├── app_database/       # SQLite 数据库操作
+│   └── main.rs             # 服务器入口点
 ├── apps/desktop/           # Tauri 桌面应用
 │   ├── src/                # SolidJS 前端
 │   └── src-tauri/          # Tauri 配置
 ├── crates/                 # Rust 子 crate
-└── migrations/             # 数据库迁移
+│   └── audio-runtime-paths/ # 运行时路径处理
+├── packages/               # 协议定义
+│   └── protocol/           # OpenAPI 规范
+├── migrations/             # 数据库迁移
+├── benches/                # 性能基准测试
+└── scripts/                # 构建脚本
 ```
 
 ## 开发
 
 ### 环境要求
 
-- Rust 1.70+
+- Rust 1.70+ (推荐 1.75+)
 - Node.js 18+
-- soxr 库
+- soxr 库 (通过 vcpkg 或 MSYS2 安装)
+
+#### Windows 依赖安装
+
+**方法 1: 使用 vcpkg (推荐)**
+```bash
+# 安装 vcpkg
+git clone https://github.com/microsoft/vcpkg.git
+cd vcpkg
+.\bootstrap-vcpkg.bat
+
+# 安装 soxr
+.\vcpkg install soxr:x64-windows-static-md
+```
+
+**方法 2: 使用 MSYS2**
+```bash
+# 安装 MSYS2
+# 下载并安装 https://www.msys2.org/
+
+# 在 MSYS2 MinGW 64-bit 终端中
+pacman -S mingw-w64-x86_64-soxr
+```
 
 ### 快速开始
 
@@ -79,7 +109,7 @@ AudioPlayer/
 
    ```bash
    set RUSTFLAGS=-C target-cpu=native
-   cargo build --release
+   cargo build --release --bin audio_server
    ```
 
 3. 启动前端开发
@@ -113,6 +143,7 @@ AudioPlayer/
 - 🌚 Light / Dark 模式切换
 - 🔄 播放队列管理
 - 📊 响度测量（EBU R128）
+- 🎶 AutoMix 智能混音 (开发中)
 
 ## 性能优化
 
@@ -121,6 +152,64 @@ AudioPlayer/
 - **实时安全音频线程**：避免音频回调中的内存分配和阻塞操作
 - **高效缓冲区管理**：复用音频缓冲区，减少内存分配开销
 - **并行处理**：使用 rayon 进行并行 DSP 处理
+
+## 构建
+
+### 开发构建
+
+1. 构建音频引擎后端
+
+   ```bash
+   # 设置 CPU 优化 (可选)
+   set RUSTFLAGS=-C target-cpu=native
+   
+   # 构建
+   cargo build --release --bin audio_server
+   ```
+
+2. 启动前端开发
+
+   ```bash
+   cd apps/desktop
+   npm install
+   npm run dev
+   ```
+
+### 生产构建
+
+1. 完整构建 (包含 Tauri 打包)
+
+   ```bash
+   cd apps/desktop
+   npm run tauri build
+   ```
+
+2. 仅构建 Web 前端
+
+   ```bash
+   cd apps/desktop
+   npm run build:web
+   ```
+
+3. 构建多版本音频引擎 (需要 PowerShell)
+
+   ```bash
+   .\scripts\build_all.ps1
+   ```
+
+### 测试
+
+```bash
+# 运行前端测试
+cd apps/desktop
+npm test
+
+# 运行 Rust 测试
+cargo test
+
+# 运行性能基准测试
+cargo bench
+```
 
 ## 架构特点
 
@@ -146,6 +235,32 @@ AudioPlayer/
 - Tauri IPC 通信
 - 响应式播放状态管理
 
+### 架构图
+
+#### 音频引擎架构
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   音频线程       │    │   处理管道       │    │   输出设备       │
+│  (实时回调)      │───▶│  (DSP 处理)      │───▶│  (WASAPI/cpal)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                     │                      │
+         ▼                     ▼                      ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   频谱分析       │    │   响度测量       │    │   参数更新       │
+│  (FFT)          │    │  (EBU R128)     │    │  (Atomic)       │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+#### 前端架构
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   SolidJS       │    │   Tauri IPC     │    │   WebSocket     │
+│  (响应式UI)     │◀──▶│  (命令调用)      │◀──▶│  (实时状态)     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
 ## 😘 鸣谢
 
 特此感谢为本项目提供支持与灵感的项目：
@@ -153,6 +268,36 @@ AudioPlayer/
 - [SPlayer](https://github.com/imsyy/SPlayer) - 简约的音乐播放器，本项目前端设计参考
 - [NeteaseCloudMusicApi](https://github.com/neteasecloudmusicapienhanced/api-enhanced) - 网易云音乐 API 服务
 - [applemusic-like-lyrics](https://github.com/Steve-xmh/applemusic-like-lyrics) - Apple Music 风格歌词显示
+
+## 贡献
+
+欢迎贡献！请遵循以下步骤：
+
+1. Fork 项目
+2. 创建功能分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 开启 Pull Request
+
+### 代码规范
+
+- Rust: 使用 `cargo fmt` 和 `cargo clippy`
+- TypeScript: 使用项目配置的 ESLint 规则
+- 提交信息: 遵循 [Conventional Commits](https://www.conventionalcommits.org/)
+
+## 常见问题
+
+### Q: 构建时找不到 soxr 库
+
+A: 确保已通过 vcpkg 或 MSYS2 安装 soxr，并设置正确的 `PKG_CONFIG_PATH`。
+
+### Q: 音频播放卡顿
+
+A: 尝试设置 `RUSTFLAGS=-C target-cpu=native` 以启用 CPU 特定优化。
+
+### Q: 如何启用 AVX-512 优化
+
+A: 使用 `scripts\build_all.ps1` 脚本，它会自动构建 AVX2 和 AVX-512 两个版本。
 
 ## 📢 免责声明
 
