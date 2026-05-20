@@ -1,6 +1,7 @@
 export const en = {
   // Common
   "common.all": "All",
+  "common.empty.description": "Nothing here yet",
   "common.error.requestFailed": "Request failed",
 
   // Sidebar
@@ -772,6 +773,8 @@ export const en = {
   "settings.general.window.restartHint": "Restart required to restore the OS title bar after turning custom chrome off.",
   "settings.general.homeSections.title": "Home Section Order",
   "settings.general.homeSections.desc": "Adjust the order of home sections or hide sections you do not need",
+  "settings.general.showHomeGreeting": "Show home greeting",
+  "settings.general.showHomeGreeting.desc": "Display the time-of-day greeting at the top of the recommendation feed",
   "settings.general.unavailable.desc": "General behavior, search preferences, update checks, and protocol launch settings are not fully wired to the local runtime yet.",
   "settings.general.behavior.title": "General Behavior",
   "settings.general.useOnlineService": "Online Services",
@@ -920,6 +923,7 @@ export const en = {
   "settings.appearance.sidebar.recent": "Recently Played",
   "settings.appearance.sidebar.createdPlaylists": "Created Playlists",
   "settings.appearance.sidebar.collectedPlaylists": "Collected Playlists",
+  "settings.appearance.sidebar.heartbeatMode": "Heartbeat mode entry",
   "settings.appearance.menuShowCover": "Show playlist covers in sidebar",
   "settings.appearance.menuShowCover.desc": "Display cover thumbnails in created and collected playlist lists",
   "settings.appearance.playlistPage.tags": "Show playlist tags",

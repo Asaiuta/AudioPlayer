@@ -170,6 +170,21 @@ export function AppearanceSubPanel(props: AppearanceSubPanelProps) {
 
       <Show when={props.manager.panel === "homeSections"}>
         <SettingGroup title={t("settings.general.homeSections.title")}>
+          <BooleanSettingItem
+            id="showHomeGreeting"
+            label={t("settings.general.showHomeGreeting")}
+            description={t("settings.general.showHomeGreeting.desc")}
+            highlighted={isHi("showHomeGreeting")}
+            index={props.nextIndex()}
+            checked={props.settings.showHomeGreeting()}
+            onChange={() =>
+              props.settings.toggleField(
+                "showHomeGreeting",
+                props.settings.showHomeGreeting,
+                props.settings.setShowHomeGreeting
+              )
+            }
+          />
           <div
             id="setting-homeSections"
             class={standaloneSettingClass("homeSections")}

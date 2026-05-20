@@ -58,6 +58,8 @@ export const SETTINGS_CATALOG: ReadonlyArray<SettingsCatalogEntry> = [
   { category: "appearance", itemId: "sidebarHiddenItems.recent", labelKey: "settings.appearance.sidebar.recent", keywords: ["sidebar", "history", "recent", "最近"] },
   { category: "appearance", itemId: "sidebarHiddenItems.createdPlaylists", labelKey: "settings.appearance.sidebar.createdPlaylists", keywords: ["sidebar", "playlist", "created", "创建歌单"] },
   { category: "appearance", itemId: "sidebarHiddenItems.collectedPlaylists", labelKey: "settings.appearance.sidebar.collectedPlaylists", keywords: ["sidebar", "playlist", "collected", "收藏歌单"] },
+  { category: "appearance", itemId: "sidebarHiddenItems.heartbeatMode", labelKey: "settings.appearance.sidebar.heartbeatMode", keywords: ["sidebar", "heartbeat", "心动模式"] },
+  { category: "appearance", itemId: "showHomeGreeting", labelKey: "settings.general.showHomeGreeting", descriptionKey: "settings.general.showHomeGreeting.desc", keywords: ["home", "greeting", "问好", "问候"] },
   { category: "appearance", itemId: "menuShowCover", labelKey: "settings.appearance.menuShowCover", descriptionKey: "settings.appearance.menuShowCover.desc", keywords: ["sidebar", "cover", "playlist", "封面"] },
   { category: "appearance", itemId: "playlistPageElements.tags", labelKey: "settings.appearance.playlistPage.tags", keywords: ["playlist", "detail", "tag", "歌单", "标签"] },
   { category: "appearance", itemId: "playlistPageElements.creator", labelKey: "settings.appearance.playlistPage.creator", keywords: ["playlist", "detail", "creator", "创建者"] },

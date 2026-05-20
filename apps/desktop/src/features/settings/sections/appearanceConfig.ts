@@ -56,7 +56,8 @@ export const SIDEBAR_VISIBILITY_ITEMS: readonly ToggleConfig<keyof SidebarHidden
   { key: "library", itemId: "sidebarHiddenItems.library", labelKey: "settings.appearance.sidebar.library" },
   { key: "recent", itemId: "sidebarHiddenItems.recent", labelKey: "settings.appearance.sidebar.recent" },
   { key: "createdPlaylists", itemId: "sidebarHiddenItems.createdPlaylists", labelKey: "settings.appearance.sidebar.createdPlaylists" },
-  { key: "collectedPlaylists", itemId: "sidebarHiddenItems.collectedPlaylists", labelKey: "settings.appearance.sidebar.collectedPlaylists" }
+  { key: "collectedPlaylists", itemId: "sidebarHiddenItems.collectedPlaylists", labelKey: "settings.appearance.sidebar.collectedPlaylists" },
+  { key: "heartbeatMode", itemId: "sidebarHiddenItems.heartbeatMode", labelKey: "settings.appearance.sidebar.heartbeatMode" }
 ];
 
 export const PLAYLIST_PAGE_ITEMS: readonly ToggleConfig<keyof PlaylistPageElements>[] = [

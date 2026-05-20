@@ -28,6 +28,21 @@ export const PLACEHOLDER_PAGES = [
   "streaming"
 ] as const;
 
+export const ONLINE_ONLY_PAGES = [
+  "recommend",
+  "discover",
+  "personal-fm",
+  "radio",
+  "liked-songs",
+  "liked",
+  "cloud",
+  "streaming",
+  "created-playlists",
+  "collected-playlists"
+] as const;
+
+export const LOCAL_FALLBACK_PAGE: ActivePage = "library";
+
 export const isPlaylistPage = (page: ActivePage): page is PlaylistPage =>
   (PLAYLIST_PAGES as readonly ActivePage[]).includes(page);
 
@@ -36,3 +51,6 @@ export const isSearchEnabledPage = (page: ActivePage): boolean =>
 
 export const isPlaceholderPage = (page: ActivePage): boolean =>
   (PLACEHOLDER_PAGES as readonly ActivePage[]).includes(page);
+
+export const isOnlineOnlyPage = (page: ActivePage): boolean =>
+  (ONLINE_ONLY_PAGES as readonly ActivePage[]).includes(page);

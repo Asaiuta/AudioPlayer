@@ -3,6 +3,7 @@ import type { TranslationDict } from "./en";
 export const zhCN: TranslationDict = {
   // Common
   "common.all": "全部",
+  "common.empty.description": "空空如也，怎么什么都没有啊",
   "common.error.requestFailed": "请求失败",
 
   // Sidebar
@@ -774,6 +775,8 @@ export const zhCN: TranslationDict = {
   "settings.general.window.restartHint": "关闭自定义窗口边框后，需要重启应用才能恢复系统标题栏。",
   "settings.general.homeSections.title": "首页板块排序",
   "settings.general.homeSections.desc": "调整首页各栏目的显示顺序或隐藏不需要的栏目",
+  "settings.general.showHomeGreeting": "显示主页问好",
+  "settings.general.showHomeGreeting.desc": "在个性推荐顶部显示根据时段变化的问候语",
   "settings.general.unavailable.desc": "系统行为、搜索偏好、更新与协议唤起等常规设置还没有完整接入本地运行时。",
   "settings.general.behavior.title": "常规行为",
   "settings.general.useOnlineService": "在线服务",
@@ -922,6 +925,7 @@ export const zhCN: TranslationDict = {
   "settings.appearance.sidebar.recent": "最近播放",
   "settings.appearance.sidebar.createdPlaylists": "创建的歌单",
   "settings.appearance.sidebar.collectedPlaylists": "收藏的歌单",
+  "settings.appearance.sidebar.heartbeatMode": "心动模式入口",
   "settings.appearance.menuShowCover": "侧边栏显示歌单封面",
   "settings.appearance.menuShowCover.desc": "在创建或收藏的歌单列表中显示封面缩略图",
   "settings.appearance.playlistPage.tags": "显示歌单标签",

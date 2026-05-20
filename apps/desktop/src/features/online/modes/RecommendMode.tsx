@@ -3,6 +3,7 @@ import type { Accessor } from "solid-js";
 import { useTranslation } from "../../../shared/i18n";
 import { createApiClient } from "../../../shared/api/client";
 import { PageHeader } from "../../../components/page/PageHeader";
+import { useUISettings } from "../../../shared/state/useUISettings";
 import { NeteaseHomeFeed } from "../NeteaseHomeFeed";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
@@ -38,6 +39,7 @@ const api = createApiClient();
 
 export function RecommendMode(props: RecommendModeProps) {
   const { t } = useTranslation();
+  const uiSettings = useUISettings();
   const [isPlayingPersonalFm, setIsPlayingPersonalFm] = createSignal(false);
 
   const detailNav = useDetailNavigation({
@@ -146,10 +148,12 @@ export function RecommendMode(props: RecommendModeProps) {
 
   return (
     <>
-      <Show when={!hasDetailView()}>
+      <Show when={!hasDetailView() && uiSettings.showHomeGreeting}>
         <PageHeader title={recommendGreeting()} />
       </Show>
-      <p class="online-recommend-subtitle">{t("ncm.home.welcome")}</p>
+      <Show when={uiSettings.showHomeGreeting}>
+        <p class="online-recommend-subtitle">{t("ncm.home.welcome")}</p>
+      </Show>
       <Switch fallback={renderHomeFeed()}>
         <Match when={detailNav.selectedDailySongs()}>
           <DailySongsDetail

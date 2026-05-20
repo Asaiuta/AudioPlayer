@@ -1,7 +1,8 @@
 import { For, Show } from "solid-js";
 import type { Resource } from "solid-js";
 import { AlbumCard } from "../../../components/AlbumCard";
-import { IconPlay } from "../../../components/icons";
+import { EmptyState } from "../../../components/EmptyState";
+import { IconPlay, IconSpinner } from "../../../components/icons";
 import { MediaList } from "../../../components/media/MediaList";
 import { CoverGridSkeleton } from "../../../components/page/Skeleton";
 import { useTranslation } from "../../../shared/i18n";
@@ -19,6 +20,32 @@ import type {
   OnlineTrackItem
 } from "../shared/types";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
+
+interface LoadMoreButtonProps {
+  isLoading: boolean;
+  onClick: () => void;
+}
+
+function LoadMoreButton(props: LoadMoreButtonProps) {
+  const { t } = useTranslation();
+  return (
+    <div class="online-discover-load-more">
+      <button
+        type="button"
+        class="ghost-button"
+        disabled={props.isLoading}
+        onClick={props.onClick}
+      >
+        <Show when={props.isLoading}>
+          <span class="button-spinner" aria-hidden="true">
+            <IconSpinner />
+          </span>
+        </Show>
+        {props.isLoading ? t("ncm.playlist.loading") : t("ncm.discover.loadMore")}
+      </button>
+    </div>
+  );
+}
 
 export interface DiscoverPlaylistShowcaseProps {
   catName: string;
@@ -68,11 +95,11 @@ export function DiscoverPlaylistShowcase(props: DiscoverPlaylistShowcaseProps) {
           props.isLoadingPlaylists ? (
             <CoverGridSkeleton count={20} />
           ) : (
-            <div class="panel-note">{t("ncm.home.empty")}</div>
+            <EmptyState description={t("ncm.home.empty")} />
           )
         }
       >
-        <div class="album-grid">
+        <div class="album-grid content-fade-in">
           <For each={props.allPlaylists}>
             {(item) => (
               <AlbumCard
@@ -96,16 +123,10 @@ export function DiscoverPlaylistShowcase(props: DiscoverPlaylistShowcaseProps) {
         </div>
       </Show>
       <Show when={props.hasMorePlaylists && props.allPlaylists.length > 0}>
-        <div class="online-discover-load-more">
-          <button
-            type="button"
-            class="ghost-button"
-            disabled={props.isLoadingPlaylists}
-            onClick={props.onLoadMore}
-          >
-            {props.isLoadingPlaylists ? t("ncm.playlist.loading") : t("ncm.discover.loadMore")}
-          </button>
-        </div>
+        <LoadMoreButton
+          isLoading={props.isLoadingPlaylists}
+          onClick={props.onLoadMore}
+        />
       </Show>
     </section>
   );
@@ -162,11 +183,11 @@ export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
           props.isLoadingArtists ? (
             <CoverGridSkeleton count={20} shape="round" />
           ) : (
-            <div class="panel-note">{t("ncm.home.empty")}</div>
+            <EmptyState description={t("ncm.home.empty")} />
           )
         }
       >
-        <div class="album-grid">
+        <div class="album-grid content-fade-in">
           <For each={props.allArtists}>
             {(item) => (
               <AlbumCard
@@ -183,16 +204,10 @@ export function DiscoverArtistShowcase(props: DiscoverArtistShowcaseProps) {
         </div>
       </Show>
       <Show when={props.hasMoreArtists && props.allArtists.length > 0}>
-        <div class="online-discover-load-more">
-          <button
-            type="button"
-            class="ghost-button"
-            disabled={props.isLoadingArtists}
-            onClick={props.onLoadMore}
-          >
-            {props.isLoadingArtists ? t("ncm.playlist.loading") : t("ncm.discover.loadMore")}
-          </button>
-        </div>
+        <LoadMoreButton
+          isLoading={props.isLoadingArtists}
+          onClick={props.onLoadMore}
+        />
       </Show>
     </section>
   );
@@ -208,11 +223,21 @@ export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
   const uiSettings = useUISettings();
   const officialItems = () => (props.discoverToplists() ?? []).filter((item) => item.isOfficial);
   const selectedItems = () => (props.discoverToplists() ?? []).filter((item) => !item.isOfficial);
+  const isLoading = () => props.discoverToplists.loading;
   return (
     <section class="online-discover-section online-discover-toplists">
       <div class="online-discover-divider"><span>{t("ncm.discover.toplists.official")}</span></div>
-      <Show when={officialItems().length > 0} fallback={<div class="panel-note">{t("ncm.home.empty")}</div>}>
-        <div class="online-toplist-grid">
+      <Show
+        when={officialItems().length > 0}
+        fallback={
+          isLoading() ? (
+            <CoverGridSkeleton count={6} />
+          ) : (
+            <EmptyState description={t("ncm.home.empty")} size="sm" />
+          )
+        }
+      >
+        <div class="online-toplist-grid content-fade-in">
           <For each={officialItems()}>
             {(item) => (
               <button
@@ -262,8 +287,17 @@ export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
       </Show>
 
       <div class="online-discover-divider"><span>{t("ncm.discover.toplists.selected")}</span></div>
-      <Show when={selectedItems().length > 0} fallback={<div class="panel-note">{t("ncm.home.empty")}</div>}>
-        <div class="album-grid">
+      <Show
+        when={selectedItems().length > 0}
+        fallback={
+          isLoading() ? (
+            <CoverGridSkeleton count={12} />
+          ) : (
+            <EmptyState description={t("ncm.home.empty")} size="sm" />
+          )
+        }
+      >
+        <div class="album-grid content-fade-in">
           <For each={selectedItems()}>
             {(item) => (
               <AlbumCard
@@ -349,12 +383,12 @@ export function DiscoverNewShowcase(props: DiscoverNewShowcaseProps) {
           props.isLoadingAlbums ? (
             <CoverGridSkeleton count={20} />
           ) : (
-            <div class="panel-note">{t("ncm.home.empty")}</div>
+            <EmptyState description={t("ncm.home.empty")} />
           )
         }
       >
         <Show when={props.discoverNewKind === "albums"} fallback={
-          <div class="online-discover-card-stack">
+          <div class="online-discover-card-stack content-fade-in">
             <MediaList
               items={songs().slice(0, 50)}
               currentSourcePath={props.currentTrackPath}
@@ -363,11 +397,11 @@ export function DiscoverNewShowcase(props: DiscoverNewShowcaseProps) {
               hideArtwork={uiSettings.hiddenCovers.new}
               onPlay={(item) => void props.playback.playOnlineTrack(item)}
               onEnqueue={(item) => void props.playback.enqueueOnlineTrack(item)}
-              emptyState={<div class="panel-note">{t("ncm.empty.noSongs")}</div>}
+              emptyState={<EmptyState description={t("ncm.empty.noSongs")} />}
             />
           </div>
         }>
-          <div class="online-discover-card-stack">
+          <div class="online-discover-card-stack content-fade-in">
             <div class="album-grid">
               <For each={props.allAlbums}>
                 {(item) => (
@@ -382,16 +416,10 @@ export function DiscoverNewShowcase(props: DiscoverNewShowcaseProps) {
               </For>
             </div>
             <Show when={props.hasMoreAlbums}>
-              <div class="online-discover-load-more">
-                <button
-                  type="button"
-                  class="ghost-button"
-                  disabled={props.isLoadingAlbums}
-                  onClick={props.onLoadMoreAlbums}
-                >
-                  {props.isLoadingAlbums ? t("ncm.playlist.loading") : t("ncm.discover.loadMore")}
-                </button>
-              </div>
+              <LoadMoreButton
+                isLoading={props.isLoadingAlbums}
+                onClick={props.onLoadMoreAlbums}
+              />
             </Show>
           </div>
         </Show>

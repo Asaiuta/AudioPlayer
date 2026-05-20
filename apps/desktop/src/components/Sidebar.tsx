@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { Component, JSX } from "solid-js";
 import type { ActivePage } from "../shared/ui/navigation";
+import { isOnlineOnlyPage } from "../shared/ui/navigation";
 import type { ApiClient } from "../shared/api/client";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useUISettings, type SidebarHiddenItemKey } from "../shared/state/useUISettings";
@@ -258,11 +259,19 @@ export function Sidebar(props: SidebarProps) {
     collapsedPersisted() ? t("sidebar.aria.expand") : t("sidebar.aria.collapse");
   const isItemHidden = (item: NavItem): boolean =>
     uiSettings.sidebarHiddenItems[SIDEBAR_SETTING_KEY_BY_PAGE[item.key]];
+  const isItemAllowed = (item: NavItem): boolean =>
+    uiSettings.useOnlineService || !isOnlineOnlyPage(item.key);
+  const isSectionAllowed = (sectionKey: string): boolean => {
+    if (uiSettings.useOnlineService) return true;
+    return sectionKey !== "online" && sectionKey !== "created" && sectionKey !== "collected";
+  };
   const visibleSections = createMemo<ReadonlyArray<NavSection>>(() =>
-    SECTIONS.map((section) => ({
-      ...section,
-      items: section.items.filter((item) => !isItemHidden(item))
-    })).filter((section) => section.items.length > 0)
+    SECTIONS.filter((section) => isSectionAllowed(section.key))
+      .map((section) => ({
+        ...section,
+        items: section.items.filter((item) => !isItemHidden(item) && isItemAllowed(item))
+      }))
+      .filter((section) => section.items.length > 0)
   );
   const playlistItemsForSection = (sectionKey: string): OnlinePlaylistSummary[] =>
     sectionKey === "created" ? createdPlaylists() : sectionKey === "collected" ? collectedPlaylists() : [];
@@ -296,7 +305,7 @@ export function Sidebar(props: SidebarProps) {
 
   return (
     <nav class={className()} aria-label={t("sidebar.aria.primary")}>
-      <button type="button" class="sidebar-brand" onClick={() => props.onChange("recommend")}>
+      <button type="button" class="sidebar-brand" onClick={() => props.onChange(uiSettings.useOnlineService ? "recommend" : "library")}>
         <span class="sidebar-brand-logo" aria-hidden="true">
           <IconLogo />
         </span>

@@ -379,10 +379,12 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
 
   return (
     <div class="ncm-home-feed">
-      <header class="ncm-home-feed-greeting">
-        <h1 class="ncm-home-feed-greeting-title">{greetingText()}</h1>
-        <span class="ncm-home-feed-greeting-subtitle">{t("ncm.home.welcome")}</span>
-      </header>
+      <Show when={uiSettings.showHomeGreeting}>
+        <header class="ncm-home-feed-greeting">
+          <h1 class="ncm-home-feed-greeting-title">{greetingText()}</h1>
+          <span class="ncm-home-feed-greeting-subtitle">{t("ncm.home.welcome")}</span>
+        </header>
+      </Show>
 
       <Show when={props.isLoggedIn && (props.onSelectDailySongs || props.onSelectLikedSongs || props.onPlayPersonalFm)}>
         <div class="ncm-home-feed-main-rec">

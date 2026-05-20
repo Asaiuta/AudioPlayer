@@ -141,6 +141,8 @@ export function useAppearanceSettings() {
     createSignal<boolean>(initialSettings.fullPlayerShowMoreSettings);
   const [fullPlayerShowCommentCount, setFullPlayerShowCommentCount] =
     createSignal<boolean>(initialSettings.fullPlayerShowCommentCount);
+  const [showHomeGreeting, setShowHomeGreeting] =
+    createSignal<boolean>(initialSettings.showHomeGreeting);
 
   const allCoversHidden = createMemo<boolean>(() =>
     COVER_DISPLAY_ITEMS.every((item) => hiddenCovers()[item.key])
@@ -378,6 +380,7 @@ export function useAppearanceSettings() {
     fullPlayerShowLyricSettings,
     fullPlayerShowMoreSettings,
     fullPlayerShowCommentCount,
+    showHomeGreeting,
     allCoversHidden,
     setBgBlur,
     setBgMask,
@@ -453,7 +456,8 @@ export function useAppearanceSettings() {
     setFullPlayerShowLyricOffset,
     setFullPlayerShowLyricSettings,
     setFullPlayerShowMoreSettings,
-    setFullPlayerShowCommentCount
+    setFullPlayerShowCommentCount,
+    setShowHomeGreeting
   };
 }
 

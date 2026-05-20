@@ -88,7 +88,8 @@ export type SidebarHiddenItemKey =
   | "library"
   | "recent"
   | "createdPlaylists"
-  | "collectedPlaylists";
+  | "collectedPlaylists"
+  | "heartbeatMode";
 
 export type PlaylistPageElementKey = "tags" | "creator" | "time" | "description";
 
@@ -177,6 +178,7 @@ export interface UISettings {
   countDownShow: boolean;
   showSpectrums: boolean;
   homeSections: HomeSectionConfig[];
+  showHomeGreeting: boolean;
   themeMode: ThemeMode;
   ncmSongLevel: string;
   autoPlay: boolean;
@@ -256,7 +258,8 @@ export const DEFAULT_SIDEBAR_HIDDEN_ITEMS: SidebarHiddenItems = {
   library: false,
   recent: false,
   createdPlaylists: false,
-  collectedPlaylists: false
+  collectedPlaylists: false,
+  heartbeatMode: false
 };
 
 export const DEFAULT_PLAYLIST_PAGE_ELEMENTS: PlaylistPageElements = {
@@ -623,6 +626,7 @@ const UI_SETTINGS_SCHEMA: UISettingsSchema = {
   countDownShow: createBoolField("ui.player.countDownShow", true),
   showSpectrums: createBoolField("ui.fullPlayer.showSpectrums", false),
   homeSections: createHomeSectionsField("ui.home.sections", DEFAULT_HOME_SECTIONS),
+  showHomeGreeting: createBoolField("ui.home.showGreeting", true),
   themeMode: createEnumField("ui.theme.mode", "dark", new Set(["dark", "light", "auto"])),
   ncmSongLevel: createEnumField("ncm.song.level", "exhigh", VALID_SONG_LEVELS),
   autoPlay: createBoolField("ui.playback.autoPlay", false),

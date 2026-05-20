@@ -2426,6 +2426,76 @@
     border-radius: 12px;
   }
 
+  /* ── Content fade-in (skeleton → loaded) ── */
+  .content-fade-in {
+    animation: content-fade-in var(--duration-base) var(--ease-standard) both;
+  }
+
+  @keyframes content-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* ── Empty state (matches SPlayer n-empty illustration + caption) ── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 20px;
+    color: var(--muted);
+    text-align: center;
+    animation: content-fade-in var(--duration-base) var(--ease-standard) both;
+  }
+
+  .empty-state--sm {
+    padding: 20px 16px;
+    gap: 8px;
+  }
+
+  .empty-state--lg {
+    padding: 60px 24px;
+    gap: 16px;
+  }
+
+  .empty-state-illustration {
+    width: 96px;
+    height: 96px;
+    color: var(--text-placeholder);
+    opacity: 0.75;
+  }
+
+  .empty-state--sm .empty-state-illustration {
+    width: 64px;
+    height: 64px;
+  }
+
+  .empty-state--lg .empty-state-illustration {
+    width: 128px;
+    height: 128px;
+  }
+
+  .empty-state-illustration-wrap {
+    display: inline-flex;
+    color: var(--text-placeholder);
+    opacity: 0.75;
+  }
+
+  .empty-state-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  .empty-state--lg .empty-state-text {
+    font-size: 15px;
+  }
+
   .ncm-home-feed-main-rec {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

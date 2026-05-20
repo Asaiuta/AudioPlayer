@@ -20,16 +20,18 @@ const SECTION_LABELS: Record<HomeSectionKey, string> = {
 const managerClass = "home-section-manager flex flex-col gap-[2px]";
 
 const rowClass =
-  "home-section-row flex items-center justify-between rounded-sm px-[10px] py-[6px] transition-background duration-150 ease-standard hover:bg-[var(--border-overlay)]";
+  "home-section-row flex items-center gap-[10px] rounded-sm px-[10px] py-[6px] transition-background duration-150 ease-standard hover:bg-[var(--border-overlay)]";
 
-const toggleClass = "home-section-toggle flex cursor-pointer items-center gap-[8px] text-[13px]";
+const rowDraggingClass = "is-dragging opacity-50";
+
+const rowDropOverClass = "is-drop-over outline outline-1 outline-accent";
+
+const handleClass =
+  "home-section-handle inline-flex h-[24px] w-[24px] cursor-grab items-center justify-center text-text-secondary text-[16px] leading-none select-none active:cursor-grabbing";
+
+const toggleClass = "home-section-toggle flex flex-1 cursor-pointer items-center gap-[8px] text-[13px]";
 
 const checkboxClass = "accent-accent";
-
-const arrowsClass = "home-section-arrows flex gap-[4px]";
-
-const arrowButtonClass =
-  "icon-btn inline-flex h-[28px] w-[28px] items-center justify-center rounded-sm border-0 bg-transparent text-text text-[14px] transition-background duration-150 ease-standard hover:bg-[var(--surface-pressed)] disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent";
 
 function readSections(): HomeSectionConfig[] {
   return readUISettingsSnapshot().homeSections;
@@ -38,6 +40,8 @@ function readSections(): HomeSectionConfig[] {
 export function HomeSectionManager() {
   const { t } = useTranslation();
   const [sections, setSections] = createSignal(readSections());
+  const [draggingKey, setDraggingKey] = createSignal<HomeSectionKey | null>(null);
+  const [dropTargetKey, setDropTargetKey] = createSignal<HomeSectionKey | null>(null);
 
   const commitSections = (next: HomeSectionConfig[]) =>
     commitUISettingField("homeSections", next, sections, setSections);
@@ -51,39 +55,72 @@ export function HomeSectionManager() {
     commitSections(next);
   };
 
-  const moveUp = (key: HomeSectionKey) => {
-    const sortedList = sorted();
-    const idx = sortedList.findIndex((s) => s.key === key);
-    if (idx <= 0) return;
-    const prev = sortedList[idx - 1];
-    const curr = sortedList[idx];
-    const next = sections().map((s) => {
-      if (s.key === curr.key) return { ...s, order: prev.order };
-      if (s.key === prev.key) return { ...s, order: curr.order };
-      return s;
-    });
+  const reorder = (fromKey: HomeSectionKey, toKey: HomeSectionKey) => {
+    if (fromKey === toKey) return;
+    const list = sorted();
+    const fromIdx = list.findIndex((s) => s.key === fromKey);
+    const toIdx = list.findIndex((s) => s.key === toKey);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const reordered = [...list];
+    const [moved] = reordered.splice(fromIdx, 1);
+    reordered.splice(toIdx, 0, moved);
+    const next = reordered.map((section, index) => ({ ...section, order: index }));
     commitSections(next);
   };
 
-  const moveDown = (key: HomeSectionKey) => {
-    const sortedList = sorted();
-    const idx = sortedList.findIndex((s) => s.key === key);
-    if (idx < 0 || idx >= sortedList.length - 1) return;
-    const curr = sortedList[idx];
-    const next_item = sortedList[idx + 1];
-    const next = sections().map((s) => {
-      if (s.key === curr.key) return { ...s, order: next_item.order };
-      if (s.key === next_item.key) return { ...s, order: curr.order };
-      return s;
-    });
-    commitSections(next);
+  const handleDragStart = (event: DragEvent, key: HomeSectionKey) => {
+    setDraggingKey(key);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", key);
+    }
+  };
+
+  const handleDragOver = (event: DragEvent, key: HomeSectionKey) => {
+    if (draggingKey() === null) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+    if (dropTargetKey() !== key) setDropTargetKey(key);
+  };
+
+  const handleDragLeave = (key: HomeSectionKey) => {
+    if (dropTargetKey() === key) setDropTargetKey(null);
+  };
+
+  const handleDrop = (event: DragEvent, key: HomeSectionKey) => {
+    event.preventDefault();
+    const source = draggingKey();
+    if (source !== null) reorder(source, key);
+    setDraggingKey(null);
+    setDropTargetKey(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggingKey(null);
+    setDropTargetKey(null);
+  };
+
+  const rowClassNameFor = (key: HomeSectionKey) => {
+    const parts = [rowClass];
+    if (draggingKey() === key) parts.push(rowDraggingClass);
+    if (dropTargetKey() === key && draggingKey() !== key) parts.push(rowDropOverClass);
+    return parts.join(" ");
   };
 
   return (
     <div class={managerClass}>
       <For each={sorted()}>
-        {(section, index) => (
-          <div class={rowClass}>
+        {(section) => (
+          <div
+            class={rowClassNameFor(section.key)}
+            draggable={true}
+            onDragStart={(event) => handleDragStart(event, section.key)}
+            onDragOver={(event) => handleDragOver(event, section.key)}
+            onDragLeave={() => handleDragLeave(section.key)}
+            onDrop={(event) => handleDrop(event, section.key)}
+            onDragEnd={handleDragEnd}
+          >
+            <span class={handleClass} aria-hidden="true">⋮⋮</span>
             <label class={toggleClass}>
               <input
                 class={checkboxClass}
@@ -93,26 +130,6 @@ export function HomeSectionManager() {
               />
               <span>{t(SECTION_LABELS[section.key] as Parameters<typeof t>[0])}</span>
             </label>
-            <div class={arrowsClass}>
-              <button
-                type="button"
-                class={arrowButtonClass}
-                disabled={index() === 0}
-                onClick={() => moveUp(section.key)}
-                aria-label="Move up"
-              >
-                ↑
-              </button>
-              <button
-                type="button"
-                class={arrowButtonClass}
-                disabled={index() === sorted().length - 1}
-                onClick={() => moveDown(section.key)}
-                aria-label="Move down"
-              >
-                ↓
-              </button>
-            </div>
           </div>
         )}
       </For>

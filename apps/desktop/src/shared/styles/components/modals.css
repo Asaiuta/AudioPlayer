@@ -2030,11 +2030,27 @@
 }
 
 .online-discover-load-more button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   height: 36px;
   padding: 0 28px;
   border-radius: var(--radius-pill);
   font-size: 13px;
   font-weight: 500;
+}
+
+.online-discover-load-more .button-spinner {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  animation: spin 1s linear infinite;
+}
+
+.online-discover-load-more .button-spinner svg {
+  width: 100%;
+  height: 100%;
 }
 
 /* Settings modal content layout ───────────────────────── */

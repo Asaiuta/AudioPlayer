@@ -1,4 +1,4 @@
-import { Match, Switch, createMemo, createSignal } from "solid-js";
+import { Match, Switch, createEffect, createMemo, createSignal } from "solid-js";
 import { AppShell } from "../components/AppShell";
 import { BackgroundLayer } from "../components/BackgroundLayer";
 import { FullPlayer } from "../components/FullPlayer";
@@ -20,6 +20,7 @@ import { createApiClient } from "../shared/api/client";
 import { useTranslation } from "../shared/i18n";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import type { ActivePage } from "../shared/ui/navigation";
+import { isOnlineOnlyPage, LOCAL_FALLBACK_PAGE } from "../shared/ui/navigation";
 import { UISearchProvider } from "../shared/state/UISearchContext";
 import { useAppController } from "./useAppController";
 
@@ -61,6 +62,12 @@ function AppContent() {
     setSettingsInitialCategory(category);
     controller.setSettingsOpen(true);
   };
+
+  createEffect(() => {
+    if (!controller.uiSettings.useOnlineService && isOnlineOnlyPage(controller.activePage())) {
+      controller.handleActivePageChange(LOCAL_FALLBACK_PAGE);
+    }
+  });
 
   return (
     <>
