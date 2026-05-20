@@ -111,5 +111,4 @@ mod tests {
         let max_sample = samples.iter().map(|s| s.abs()).fold(0.0_f64, f64::max);
         assert!(detector.max_true_peak() >= max_sample * 0.99);
     }
-
 }

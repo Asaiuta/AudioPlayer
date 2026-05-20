@@ -74,8 +74,31 @@ impl GainRamp {
 
     /// Apply gain ramp to a buffer (more efficient than per-sample calls)
     pub fn apply(&mut self, samples: &mut [f64]) {
-        for sample in samples.iter_mut() {
-            *sample *= self.next_gain();
+        if samples.is_empty() {
+            return;
+        }
+
+        let ramp_samples = samples.len().min(self.remaining);
+
+        if ramp_samples > 0 {
+            let mut gain = self.current;
+            for sample in &mut samples[..ramp_samples] {
+                *sample *= gain;
+                gain += self.step;
+            }
+
+            self.remaining -= ramp_samples;
+            if self.remaining == 0 {
+                self.current = self.to;
+            } else {
+                self.current = gain;
+            }
+        }
+
+        if ramp_samples < samples.len() && self.to != 1.0 {
+            for sample in &mut samples[ramp_samples..] {
+                *sample *= self.to;
+            }
         }
     }
 
@@ -119,5 +142,79 @@ impl GainRamp {
         self.step = 0.0;
         self.total_samples = 1;
         self.remaining = 0;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GainRamp;
+
+    #[test]
+    fn apply_matches_next_gain_loop_across_ramp_and_tail() {
+        let mut apply_ramp = GainRamp::new(0.05, 0.95, 48_000, 10);
+        let mut loop_ramp = GainRamp::new(0.05, 0.95, 48_000, 10);
+        let mut apply_samples = synthetic_samples(2_048);
+        let mut loop_samples = apply_samples.clone();
+
+        for chunk in apply_samples.chunks_mut(127) {
+            apply_ramp.apply(chunk);
+        }
+        for sample in &mut loop_samples {
+            *sample *= loop_ramp.next_gain();
+        }
+
+        assert_eq!(
+            apply_ramp.remaining_samples(),
+            loop_ramp.remaining_samples()
+        );
+        assert_eq!(
+            apply_ramp.current().to_bits(),
+            loop_ramp.current().to_bits()
+        );
+        assert_samples_match(&apply_samples, &loop_samples);
+    }
+
+    #[test]
+    fn apply_uses_target_gain_after_ramp_is_done() {
+        let mut ramp = GainRamp::new(0.0, 0.5, 1_000, 1);
+        let mut samples = vec![2.0; 5];
+
+        ramp.apply(&mut samples);
+
+        assert_eq!(samples, vec![0.0, 1.0, 1.0, 1.0, 1.0]);
+        assert!(ramp.is_done());
+        assert_eq!(ramp.current(), 0.5);
+    }
+
+    #[test]
+    fn apply_does_not_change_empty_buffer_state() {
+        let mut ramp = GainRamp::new(0.0, 1.0, 48_000, 100);
+        let current = ramp.current();
+        let remaining = ramp.remaining_samples();
+
+        ramp.apply(&mut []);
+
+        assert_eq!(ramp.current(), current);
+        assert_eq!(ramp.remaining_samples(), remaining);
+    }
+
+    fn synthetic_samples(len: usize) -> Vec<f64> {
+        (0..len)
+            .map(|idx| {
+                let t = idx as f64 / 48_000.0;
+                (std::f64::consts::TAU * 997.0 * t).sin() * 0.35
+            })
+            .collect()
+    }
+
+    fn assert_samples_match(left: &[f64], right: &[f64]) {
+        assert_eq!(left.len(), right.len());
+        for (idx, (left, right)) in left.iter().zip(right).enumerate() {
+            assert_eq!(
+                left.to_bits(),
+                right.to_bits(),
+                "sample mismatch at {idx}: {left} != {right}"
+            );
+        }
     }
 }

@@ -83,8 +83,11 @@ fn main() {
         dl_max_active_report.improvement_percent
     );
 
-    let dl_identity_report =
-        benchmark_dynamic_loudness(&corpus, iterations, DynamicLoudnessScenario::IdentitySettled);
+    let dl_identity_report = benchmark_dynamic_loudness(
+        &corpus,
+        iterations,
+        DynamicLoudnessScenario::IdentitySettled,
+    );
     println!(
         "dynamic_loudness_process_identity current={:.3} ns/sample legacy_trig={:.3} ns/sample improvement={:.2}%",
         dl_identity_report.current_ns_per_sample,
@@ -261,7 +264,10 @@ fn configure_dynamic_scenario(
     }
 }
 
-fn settle_dynamic_loudness(current: &mut CachedDynamicLoudness, legacy: &mut LegacyDynamicLoudness) {
+fn settle_dynamic_loudness(
+    current: &mut CachedDynamicLoudness,
+    legacy: &mut LegacyDynamicLoudness,
+) {
     let mut silence = vec![0.0; CHANNELS * 48_000];
     current.process(&mut silence);
     legacy.process(&mut silence);

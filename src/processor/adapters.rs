@@ -35,6 +35,7 @@ pub struct EqProcessor {
     /// Lock-free parameters reference
     params: Arc<AtomicEqParams>,
     cached_params: Arc<EqParamsSnapshot>,
+    cached_generation: u64,
     /// Local parameter cache
     cached: EqParamsSnapshot,
     /// Sample rate for coefficient recalculation
@@ -44,7 +45,7 @@ pub struct EqProcessor {
 impl EqProcessor {
     /// Create new EQ processor with lock-free params
     pub fn new(channels: usize, sample_rate: f64, params: Arc<AtomicEqParams>) -> Self {
-        let cached_params = params.load();
+        let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         let mut eq = Equalizer::new(channels, sample_rate);
         eq.set_all_bands(&cached.gains, sample_rate);
@@ -54,6 +55,7 @@ impl EqProcessor {
             channels,
             params,
             cached_params,
+            cached_generation,
             cached,
             sample_rate,
         }
@@ -61,9 +63,12 @@ impl EqProcessor {
 
     /// Synchronize parameters from lock-free storage
     fn sync_params(&mut self) {
-        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+        if let Some((current, generation)) =
+            self.params.load_if_changed_since(self.cached_generation)
+        {
             self.cached = *current;
             self.cached_params = current;
+            self.cached_generation = generation;
 
             // Apply to internal EQ
             self.eq.set_all_bands(&self.cached.gains, self.sample_rate);
@@ -128,13 +133,14 @@ pub struct SaturationProcessor {
     saturation: Saturation,
     params: Arc<AtomicSaturationParams>,
     cached_params: Arc<SaturationParamsSnapshot>,
+    cached_generation: u64,
     cached: SaturationParamsSnapshot,
     sample_rate: f64,
 }
 
 impl SaturationProcessor {
     pub fn new(params: Arc<AtomicSaturationParams>) -> Self {
-        let cached_params = params.load();
+        let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         let mut saturation = Saturation::new();
         saturation.set_drive(cached.drive);
@@ -150,15 +156,19 @@ impl SaturationProcessor {
             saturation,
             params,
             cached_params,
+            cached_generation,
             cached,
             sample_rate: 44100.0,
         }
     }
 
     fn sync_params(&mut self) {
-        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+        if let Some((current, generation)) =
+            self.params.load_if_changed_since(self.cached_generation)
+        {
             self.cached = *current;
             self.cached_params = current;
+            self.cached_generation = generation;
 
             // Apply to saturation processor
             self.saturation.set_drive(self.cached.drive);
@@ -233,13 +243,14 @@ pub struct CrossfeedProcessor {
     crossfeed: Crossfeed,
     params: Arc<AtomicCrossfeedParams>,
     cached_params: Arc<CrossfeedParamsSnapshot>,
+    cached_generation: u64,
     cached: CrossfeedParamsSnapshot,
     sample_rate: f64,
 }
 
 impl CrossfeedProcessor {
     pub fn new(sample_rate: f64, params: Arc<AtomicCrossfeedParams>) -> Self {
-        let cached_params = params.load();
+        let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         let mut crossfeed = Crossfeed::new(sample_rate);
         crossfeed.set_mix(cached.mix);
@@ -249,15 +260,19 @@ impl CrossfeedProcessor {
             crossfeed,
             params,
             cached_params,
+            cached_generation,
             cached,
             sample_rate,
         }
     }
 
     fn sync_params(&mut self) {
-        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+        if let Some((current, generation)) =
+            self.params.load_if_changed_since(self.cached_generation)
+        {
             self.cached = *current;
             self.cached_params = current;
+            self.cached_generation = generation;
             self.crossfeed.set_mix(self.cached.mix);
             self.crossfeed.set_enabled(self.cached.enabled);
             // Cutoff change requires sample rate update
@@ -320,6 +335,7 @@ pub struct PeakLimiterProcessor {
     limiter: PeakLimiter,
     params: Arc<AtomicPeakLimiterParams>,
     cached_params: Arc<PeakLimiterParamsSnapshot>,
+    cached_generation: u64,
     cached: PeakLimiterParamsSnapshot,
     sample_rate: u32,
     channels: usize,
@@ -327,7 +343,7 @@ pub struct PeakLimiterProcessor {
 
 impl PeakLimiterProcessor {
     pub fn new(channels: usize, sample_rate: u32, params: Arc<AtomicPeakLimiterParams>) -> Self {
-        let cached_params = params.load();
+        let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         Self {
             limiter: PeakLimiter::new(
@@ -339,6 +355,7 @@ impl PeakLimiterProcessor {
             ),
             params,
             cached_params,
+            cached_generation,
             cached,
             sample_rate,
             channels,
@@ -346,9 +363,12 @@ impl PeakLimiterProcessor {
     }
 
     fn sync_params(&mut self) {
-        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+        if let Some((current, generation)) =
+            self.params.load_if_changed_since(self.cached_generation)
+        {
             self.cached = *current;
             self.cached_params = current;
+            self.cached_generation = generation;
 
             // In-place update — NO PeakLimiter::new(), NO heap allocation
             self.limiter.set_threshold(self.cached.threshold_db);
@@ -440,6 +460,7 @@ impl ChannelAware for PeakLimiterProcessor {
 pub struct VolumeProcessor {
     params: Arc<AtomicVolumeParams>,
     cached_params: Arc<VolumeParamsSnapshot>,
+    cached_generation: u64,
     cached: VolumeParamsSnapshot,
     /// Current smoothed volume (exponentially approaches target)
     current_volume: f64,
@@ -452,14 +473,17 @@ pub struct VolumeProcessor {
 }
 
 impl VolumeProcessor {
+    const SETTLE_EPSILON: f64 = 1.0e-6;
+
     pub fn new(params: Arc<AtomicVolumeParams>) -> Self {
         let smoothing_coeff = Self::calc_smoothing_coeff(44100.0);
         let one_minus_smoothing_coeff = 1.0 - smoothing_coeff;
-        let cached_params = params.load();
+        let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         Self {
             params,
             cached_params,
+            cached_generation,
             cached,
             current_volume: 1.0,
             smoothing_coeff,
@@ -476,9 +500,12 @@ impl VolumeProcessor {
     }
 
     fn sync_params(&mut self) {
-        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+        if let Some((current, generation)) =
+            self.params.load_if_changed_since(self.cached_generation)
+        {
             self.cached = *current;
             self.cached_params = current;
+            self.cached_generation = generation;
         }
     }
 }
@@ -507,15 +534,37 @@ impl AudioProcessor for VolumeProcessor {
 
         // Apply volume with anti-zipper smoothing
         let target = self.cached.volume;
+        if self.current_volume == target {
+            if target != 1.0 {
+                for sample in buffer.iter_mut() {
+                    *sample *= target;
+                }
+            }
+            return ProcessResult::Ok;
+        }
+
         let one_minus_coeff = self.one_minus_smoothing_coeff;
         let mut current_volume = self.current_volume;
         let frames = buffer.len() / channels;
+        let mut frame = 0;
 
-        for frame in 0..frames {
+        while frame < frames {
+            if (target - current_volume).abs() <= Self::SETTLE_EPSILON {
+                current_volume = target;
+                break;
+            }
+
             // Exponential smoothing: current = current + (target - current) * (1 - coeff)
             current_volume += (target - current_volume) * one_minus_coeff;
             for ch in 0..channels {
                 buffer[frame * channels + ch] *= current_volume;
+            }
+            frame += 1;
+        }
+
+        if frame < frames && target != 1.0 {
+            for sample in &mut buffer[(frame * channels)..] {
+                *sample *= target;
             }
         }
         self.current_volume = current_volume;
@@ -553,6 +602,7 @@ pub struct NoiseShaperProcessor {
     noise_shaper: NoiseShaper,
     params: Arc<AtomicNoiseShaperParams>,
     cached_params: Arc<NoiseShaperParamsSnapshot>,
+    cached_generation: u64,
     cached: NoiseShaperParamsSnapshot,
     sample_rate: u32,
     channels: usize,
@@ -560,7 +610,7 @@ pub struct NoiseShaperProcessor {
 
 impl NoiseShaperProcessor {
     pub fn new(channels: usize, sample_rate: u32, params: Arc<AtomicNoiseShaperParams>) -> Self {
-        let cached_params = params.load();
+        let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         let mut noise_shaper = NoiseShaper::new(channels, sample_rate, cached.bits);
         noise_shaper.set_enabled(cached.enabled);
@@ -570,6 +620,7 @@ impl NoiseShaperProcessor {
             noise_shaper,
             params,
             cached_params,
+            cached_generation,
             cached,
             sample_rate,
             channels,
@@ -577,9 +628,12 @@ impl NoiseShaperProcessor {
     }
 
     fn sync_params(&mut self) {
-        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+        if let Some((current, generation)) =
+            self.params.load_if_changed_since(self.cached_generation)
+        {
             self.cached = *current;
             self.cached_params = current;
+            self.cached_generation = generation;
             self.noise_shaper.set_enabled(self.cached.enabled);
             self.noise_shaper.set_bits(self.cached.bits);
             self.noise_shaper.set_curve(self.cached.curve);
@@ -643,6 +697,7 @@ pub struct DynamicLoudnessProcessor {
     params: Arc<AtomicDynamicLoudnessParams>,
     telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
     cached_params: Arc<DynamicLoudnessParamsSnapshot>,
+    cached_generation: u64,
     cached: DynamicLoudnessParamsSnapshot,
     sample_rate: u32,
     channels: usize,
@@ -655,7 +710,7 @@ impl DynamicLoudnessProcessor {
         params: Arc<AtomicDynamicLoudnessParams>,
         telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
     ) -> Self {
-        let cached_params = params.load();
+        let (cached_params, cached_generation) = params.load_with_generation();
         let cached = *cached_params;
         let mut dynamic_loudness = DynamicLoudness::new(channels, sample_rate as f64);
         dynamic_loudness.set_volume(cached.volume);
@@ -665,6 +720,7 @@ impl DynamicLoudnessProcessor {
             params,
             telemetry,
             cached_params,
+            cached_generation,
             cached,
             sample_rate,
             channels,
@@ -672,9 +728,12 @@ impl DynamicLoudnessProcessor {
     }
 
     fn sync_params(&mut self) {
-        if let Some(current) = self.params.load_if_changed(&self.cached_params) {
+        if let Some((current, generation)) =
+            self.params.load_if_changed_since(self.cached_generation)
+        {
             self.cached = *current;
             self.cached_params = current;
+            self.cached_generation = generation;
             self.dynamic_loudness.set_volume(self.cached.volume);
             self.dynamic_loudness.set_strength(self.cached.strength);
         }
@@ -935,6 +994,56 @@ mod tests {
     }
 
     #[test]
+    fn test_volume_processor_steady_state_fast_path_preserves_unity() {
+        let params = Arc::new(AtomicVolumeParams::new());
+        let mut proc = VolumeProcessor::new(Arc::clone(&params));
+        proc.reset();
+
+        let mut buffer = vec![0.25, -0.5, 0.75, -1.0];
+        let original = buffer.clone();
+
+        assert_eq!(proc.process(&mut buffer, 2), ProcessResult::Ok);
+        assert_eq!(buffer, original);
+        assert_eq!(proc.current_volume, 1.0);
+    }
+
+    #[test]
+    fn test_volume_processor_steady_state_fast_path_applies_target() {
+        let params = Arc::new(AtomicVolumeParams::new());
+        params.set_volume(0.5);
+        let mut proc = VolumeProcessor::new(Arc::clone(&params));
+        proc.sync_params();
+        proc.reset();
+
+        let mut buffer = vec![0.25, -0.5, 0.75, -1.0];
+
+        assert_eq!(proc.process(&mut buffer, 2), ProcessResult::Ok);
+        assert_eq!(buffer, vec![0.125, -0.25, 0.375, -0.5]);
+        assert_eq!(proc.current_volume, 0.5);
+    }
+
+    #[test]
+    fn volume_lazy_settle_dc_null_residual_stays_below_snap_floor() {
+        let input = vec![0.8; 32_768 * 2];
+
+        assert_lazy_settle_residual_bounds("dc", &input, 2);
+    }
+
+    #[test]
+    fn volume_lazy_settle_sweep_null_residual_stays_below_snap_floor() {
+        let input = sweep_signal(32_768, 2);
+
+        assert_lazy_settle_residual_bounds("sweep", &input, 2);
+    }
+
+    #[test]
+    fn volume_lazy_settle_abrupt_step_null_residual_stays_below_snap_floor() {
+        let input = abrupt_step_signal(32_768, 2);
+
+        assert_lazy_settle_residual_bounds("abrupt_step", &input, 2);
+    }
+
+    #[test]
     fn test_saturation_processor() {
         let params = Arc::new(AtomicSaturationParams::new());
         let mut proc = SaturationProcessor::new(Arc::clone(&params));
@@ -959,5 +1068,151 @@ mod tests {
         let result = proc.process(&mut buffer, 2);
         assert_eq!(result, ProcessResult::Ok);
         assert_eq!(buffer, original);
+    }
+
+    fn assert_lazy_settle_residual_bounds(name: &str, input: &[f64], channels: usize) {
+        const RESIDUAL_DELTA_LIMIT: f64 = 2.0e-6;
+        const RESIDUAL_RMS_LIMIT: f64 = 2.0e-7;
+
+        let mut exact = input.to_vec();
+        let mut lazy = input.to_vec();
+        process_volume_exact_kernel(&mut exact, channels, 48_000.0, 0.25);
+        process_volume_lazy_settle_kernel(
+            &mut lazy,
+            channels,
+            48_000.0,
+            0.25,
+            VolumeProcessor::SETTLE_EPSILON,
+        );
+
+        let mut max_abs = 0.0_f64;
+        let mut sum_sq = 0.0_f64;
+        let mut max_delta = 0.0_f64;
+        let mut prev_residual = 0.0_f64;
+
+        for (idx, (left, right)) in lazy.iter().zip(&exact).enumerate() {
+            let residual = left - right;
+            max_abs = max_abs.max(residual.abs());
+            sum_sq += residual * residual;
+            if idx > 0 {
+                max_delta = max_delta.max((residual - prev_residual).abs());
+            }
+            prev_residual = residual;
+        }
+
+        let rms = (sum_sq / input.len() as f64).sqrt();
+        assert!(
+            max_abs <= VolumeProcessor::SETTLE_EPSILON,
+            "{name} lazy-settle max residual {max_abs:.3e} exceeds {:.3e}",
+            VolumeProcessor::SETTLE_EPSILON
+        );
+        assert!(
+            max_delta <= RESIDUAL_DELTA_LIMIT,
+            "{name} lazy-settle residual delta {max_delta:.3e} exceeds {RESIDUAL_DELTA_LIMIT:.3e}"
+        );
+        assert!(
+            rms <= RESIDUAL_RMS_LIMIT,
+            "{name} lazy-settle residual rms {rms:.3e} exceeds {RESIDUAL_RMS_LIMIT:.3e}"
+        );
+    }
+
+    fn process_volume_exact_kernel(
+        buffer: &mut [f64],
+        channels: usize,
+        sample_rate: f64,
+        target: f64,
+    ) -> f64 {
+        let smoothing_coeff = VolumeProcessor::calc_smoothing_coeff(sample_rate);
+        let one_minus_coeff = 1.0 - smoothing_coeff;
+        let mut current_volume = 1.0;
+        let frames = buffer.len() / channels;
+
+        for frame in 0..frames {
+            current_volume += (target - current_volume) * one_minus_coeff;
+            for ch in 0..channels {
+                buffer[frame * channels + ch] *= current_volume;
+            }
+        }
+
+        current_volume
+    }
+
+    fn process_volume_lazy_settle_kernel(
+        buffer: &mut [f64],
+        channels: usize,
+        sample_rate: f64,
+        target: f64,
+        settle_epsilon: f64,
+    ) -> f64 {
+        let smoothing_coeff = VolumeProcessor::calc_smoothing_coeff(sample_rate);
+        let one_minus_coeff = 1.0 - smoothing_coeff;
+        let mut current_volume = 1.0;
+        let frames = buffer.len() / channels;
+        let mut frame = 0;
+
+        while frame < frames {
+            if (target - current_volume).abs() <= settle_epsilon {
+                current_volume = target;
+                break;
+            }
+
+            current_volume += (target - current_volume) * one_minus_coeff;
+            for ch in 0..channels {
+                buffer[frame * channels + ch] *= current_volume;
+            }
+            frame += 1;
+        }
+
+        if frame < frames && target != 1.0 {
+            for sample in &mut buffer[(frame * channels)..] {
+                *sample *= target;
+            }
+        }
+
+        current_volume
+    }
+
+    fn sweep_signal(frames: usize, channels: usize) -> Vec<f64> {
+        let mut out = Vec::with_capacity(frames * channels);
+        let sample_rate = 48_000.0;
+        let start_hz = 20.0_f64;
+        let end_hz = 20_000.0_f64;
+        let mut phase = 0.0_f64;
+
+        for frame in 0..frames {
+            let progress = frame as f64 / frames.saturating_sub(1).max(1) as f64;
+            let hz = start_hz * (end_hz / start_hz).powf(progress);
+            phase += std::f64::consts::TAU * hz / sample_rate;
+            let sample = phase.sin() * 0.9;
+            for ch in 0..channels {
+                out.push(sample * (1.0 - ch as f64 * 0.05));
+            }
+        }
+
+        out
+    }
+
+    fn abrupt_step_signal(frames: usize, channels: usize) -> Vec<f64> {
+        let mut out = Vec::with_capacity(frames * channels);
+
+        for frame in 0..frames {
+            let sample = match frame * 4 / frames.max(1) {
+                0 => 0.0,
+                1 => 1.0,
+                2 => -1.0,
+                _ => {
+                    if frame % 2 == 0 {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+            };
+            for _ in 0..channels {
+                out.push(sample);
+            }
+        }
+
+        out
     }
 }

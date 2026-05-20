@@ -7,12 +7,14 @@ const TRUE_PEAK_PHASES: usize = 4;
 const TRUE_PEAK_FIR_TAPS: usize = 49;
 const TRUE_PEAK_DELAY: usize = (TRUE_PEAK_FIR_TAPS + TRUE_PEAK_PHASES - 1) / TRUE_PEAK_PHASES;
 const TRUE_PEAK_HISTORY_LEN: usize = TRUE_PEAK_DELAY * 2;
+const TRUE_PEAK_INTER_SAMPLE_TAPS: usize = TRUE_PEAK_DELAY - 1;
 
 static TRUE_PEAK_FIR: OnceLock<TruePeakFir> = OnceLock::new();
 
 #[derive(Clone, Copy)]
 struct TruePeakFir {
-    coeffs: [[f32; TRUE_PEAK_DELAY]; TRUE_PEAK_PHASES],
+    sample_phase_coeff: f64,
+    inter_sample_coeffs: [[f64; TRUE_PEAK_INTER_SAMPLE_TAPS]; TRUE_PEAK_PHASES - 1],
 }
 
 /// EBU R128 loudness meter using the ebur128 crate
@@ -109,9 +111,11 @@ impl LoudnessMeter {
         }
 
         // True peak using 4x polyphase FIR oversampling.
-        // Process each channel through its dedicated TruePeakDetector
-        for (ch, detector) in self.true_peak_detectors.iter_mut().enumerate() {
-            detector.process_strided(samples, ch, self.channels);
+        let fir = true_peak_fir();
+        for frame in samples.chunks_exact(self.channels) {
+            for (sample, detector) in frame.iter().zip(self.true_peak_detectors.iter_mut()) {
+                detector.process_sample(*sample, fir);
+            }
         }
 
         // Get maximum true peak across all channels
@@ -181,32 +185,34 @@ impl TruePeakDetector {
 
     /// Process samples and update true peak measurement
     pub fn process(&mut self, samples: &[f64]) {
+        let fir = true_peak_fir();
         for &sample in samples {
-            self.process_sample(sample);
+            self.process_sample(sample, fir);
         }
     }
 
     /// Process one channel from an interleaved buffer without allocating.
     pub fn process_strided(&mut self, samples: &[f64], offset: usize, stride: usize) {
+        let fir = true_peak_fir();
         let mut index = offset;
         while index < samples.len() {
-            self.process_sample(samples[index]);
+            self.process_sample(samples[index], fir);
             index += stride;
         }
     }
 
     #[inline]
-    fn process_sample(&mut self, sample: f64) {
+    fn process_sample(&mut self, sample: f64, fir: &TruePeakFir) {
         self.max_true_peak = self.max_true_peak.max(sample.abs());
 
         self.history[self.write_pos] = sample;
         self.history[self.write_pos + TRUE_PEAK_DELAY] = sample;
-        let fir = true_peak_fir();
 
         let dot_base = self.write_pos + TRUE_PEAK_DELAY - 11;
-        let phase1 = dot12_contiguous(&self.history[dot_base..dot_base + 12], &fir.coeffs[1]);
-        let phase2 = dot12_contiguous(&self.history[dot_base..dot_base + 12], &fir.coeffs[2]);
-        let phase3 = dot12_contiguous(&self.history[dot_base..dot_base + 12], &fir.coeffs[3]);
+        let history = &self.history[dot_base..dot_base + TRUE_PEAK_INTER_SAMPLE_TAPS];
+        let phase1 = dot12_contiguous(history, &fir.inter_sample_coeffs[0]);
+        let phase2 = dot12_contiguous(history, &fir.inter_sample_coeffs[1]);
+        let phase3 = dot12_contiguous(history, &fir.inter_sample_coeffs[2]);
 
         self.max_true_peak = self
             .max_true_peak
@@ -250,7 +256,8 @@ fn true_peak_fir() -> &'static TruePeakFir {
 
 fn generate_true_peak_fir() -> TruePeakFir {
     let mut fir = TruePeakFir {
-        coeffs: [[0.0; TRUE_PEAK_DELAY]; TRUE_PEAK_PHASES],
+        sample_phase_coeff: 0.0,
+        inter_sample_coeffs: [[0.0; TRUE_PEAK_INTER_SAMPLE_TAPS]; TRUE_PEAK_PHASES - 1],
     };
     let center = (TRUE_PEAK_FIR_TAPS as f64 - 1.0) * 0.5;
 
@@ -265,12 +272,11 @@ fn generate_true_peak_fir() -> TruePeakFir {
         let coeff = sinc(position / TRUE_PEAK_PHASES as f64) * window;
 
         if coeff.abs() > 1.0e-12 {
-            let index = if phase == 0 {
-                0
+            if phase == 0 {
+                fir.sample_phase_coeff = coeff;
             } else {
-                tap_index / TRUE_PEAK_PHASES
-            };
-            fir.coeffs[phase][index] = coeff as f32;
+                fir.inter_sample_coeffs[phase - 1][tap_index / TRUE_PEAK_PHASES] = coeff;
+            }
         }
     }
 
@@ -278,19 +284,19 @@ fn generate_true_peak_fir() -> TruePeakFir {
 }
 
 #[inline]
-fn dot12_contiguous(history: &[f64], coeffs: &[f32; TRUE_PEAK_DELAY]) -> f64 {
-    history[11] * coeffs[0] as f64
-        + history[10] * coeffs[1] as f64
-        + history[9] * coeffs[2] as f64
-        + history[8] * coeffs[3] as f64
-        + history[7] * coeffs[4] as f64
-        + history[6] * coeffs[5] as f64
-        + history[5] * coeffs[6] as f64
-        + history[4] * coeffs[7] as f64
-        + history[3] * coeffs[8] as f64
-        + history[2] * coeffs[9] as f64
-        + history[1] * coeffs[10] as f64
-        + history[0] * coeffs[11] as f64
+fn dot12_contiguous(history: &[f64], coeffs: &[f64; TRUE_PEAK_INTER_SAMPLE_TAPS]) -> f64 {
+    history[11] * coeffs[0]
+        + history[10] * coeffs[1]
+        + history[9] * coeffs[2]
+        + history[8] * coeffs[3]
+        + history[7] * coeffs[4]
+        + history[6] * coeffs[5]
+        + history[5] * coeffs[6]
+        + history[4] * coeffs[7]
+        + history[3] * coeffs[8]
+        + history[2] * coeffs[9]
+        + history[1] * coeffs[10]
+        + history[0] * coeffs[11]
 }
 
 #[inline]
@@ -380,18 +386,14 @@ mod tests {
     fn true_peak_fir_matches_libebur128_polyphase_shape() {
         let fir = true_peak_fir();
 
-        assert!(fir.coeffs[0][0].is_finite());
-        assert!(fir.coeffs[0][0].abs() > 1.0e-12);
-        for tap in 1..TRUE_PEAK_DELAY {
-            assert_eq!(fir.coeffs[0][tap], 0.0);
-        }
+        assert!(fir.sample_phase_coeff.is_finite());
+        assert!(fir.sample_phase_coeff.abs() > 1.0e-12);
 
-        for phase in 1..TRUE_PEAK_PHASES {
-            for tap in 0..12 {
-                assert!(fir.coeffs[phase][tap].is_finite());
-                assert!(fir.coeffs[phase][tap].abs() > 1.0e-12);
+        for phase in 0..TRUE_PEAK_PHASES - 1 {
+            for tap in 0..TRUE_PEAK_INTER_SAMPLE_TAPS {
+                assert!(fir.inter_sample_coeffs[phase][tap].is_finite());
+                assert!(fir.inter_sample_coeffs[phase][tap].abs() > 1.0e-12);
             }
-            assert_eq!(fir.coeffs[phase][12], 0.0);
         }
     }
 

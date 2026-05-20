@@ -105,6 +105,7 @@ impl FFTConvolver {
         }
     }
 
+    #[inline]
     fn prepare_channel_chunk(
         scratch: &mut [Complex<f64>],
         overlap: &[f64],
@@ -126,6 +127,7 @@ impl FFTConvolver {
         scratch[ir_len - 1 + chunk_len..].fill(Complex::new(0.0, 0.0));
     }
 
+    #[inline]
     fn update_channel_overlap(
         overlap: &mut [f64],
         input: &[f64],
@@ -150,6 +152,7 @@ impl FFTConvolver {
         }
     }
 
+    #[inline]
     fn write_channel_output(
         scratch: &[Complex<f64>],
         output: &mut [f64],
@@ -166,13 +169,12 @@ impl FFTConvolver {
         }
     }
 
+    #[inline]
     fn process_channel_chunk_fft(&mut self, channel: usize) {
         self.fft_forward.process(&mut self.scratch_complex);
 
         let ir_fft = &self.impulse_response_fft[channel];
-        for (sample, ir) in self.scratch_complex.iter_mut().zip(ir_fft) {
-            *sample *= *ir;
-        }
+        multiply_spectrum_in_place(&mut self.scratch_complex, ir_fft);
 
         self.fft_inverse.process(&mut self.scratch_complex);
     }
@@ -322,6 +324,16 @@ impl FFTConvolver {
                 processed_frames += chunk_len;
             }
         }
+    }
+}
+
+#[inline]
+fn multiply_spectrum_in_place(samples: &mut [Complex<f64>], ir_fft: &[Complex<f64>]) {
+    for (sample, ir) in samples.iter_mut().zip(ir_fft) {
+        let re = sample.re * ir.re - sample.im * ir.im;
+        let im = sample.re * ir.im + sample.im * ir.re;
+        sample.re = re;
+        sample.im = im;
     }
 }
 

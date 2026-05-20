@@ -49,12 +49,34 @@ impl<T> SharedParams<T> {
     }
 
     #[inline]
+    fn load_with_generation(&self) -> (Arc<T>, u64) {
+        loop {
+            let before = self.generation.load(Ordering::Acquire);
+            let current = self.current.load_full();
+            let after = self.generation.load(Ordering::Acquire);
+            if before == after {
+                return (current, after);
+            }
+        }
+    }
+
+    #[inline]
     fn load_if_changed(&self, cached: &Arc<T>) -> Option<Arc<T>> {
         let current = self.current.load();
         if std::ptr::eq(&**current, Arc::as_ref(cached)) {
             None
         } else {
             Some(Guard::into_inner(current))
+        }
+    }
+
+    #[inline]
+    fn load_if_changed_since(&self, cached_generation: u64) -> Option<(Arc<T>, u64)> {
+        let generation = self.generation.load(Ordering::Acquire);
+        if generation == cached_generation {
+            None
+        } else {
+            Some((self.current.load_full(), generation))
         }
     }
 
@@ -146,6 +168,33 @@ macro_rules! impl_dirty_accessors {
     };
 }
 
+macro_rules! impl_snapshot_accessors {
+    ($snapshot:ty) => {
+        #[inline]
+        pub fn load(&self) -> Arc<$snapshot> {
+            self.shared.load()
+        }
+
+        #[inline]
+        pub fn load_with_generation(&self) -> (Arc<$snapshot>, u64) {
+            self.shared.load_with_generation()
+        }
+
+        #[inline]
+        pub fn load_if_changed(&self, cached: &Arc<$snapshot>) -> Option<Arc<$snapshot>> {
+            self.shared.load_if_changed(cached)
+        }
+
+        #[inline]
+        pub fn load_if_changed_since(
+            &self,
+            cached_generation: u64,
+        ) -> Option<(Arc<$snapshot>, u64)> {
+            self.shared.load_if_changed_since(cached_generation)
+        }
+    };
+}
+
 macro_rules! impl_set_enabled_accessor {
     () => {
         #[inline]
@@ -217,15 +266,7 @@ impl AtomicEqParams {
         self.shared.read()
     }
 
-    #[inline]
-    pub fn load(&self) -> Arc<EqParamsSnapshot> {
-        self.shared.load()
-    }
-
-    #[inline]
-    pub fn load_if_changed(&self, cached: &Arc<EqParamsSnapshot>) -> Option<Arc<EqParamsSnapshot>> {
-        self.shared.load_if_changed(cached)
-    }
+    impl_snapshot_accessors!(EqParamsSnapshot);
 
     // Quick check if parameters have been updated (read-only, does not clear).
     impl_has_update_accessor!();
@@ -441,18 +482,7 @@ impl AtomicSaturationParams {
         self.shared.read()
     }
 
-    #[inline]
-    pub fn load(&self) -> Arc<SaturationParamsSnapshot> {
-        self.shared.load()
-    }
-
-    #[inline]
-    pub fn load_if_changed(
-        &self,
-        cached: &Arc<SaturationParamsSnapshot>,
-    ) -> Option<Arc<SaturationParamsSnapshot>> {
-        self.shared.load_if_changed(cached)
-    }
+    impl_snapshot_accessors!(SaturationParamsSnapshot);
 
     // Compatibility update flag for legacy callers. Audio processors compare
     // published snapshot pointers directly and do not consume this flag.
@@ -536,18 +566,7 @@ impl AtomicCrossfeedParams {
         self.shared.read()
     }
 
-    #[inline]
-    pub fn load(&self) -> Arc<CrossfeedParamsSnapshot> {
-        self.shared.load()
-    }
-
-    #[inline]
-    pub fn load_if_changed(
-        &self,
-        cached: &Arc<CrossfeedParamsSnapshot>,
-    ) -> Option<Arc<CrossfeedParamsSnapshot>> {
-        self.shared.load_if_changed(cached)
-    }
+    impl_snapshot_accessors!(CrossfeedParamsSnapshot);
 
     impl_dirty_accessors!();
 
@@ -621,18 +640,7 @@ impl AtomicPeakLimiterParams {
         self.shared.read()
     }
 
-    #[inline]
-    pub fn load(&self) -> Arc<PeakLimiterParamsSnapshot> {
-        self.shared.load()
-    }
-
-    #[inline]
-    pub fn load_if_changed(
-        &self,
-        cached: &Arc<PeakLimiterParamsSnapshot>,
-    ) -> Option<Arc<PeakLimiterParamsSnapshot>> {
-        self.shared.load_if_changed(cached)
-    }
+    impl_snapshot_accessors!(PeakLimiterParamsSnapshot);
 
     impl_dirty_accessors!();
 
@@ -696,18 +704,7 @@ impl AtomicVolumeParams {
         self.shared.read()
     }
 
-    #[inline]
-    pub fn load(&self) -> Arc<VolumeParamsSnapshot> {
-        self.shared.load()
-    }
-
-    #[inline]
-    pub fn load_if_changed(
-        &self,
-        cached: &Arc<VolumeParamsSnapshot>,
-    ) -> Option<Arc<VolumeParamsSnapshot>> {
-        self.shared.load_if_changed(cached)
-    }
+    impl_snapshot_accessors!(VolumeParamsSnapshot);
 
     /// Get effective volume (0.0 if muted)
     #[inline]
@@ -781,18 +778,7 @@ impl AtomicNoiseShaperParams {
         self.shared.read()
     }
 
-    #[inline]
-    pub fn load(&self) -> Arc<NoiseShaperParamsSnapshot> {
-        self.shared.load()
-    }
-
-    #[inline]
-    pub fn load_if_changed(
-        &self,
-        cached: &Arc<NoiseShaperParamsSnapshot>,
-    ) -> Option<Arc<NoiseShaperParamsSnapshot>> {
-        self.shared.load_if_changed(cached)
-    }
+    impl_snapshot_accessors!(NoiseShaperParamsSnapshot);
 
     impl_dirty_accessors!();
 
@@ -884,18 +870,7 @@ impl AtomicDynamicLoudnessParams {
         self.shared.read()
     }
 
-    #[inline]
-    pub fn load(&self) -> Arc<DynamicLoudnessParamsSnapshot> {
-        self.shared.load()
-    }
-
-    #[inline]
-    pub fn load_if_changed(
-        &self,
-        cached: &Arc<DynamicLoudnessParamsSnapshot>,
-    ) -> Option<Arc<DynamicLoudnessParamsSnapshot>> {
-        self.shared.load_if_changed(cached)
-    }
+    impl_snapshot_accessors!(DynamicLoudnessParamsSnapshot);
 
     impl_dirty_accessors!();
 

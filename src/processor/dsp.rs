@@ -80,12 +80,13 @@ impl VolumeController {
         self.target = volume.clamp(0.0, 1.0);
     }
 
-    #[inline]
+    #[inline(always)]
     pub fn next_volume(&mut self) -> f64 {
         self.current += (self.target - self.current) * self.one_minus_smoothing;
         self.current
     }
 
+    #[inline]
     pub fn process(&mut self, buffer: &mut [f64], channels: usize) {
         let frames = buffer.len() / channels;
         for frame in 0..frames {
@@ -343,7 +344,7 @@ impl NoiseShaper {
     ///
     /// # Returns
     /// * Quantized sample in [-1, 1] range
-    #[inline]
+    #[inline(always)]
     pub fn process_sample(&mut self, sample: f64, ch: usize) -> f64 {
         if !self.enabled || ch >= self.error_history.len() {
             return sample;

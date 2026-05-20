@@ -270,7 +270,8 @@ impl LockfreeDspContext {
             }
             None => {
                 self.merged_convolver.store(None);
-                self.merged_convolver_enabled.store(false, Ordering::Release);
+                self.merged_convolver_enabled
+                    .store(false, Ordering::Release);
             }
         }
         Ok(())

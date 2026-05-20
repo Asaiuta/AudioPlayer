@@ -62,8 +62,9 @@ pub use spectrum::SpectrumAnalyzer;
 
 // Re-export unified abstraction types
 pub use adapters::{
-    ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor, EqProcessor, NoiseShaperProcessor,
-    PassThroughProcessor, PeakLimiterProcessor, SaturationProcessor, VolumeProcessor,
+    ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor, EqProcessor,
+    NoiseShaperProcessor, PassThroughProcessor, PeakLimiterProcessor, SaturationProcessor,
+    VolumeProcessor,
 };
 pub use dsp_chain::{ChainStats, DspChain, DspChainBuilder, ProcessorStats};
 pub use lockfree_params::{

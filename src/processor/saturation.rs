@@ -47,6 +47,10 @@ pub struct Saturation {
     pub input_gain_db: f64,
     /// Output gain compensation (dB, default 0.0)
     pub output_gain_db: f64,
+    /// Cached linear input gain.
+    input_gain_linear: f64,
+    /// Cached linear output gain.
+    output_gain_linear: f64,
     /// Enable/disable
     pub enabled: bool,
 
@@ -78,6 +82,8 @@ impl Saturation {
             mix: 0.2,
             input_gain_db: 0.0,
             output_gain_db: 0.0,
+            input_gain_linear: 1.0,
+            output_gain_linear: 1.0,
             enabled: true,
             highpass_mode: false,
             highpass_cutoff: 4000.0,
@@ -118,11 +124,13 @@ impl Saturation {
     /// Set input gain (dB) - applied before saturation
     pub fn set_input_gain(&mut self, gain_db: f64) {
         self.input_gain_db = gain_db;
+        self.input_gain_linear = db_to_linear(gain_db);
     }
 
     /// Set output gain (dB) - applied only to saturated samples for compensation
     pub fn set_output_gain(&mut self, gain_db: f64) {
         self.output_gain_db = gain_db;
+        self.output_gain_linear = db_to_linear(gain_db);
     }
 
     /// Enable/disable saturation
@@ -189,8 +197,8 @@ impl Saturation {
 
     /// Full-band saturation (original behavior)
     fn process_fullband(&mut self, samples: &mut [f64]) {
-        let input_gain = db_to_linear(self.input_gain_db);
-        let output_gain = db_to_linear(self.output_gain_db);
+        let input_gain = self.input_gain_linear;
+        let output_gain = self.output_gain_linear;
         let threshold = self.threshold;
         let drive_plus1 = 1.0 + self.drive;
         let mix = self.mix;
@@ -214,8 +222,8 @@ impl Saturation {
     /// Only saturates frequencies above the cutoff.
     /// P1-5 fix: Supports arbitrary channel count (was hardcoded to L/R only).
     fn process_highpass(&mut self, samples: &mut [f64], channels: usize) {
-        let input_gain = db_to_linear(self.input_gain_db);
-        let output_gain = db_to_linear(self.output_gain_db);
+        let input_gain = self.input_gain_linear;
+        let output_gain = self.output_gain_linear;
         let alpha = self.hpf_coef;
         let threshold = self.threshold;
         let drive_plus1 = 1.0 + self.drive;
@@ -368,6 +376,19 @@ mod tests {
         // Should pass through unchanged when disabled
         assert!((samples[0] - 0.9).abs() < 1e-10);
         assert!((samples[1] - (-0.9)).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_cached_linear_gains_update_with_db_setters() {
+        let mut sat = Saturation::new();
+
+        sat.set_input_gain(6.0);
+        sat.set_output_gain(-3.0);
+
+        assert!((sat.input_gain_linear - db_to_linear(6.0)).abs() < 1e-12);
+        assert!((sat.output_gain_linear - db_to_linear(-3.0)).abs() < 1e-12);
+        assert_eq!(sat.input_gain_db, 6.0);
+        assert_eq!(sat.output_gain_db, -3.0);
     }
 
     #[test]

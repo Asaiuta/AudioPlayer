@@ -119,14 +119,16 @@ fn db_to_linear(db: f64) -> f64 {
 }
 
 fn max_abs(samples: &[f64]) -> f64 {
-    samples.iter().map(|sample| sample.abs()).fold(0.0, f64::max)
+    samples
+        .iter()
+        .map(|sample| sample.abs())
+        .fold(0.0, f64::max)
 }
 
 fn deterministic_transient_corpus(frames: usize, channels: usize) -> Vec<f64> {
     let mut samples = Vec::with_capacity(frames * channels);
     for frame in 0..frames {
-        let base = ((frame as f64 * 0.037).sin() * 0.35)
-            + ((frame as f64 * 0.011).cos() * 0.08);
+        let base = ((frame as f64 * 0.037).sin() * 0.35) + ((frame as f64 * 0.011).cos() * 0.08);
         for ch in 0..channels {
             let mut sample = base * (1.0 - ch as f64 * 0.15);
             if frame % 1024 == 257 {

@@ -449,7 +449,8 @@ impl EngineSettings {
         };
 
         // Load phase response setting
-        let phase_response = parse_phase_response(env_string_or("AUDIO_PHASE_RESPONSE", "linear").as_str());
+        let phase_response =
+            parse_phase_response(env_string_or("AUDIO_PHASE_RESPONSE", "linear").as_str());
 
         // Load saturation configuration with range validation (FIX for Defect 29)
         let saturation = SaturationConfig {
@@ -463,19 +464,9 @@ impl EngineSettings {
             // mix: 0.0 (dry) to 1.0 (wet)
             mix: env_parse_clamped("AUDIO_SATURATION_MIX", 0.2, 0.0, 1.0),
             // input_gain_db: -20 to +20 dB
-            input_gain_db: env_parse_clamped(
-                "AUDIO_SATURATION_INPUT_GAIN",
-                0.0,
-                -20.0,
-                20.0,
-            ),
+            input_gain_db: env_parse_clamped("AUDIO_SATURATION_INPUT_GAIN", 0.0, -20.0, 20.0),
             // output_gain_db: -20 to +20 dB
-            output_gain_db: env_parse_clamped(
-                "AUDIO_SATURATION_OUTPUT_GAIN",
-                0.0,
-                -20.0,
-                20.0,
-            ),
+            output_gain_db: env_parse_clamped("AUDIO_SATURATION_OUTPUT_GAIN", 0.0, -20.0, 20.0),
             enabled: env_flag("AUDIO_SATURATION_ENABLED", true), // Enabled by default
         };
 
