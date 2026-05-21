@@ -9,6 +9,7 @@ dist/
 
 # Tauri
 apps/desktop/src-tauri/target/
+apps/desktop/.tauri-target/
 
 # Build artifacts
 *.dll
@@ -40,11 +41,13 @@ Desktop.ini
 # Logs
 *.log
 
-# AI Agent configs
-.agents/
-.codex/
-.cursor/
-.opencode/
+# Diagnostics
+.diagnostics-run/
+
+# QA
+qa-screenshots/
+
+
 
 # Temp files
 .tmp-*/
