@@ -12,6 +12,8 @@ pub mod wasapi_exclusive {
     use std::sync::Arc;
     use std::thread::{self, JoinHandle};
 
+    use crate::config::{PhaseResponse, ResampleQuality};
+    use crate::processor::{AtomicNoiseShaperParams, NoiseShaperProcessor};
     use wasapi::{
         calculate_period_100ns, initialize_mta, DeviceEnumerator, Direction, SampleType,
         StreamMode, WaveFormat,
@@ -159,6 +161,8 @@ pub mod wasapi_exclusive {
             device_id: Option<usize>,
             sample_rate: u32,
             channels: usize,
+            resample_quality: ResampleQuality,
+            noise_shaper_params: Arc<AtomicNoiseShaperParams>,
             dsp_callback: DspCallback,
         ) -> Result<Self, String> {
             let shared_state = Arc::new(WasapiSharedState::new());
@@ -177,7 +181,14 @@ pub mod wasapi_exclusive {
             let thread_handle = thread::Builder::new()
                 .name("wasapi-exclusive".to_string())
                 .spawn(move || {
-                    wasapi_thread_main(cmd_rx, state_clone, dev_id, dsp_callback);
+                    wasapi_thread_main(
+                        cmd_rx,
+                        state_clone,
+                        dev_id,
+                        resample_quality,
+                        noise_shaper_params,
+                        dsp_callback,
+                    );
                 })
                 .map_err(|e| format!("Failed to spawn WASAPI thread: {}", e))?;
 
@@ -249,6 +260,8 @@ pub mod wasapi_exclusive {
         cmd_rx: Receiver<WasapiCommand>,
         shared_state: Arc<WasapiSharedState>,
         device_id: Option<usize>,
+        resample_quality: ResampleQuality,
+        noise_shaper_params: Arc<AtomicNoiseShaperParams>,
         mut dsp_callback: DspCallback,
     ) {
         log::info!("WASAPI exclusive thread started");
@@ -282,6 +295,8 @@ pub mod wasapi_exclusive {
                         sample_rate,
                         channels,
                         device_id,
+                        resample_quality,
+                        Arc::clone(&noise_shaper_params),
                         &mut dsp_callback,
                     ) {
                         Ok(()) => log::info!("WASAPI: Exclusive playback completed"),
@@ -323,6 +338,8 @@ pub mod wasapi_exclusive {
         sample_rate: usize,
         channels: usize,
         device_id: Option<usize>,
+        resample_quality: ResampleQuality,
+        noise_shaper_params: Arc<AtomicNoiseShaperParams>,
         dsp_callback: &mut DspCallback,
     ) -> Result<(), String> {
         let enumerator = DeviceEnumerator::new()
@@ -412,18 +429,18 @@ pub mod wasapi_exclusive {
 
         // Initialize resampler if actual format is different from source
         let mut resampler = if actual_sample_rate != sample_rate {
-            use crate::config::PhaseResponse;
             use crate::processor::StreamingResampler;
             log::info!(
                 "WASAPI: Intrinsic streaming resampling {} -> {} Hz",
                 sample_rate,
                 actual_sample_rate
             );
-            match StreamingResampler::with_phase(
+            match StreamingResampler::with_quality(
                 channels,
                 sample_rate as u32,
                 actual_sample_rate as u32,
                 PhaseResponse::Linear,
+                resample_quality,
             ) {
                 Ok(r) => Some(r),
                 Err(e) => {
@@ -455,6 +472,8 @@ pub mod wasapi_exclusive {
             if is_float { "float" } else { "int" },
             blockalign
         );
+        let mut final_noise_shaper =
+            NoiseShaperProcessor::new(channels, actual_sample_rate as u32, noise_shaper_params);
 
         // Get device period
         let (_def_period, min_period) = audio_client
@@ -713,6 +732,13 @@ pub mod wasapi_exclusive {
                 break;
             }
 
+            apply_final_noise_shaper_to_f32(
+                &mut final_noise_shaper,
+                &mut output_f32_buffer[..samples_to_write],
+                channels,
+                &mut resample_scratch,
+            );
+
             let actual_frames = frames_to_write;
 
             // P1-9 fix: Reuse pre-allocated byte buffer
@@ -746,6 +772,29 @@ pub mod wasapi_exclusive {
 
         shared_state.is_active.store(false, Ordering::Relaxed);
         Ok(())
+    }
+
+    fn apply_final_noise_shaper_to_f32(
+        final_noise_shaper: &mut NoiseShaperProcessor,
+        output: &mut [f32],
+        channels: usize,
+        scratch: &mut Vec<f64>,
+    ) {
+        if output.is_empty() || !final_noise_shaper.refresh_is_enabled() {
+            return;
+        }
+
+        let sample_count = output.len();
+        if scratch.len() < sample_count {
+            scratch.resize(sample_count, 0.0);
+        }
+        for (dst, src) in scratch[..sample_count].iter_mut().zip(output.iter()) {
+            *dst = *src as f64;
+        }
+        final_noise_shaper.process_cached(&mut scratch[..sample_count], channels);
+        for (dst, src) in output.iter_mut().zip(scratch[..sample_count].iter()) {
+            *dst = *src as f32;
+        }
     }
 
     #[cfg(test)]
@@ -827,6 +876,37 @@ pub mod wasapi_exclusive {
                 .collect::<Vec<_>>();
             assert_eq!(bytes, expected);
         }
+
+        #[test]
+        fn final_noise_shaper_disabled_leaves_output_and_scratch_untouched() {
+            let params = Arc::new(AtomicNoiseShaperParams::new());
+            params.set_enabled(false);
+            let mut processor = NoiseShaperProcessor::new(2, 48_000, params);
+            let mut output = vec![0.1f32, -0.2, 0.3, -0.4];
+            let expected = output.clone();
+            let mut scratch = Vec::new();
+
+            apply_final_noise_shaper_to_f32(&mut processor, &mut output, 2, &mut scratch);
+
+            assert_eq!(output, expected);
+            assert_eq!(scratch.len(), 0);
+        }
+
+        #[test]
+        fn final_noise_shaper_enabled_uses_scratch_and_updates_output() {
+            let params = Arc::new(AtomicNoiseShaperParams::new());
+            params.set_enabled(true);
+            params.set_curve(crate::processor::NoiseShaperCurve::TpdfOnly);
+            let mut processor = NoiseShaperProcessor::new(2, 48_000, params);
+            let mut output = vec![0.1f32, -0.2, 0.3, -0.4];
+            let original = output.clone();
+            let mut scratch = Vec::new();
+
+            apply_final_noise_shaper_to_f32(&mut processor, &mut output, 2, &mut scratch);
+
+            assert_eq!(scratch.len(), original.len());
+            assert_ne!(output, original);
+        }
     }
 }
 
@@ -837,6 +917,8 @@ pub use wasapi_exclusive::*;
 // Stub for non-Windows platforms
 #[cfg(not(windows))]
 pub mod wasapi_exclusive {
+    pub type DspCallback = Box<dyn FnMut(&mut [f32], usize) -> bool + Send>;
+
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub enum WasapiState {
         Stopped,
@@ -847,7 +929,14 @@ pub mod wasapi_exclusive {
     pub struct WasapiExclusivePlayer;
 
     impl WasapiExclusivePlayer {
-        pub fn new(_device_id: Option<usize>) -> Result<Self, String> {
+        pub fn new(
+            _device_id: Option<usize>,
+            _sample_rate: u32,
+            _channels: usize,
+            _resample_quality: crate::config::ResampleQuality,
+            _noise_shaper_params: std::sync::Arc<crate::processor::AtomicNoiseShaperParams>,
+            _dsp_callback: DspCallback,
+        ) -> Result<Self, String> {
             Err("WASAPI is only available on Windows".to_string())
         }
 

@@ -319,7 +319,7 @@ mod tests {
             app_db: Arc::new(AppDatabase::in_memory().unwrap()),
             settings_manager: create_settings_manager(&runtime_paths.settings_path),
             analysis: AnalysisState {
-                loudness_db: Mutex::new(None),
+                loudness_db: None,
                 analysis_runtime: Arc::new(AnalysisRuntime::new(
                     TokioRuntimeBuilder::new_multi_thread()
                         .worker_threads(1)

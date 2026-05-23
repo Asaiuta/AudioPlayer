@@ -8,13 +8,12 @@ use std::sync::Arc;
 use std::thread;
 
 use super::callback::normalize_channels;
-use super::state::SharedState;
+use super::loading::{cached_loudness_from_db, estimated_output_sample_capacity};
+use super::state::{CachedLoudness, SharedState};
 use crate::config::EngineSettings;
 use crate::config::NormalizationMode;
 use crate::decoder::StreamingDecoder;
-use crate::processor::StreamingResampler;
-
-use super::estimated_output_sample_capacity;
+use crate::processor::{LoudnessDatabase, StreamingResampler};
 
 /// Gapless playback methods
 pub struct GaplessManager;
@@ -33,6 +32,7 @@ impl GaplessManager {
         credentials: Option<crate::decoder::HttpCredentials>,
         loudness_enabled: bool,
         normalization_mode: NormalizationMode,
+        loudness_db: Option<Arc<LoudnessDatabase>>,
     ) -> Result<(), String> {
         // Ignore if pending buffer is already ready
         if shared.pending_ready.load(Ordering::Relaxed) {
@@ -72,6 +72,8 @@ impl GaplessManager {
                 return;
             }
 
+            let cached_loudness = cached_loudness_from_db(loudness_db.as_deref(), &path);
+
             match decode_to_buffer_with_cancel(
                 &path,
                 target_sr,
@@ -97,10 +99,16 @@ impl GaplessManager {
                     // Analyze loudness (before move) - FIX for Defect 22 and Bug-4:
                     // Use calculate_gain_with_mode() to respect ReplayGain mode.
                     // Store in pending_target_gain_db for application after buffer swap.
+                    let cached_loudness_for_state = cached_loudness.clone();
                     if loudness_enabled {
-                        let pending_gain_db = loudness_normalizer_clone
-                            .lock()
-                            .calculate_gain_with_mode(&samples, mode_for_thread, &metadata);
+                        let pending_gain_db = pending_loudness_gain_db(
+                            &loudness_normalizer_clone,
+                            &samples,
+                            mode_for_thread,
+                            &metadata,
+                            cached_loudness.as_ref(),
+                            config_clone.loudness.target_lufs,
+                        );
                         shared_clone
                             .pending_target_gain_db
                             .store(pending_gain_db.to_bits(), Ordering::Relaxed);
@@ -122,6 +130,7 @@ impl GaplessManager {
                         .store(channels as u64, Ordering::Relaxed);
                     *shared_clone.pending_file_path.write() = Some(path.clone());
                     *shared_clone.pending_metadata.write() = Some(metadata);
+                    *shared_clone.pending_cached_loudness.write() = cached_loudness_for_state;
 
                     // Move samples into pending buffer (lock-free atomic swap)
                     shared_clone.pending_buffer.store(Some(Arc::new(samples)));
@@ -168,6 +177,7 @@ impl GaplessManager {
         shared.pending_channels.store(2, Ordering::Relaxed);
         *shared.pending_file_path.write() = None;
         *shared.pending_metadata.write() = None;
+        *shared.pending_cached_loudness.write() = None;
         shared.pending_ready.store(false, Ordering::Relaxed);
         shared.needs_preload.store(false, Ordering::Relaxed);
         shared.gapless_swap_pending.store(false, Ordering::Release);
@@ -176,6 +186,40 @@ impl GaplessManager {
             .store(0.0_f64.to_bits(), Ordering::Relaxed);
         log::info!("Gapless preload cancelled");
     }
+}
+
+fn pending_loudness_gain_db(
+    loudness_normalizer: &Arc<parking_lot::Mutex<crate::processor::LoudnessNormalizer>>,
+    samples: &[f64],
+    mode: NormalizationMode,
+    metadata: &crate::decoder::TrackMetadata,
+    cached_loudness: Option<&CachedLoudness>,
+    target_lufs: f64,
+) -> f64 {
+    let has_replaygain_tag = match mode {
+        NormalizationMode::ReplayGainTrack => metadata.rg_track_gain.is_some(),
+        NormalizationMode::ReplayGainAlbum => {
+            metadata.rg_album_gain.or(metadata.rg_track_gain).is_some()
+        }
+        _ => false,
+    };
+
+    if !has_replaygain_tag {
+        if let Some(gain) = cached_loudness.and_then(|cached| cached.gain_for_target(target_lufs)) {
+            log::info!(
+                "Gapless preload: Using cached loudness {:.2} LUFS -> pending gain {:.2} dB",
+                cached_loudness
+                    .map(|cached| cached.integrated_lufs)
+                    .unwrap_or(-70.0),
+                gain
+            );
+            return gain;
+        }
+    }
+
+    loudness_normalizer
+        .lock()
+        .calculate_gain_with_mode(samples, mode, metadata)
 }
 
 /// Decode audio file to f64 sample buffer with cancellation support
@@ -209,11 +253,12 @@ fn decode_to_buffer_with_cancel(
     ));
     let mut resampler = if need_resample {
         Some(
-            StreamingResampler::with_phase(
+            StreamingResampler::with_quality(
                 decoded_channels,
                 original_sr,
                 target_sr,
                 config.phase_response,
+                config.resample_quality,
             )
             .map_err(|e| format!("Failed to create gapless resampler: {}", e))?,
         )
@@ -266,8 +311,10 @@ mod tests {
 
     use super::estimated_output_sample_capacity;
     use super::GaplessManager;
+    use crate::config::{EngineSettings, NormalizationMode};
     use crate::decoder::TrackMetadata;
-    use crate::player::SharedState;
+    use crate::player::{CachedLoudness, SharedState};
+    use crate::processor::LoudnessNormalizer;
 
     #[test]
     fn preload_capacity_estimate_accounts_for_resampler_tail() {
@@ -296,6 +343,11 @@ mod tests {
         shared.pending_channels.store(1, Ordering::Relaxed);
         *shared.pending_file_path.write() = Some("old.flac".to_string());
         *shared.pending_metadata.write() = Some(TrackMetadata::default());
+        *shared.pending_cached_loudness.write() = Some(CachedLoudness {
+            integrated_lufs: -18.0,
+            true_peak_dbtp: -1.0,
+            loudness_range: Some(4.0),
+        });
         shared.pending_ready.store(true, Ordering::Relaxed);
         shared.needs_preload.store(true, Ordering::Relaxed);
         shared.gapless_swap_pending.store(true, Ordering::Relaxed);
@@ -315,6 +367,7 @@ mod tests {
         assert_eq!(shared.pending_channels.load(Ordering::Relaxed), 2);
         assert!(shared.pending_file_path.read().is_none());
         assert!(shared.pending_metadata.read().is_none());
+        assert!(shared.pending_cached_loudness.read().is_none());
         assert!(!shared.pending_ready.load(Ordering::Relaxed));
         assert!(!shared.needs_preload.load(Ordering::Relaxed));
         assert!(!shared.gapless_swap_pending.load(Ordering::Relaxed));
@@ -322,5 +375,64 @@ mod tests {
             f64::from_bits(shared.pending_target_gain_db.load(Ordering::Relaxed)),
             0.0
         );
+    }
+
+    #[test]
+    fn pending_loudness_uses_cached_gain_when_replaygain_tag_is_missing() {
+        let config = EngineSettings::default();
+        let normalizer = Arc::new(parking_lot::Mutex::new(LoudnessNormalizer::new(
+            2,
+            44_100,
+            config.loudness.clone(),
+        )));
+        let cached = CachedLoudness {
+            integrated_lufs: -20.0,
+            true_peak_dbtp: -1.0,
+            loudness_range: None,
+        };
+        let samples = vec![0.0; 1024];
+
+        let gain = super::pending_loudness_gain_db(
+            &normalizer,
+            &samples,
+            NormalizationMode::ReplayGainTrack,
+            &TrackMetadata::default(),
+            Some(&cached),
+            config.loudness.target_lufs,
+        );
+
+        assert!((gain - 8.0).abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn pending_loudness_replaygain_tag_takes_priority_over_cache() {
+        let config = EngineSettings::default();
+        let normalizer = Arc::new(parking_lot::Mutex::new(LoudnessNormalizer::new(
+            2,
+            44_100,
+            config.loudness.clone(),
+        )));
+        let metadata = TrackMetadata {
+            rg_track_gain: Some(0.0),
+            rg_track_peak: None,
+            ..Default::default()
+        };
+        let cached = CachedLoudness {
+            integrated_lufs: -30.0,
+            true_peak_dbtp: -1.0,
+            loudness_range: None,
+        };
+        let samples = vec![0.0; 1024];
+
+        let gain = super::pending_loudness_gain_db(
+            &normalizer,
+            &samples,
+            NormalizationMode::ReplayGainTrack,
+            &metadata,
+            Some(&cached),
+            config.loudness.target_lufs,
+        );
+
+        assert!((gain - 6.0).abs() < 1.0e-9);
     }
 }

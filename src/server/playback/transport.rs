@@ -234,13 +234,14 @@ pub(super) async fn set_shuffle_mode(
     let mode = match ShuffleMode::parse(&body.mode) {
         Some(mode) => mode,
         None => {
-            return bad_request_response("Invalid shuffle mode. Use: off, on");
+            return bad_request_response("Invalid shuffle mode. Use: off, on, heartbeat");
         }
     };
 
     let update_result = match mode {
         ShuffleMode::Off => data.app_db.unshuffle_entries("active"),
         ShuffleMode::On => data.app_db.shuffle_entries("active"),
+        ShuffleMode::Heartbeat => Ok(()),
     };
     if let Err(e) = update_result {
         return internal_server_error_response(e);

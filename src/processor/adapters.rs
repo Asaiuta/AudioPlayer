@@ -21,7 +21,7 @@ use super::eq::Equalizer;
 use super::lockfree_params::*;
 use super::loudness::PeakLimiter;
 use super::saturation::Saturation;
-use super::traits::{AudioProcessor, ChannelAware, ProcessResult, SampleRateAware};
+use super::traits::{AudioProcessor, ProcessResult};
 // ============================================================================
 // EQ Adapter
 // ============================================================================
@@ -106,20 +106,9 @@ impl AudioProcessor for EqProcessor {
     }
 
     fn set_sample_rate(&mut self, sample_rate: f64) {
-        SampleRateAware::set_sample_rate(self, sample_rate);
-    }
-}
-
-impl SampleRateAware for EqProcessor {
-    fn sample_rate(&self) -> f64 {
-        self.sample_rate
-    }
-
-    fn set_sample_rate(&mut self, sr: f64) {
-        self.sample_rate = sr;
-        self.eq = Equalizer::new(self.channels, sr);
-        // Re-apply cached params
-        self.eq.set_all_bands(&self.cached.gains, sr);
+        self.sample_rate = sample_rate;
+        self.eq = Equalizer::new(self.channels, sample_rate);
+        self.eq.set_all_bands(&self.cached.gains, sample_rate);
         self.eq.set_enabled(self.cached.enabled);
     }
 }
@@ -219,18 +208,8 @@ impl AudioProcessor for SaturationProcessor {
     }
 
     fn set_sample_rate(&mut self, sample_rate: f64) {
-        SampleRateAware::set_sample_rate(self, sample_rate);
-    }
-}
-
-impl SampleRateAware for SaturationProcessor {
-    fn sample_rate(&self) -> f64 {
-        self.sample_rate
-    }
-
-    fn set_sample_rate(&mut self, sr: f64) {
-        self.sample_rate = sr;
-        self.saturation.set_sample_rate(sr);
+        self.sample_rate = sample_rate;
+        self.saturation.set_sample_rate(sample_rate);
     }
 }
 
@@ -311,18 +290,9 @@ impl AudioProcessor for CrossfeedProcessor {
     }
 
     fn set_sample_rate(&mut self, sample_rate: f64) {
-        SampleRateAware::set_sample_rate(self, sample_rate);
-    }
-}
-
-impl SampleRateAware for CrossfeedProcessor {
-    fn sample_rate(&self) -> f64 {
-        self.sample_rate
-    }
-
-    fn set_sample_rate(&mut self, sr: f64) {
-        self.sample_rate = sr;
-        self.crossfeed.set_sample_rate(sr, self.cached.cutoff_hz);
+        self.sample_rate = sample_rate;
+        self.crossfeed
+            .set_sample_rate(sample_rate, self.cached.cutoff_hz);
     }
 }
 
@@ -410,34 +380,7 @@ impl AudioProcessor for PeakLimiterProcessor {
     }
 
     fn set_sample_rate(&mut self, sample_rate: f64) {
-        SampleRateAware::set_sample_rate(self, sample_rate);
-    }
-}
-
-impl SampleRateAware for PeakLimiterProcessor {
-    fn sample_rate(&self) -> f64 {
-        self.sample_rate as f64
-    }
-
-    fn set_sample_rate(&mut self, sr: f64) {
-        self.sample_rate = sr as u32;
-        self.limiter = PeakLimiter::new(
-            self.channels,
-            self.sample_rate,
-            self.cached.threshold_db,
-            10.0,
-            self.cached.release_ms,
-        );
-    }
-}
-
-impl ChannelAware for PeakLimiterProcessor {
-    fn channels(&self) -> usize {
-        self.channels
-    }
-
-    fn set_channels(&mut self, ch: usize) {
-        self.channels = ch;
+        self.sample_rate = sample_rate as u32;
         self.limiter = PeakLimiter::new(
             self.channels,
             self.sample_rate,
@@ -627,6 +570,20 @@ impl NoiseShaperProcessor {
         }
     }
 
+    pub fn refresh_is_enabled(&mut self) -> bool {
+        self.sync_params();
+        self.cached.enabled
+    }
+
+    pub fn process_cached(&mut self, buffer: &mut [f64], _channels: usize) -> ProcessResult {
+        if !self.cached.enabled {
+            return ProcessResult::Bypassed;
+        }
+
+        self.noise_shaper.process(buffer, self.channels);
+        ProcessResult::Ok
+    }
+
     fn sync_params(&mut self) {
         if let Some((current, generation)) =
             self.params.load_if_changed_since(self.cached_generation)
@@ -670,17 +627,7 @@ impl AudioProcessor for NoiseShaperProcessor {
     }
 
     fn set_sample_rate(&mut self, sample_rate: f64) {
-        SampleRateAware::set_sample_rate(self, sample_rate);
-    }
-}
-
-impl SampleRateAware for NoiseShaperProcessor {
-    fn sample_rate(&self) -> f64 {
-        self.sample_rate as f64
-    }
-
-    fn set_sample_rate(&mut self, sr: f64) {
-        self.sample_rate = sr as u32;
+        self.sample_rate = sample_rate as u32;
         self.noise_shaper = NoiseShaper::new(self.channels, self.sample_rate, self.cached.bits);
         self.noise_shaper.set_enabled(self.cached.enabled);
         self.noise_shaper.set_curve(self.cached.curve);
@@ -774,17 +721,7 @@ impl AudioProcessor for DynamicLoudnessProcessor {
     }
 
     fn set_sample_rate(&mut self, sample_rate: f64) {
-        SampleRateAware::set_sample_rate(self, sample_rate);
-    }
-}
-
-impl SampleRateAware for DynamicLoudnessProcessor {
-    fn sample_rate(&self) -> f64 {
-        self.sample_rate as f64
-    }
-
-    fn set_sample_rate(&mut self, sr: f64) {
-        self.sample_rate = sr as u32;
+        self.sample_rate = sample_rate as u32;
         self.dynamic_loudness = DynamicLoudness::new(self.channels, self.sample_rate as f64);
     }
 }
@@ -857,51 +794,6 @@ impl AudioProcessor for ConvolverProcessor {
             self.owned = None;
         }
         self.enabled.store(enabled, Ordering::Release);
-    }
-}
-
-// ============================================================================
-// Pass-through Processor (for testing)
-// ============================================================================
-
-/// Simple pass-through processor for testing
-pub struct PassThroughProcessor {
-    enabled: bool,
-}
-
-impl PassThroughProcessor {
-    pub fn new() -> Self {
-        Self { enabled: true }
-    }
-}
-
-impl Default for PassThroughProcessor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AudioProcessor for PassThroughProcessor {
-    fn name(&self) -> &'static str {
-        "PassThrough"
-    }
-
-    fn process(&mut self, _buffer: &mut [f64], _channels: usize) -> ProcessResult {
-        if self.enabled {
-            ProcessResult::Ok
-        } else {
-            ProcessResult::Bypassed
-        }
-    }
-
-    fn reset(&mut self) {}
-
-    fn is_enabled(&self) -> bool {
-        self.enabled
-    }
-
-    fn set_enabled(&mut self, enabled: bool) {
-        self.enabled = enabled;
     }
 }
 
@@ -1057,17 +949,6 @@ mod tests {
 
         // tanh(0.9 * 2) ≈ 0.96, less than input
         assert!(buffer[0].abs() < 0.9 * 2.0);
-    }
-
-    #[test]
-    fn test_pass_through() {
-        let mut proc = PassThroughProcessor::new();
-        let mut buffer = vec![1.0, 2.0, 3.0, 4.0];
-        let original = buffer.clone();
-
-        let result = proc.process(&mut buffer, 2);
-        assert_eq!(result, ProcessResult::Ok);
-        assert_eq!(buffer, original);
     }
 
     fn assert_lazy_settle_residual_bounds(name: &str, input: &[f64], channels: usize) {

@@ -35,6 +35,15 @@ impl AudioPlayer {
     pub fn set_target_lufs(&mut self, target_lufs: f64) {
         self.loudness_normalizer.lock().set_target_lufs(target_lufs);
         self.config.loudness.target_lufs = target_lufs;
+        if let Err(e) = self
+            .cmd_tx
+            .send(super::AudioCommand::SetTargetLufs(target_lufs))
+        {
+            log::warn!("Failed to send SetTargetLufs command: {}", e);
+        }
+        if let Err(e) = self.cmd_tx.send(super::AudioCommand::RefreshLoadedLoudness) {
+            log::warn!("Failed to send RefreshLoadedLoudness command: {}", e);
+        }
     }
 
     pub fn set_album_gain(&self, gain_db: f64) {
@@ -43,11 +52,17 @@ impl AudioPlayer {
 
     pub fn set_preamp_gain(&self, gain_db: f64) {
         self.loudness_normalizer.lock().set_preamp_gain(gain_db);
+        if let Err(e) = self.cmd_tx.send(super::AudioCommand::RefreshLoadedLoudness) {
+            log::warn!("Failed to send RefreshLoadedLoudness command: {}", e);
+        }
     }
 
     pub fn set_normalization_mode(&mut self, mode: crate::config::NormalizationMode) {
         self.loudness_normalizer.lock().set_mode(mode);
         self.config.loudness.mode = mode;
+        if let Err(e) = self.cmd_tx.send(super::AudioCommand::RefreshLoadedLoudness) {
+            log::warn!("Failed to send RefreshLoadedLoudness command: {}", e);
+        }
     }
 
     pub fn get_loudness_info(&self) -> LoudnessInfo {
@@ -56,7 +71,18 @@ impl AudioPlayer {
 
     /// Get saturation settings
     pub fn get_saturation_info(&self) -> SaturationSettings {
-        self.lockfree_saturation_params.get_settings()
+        let snapshot = self.lockfree_saturation_params.read();
+        SaturationSettings {
+            sat_type: snapshot.sat_type.into(),
+            drive: snapshot.drive,
+            threshold: snapshot.threshold,
+            mix: snapshot.mix,
+            input_gain_db: snapshot.input_gain_db,
+            output_gain_db: snapshot.output_gain_db,
+            enabled: snapshot.enabled,
+            highpass_mode: snapshot.highpass_mode,
+            highpass_cutoff: snapshot.highpass_cutoff,
+        }
     }
 
     /// Set saturation enabled
@@ -82,7 +108,11 @@ impl AudioPlayer {
 
     /// Get crossfeed settings
     pub fn get_crossfeed_info(&self) -> CrossfeedSettings {
-        self.lockfree_crossfeed_params.get_settings()
+        let snapshot = self.lockfree_crossfeed_params.read();
+        CrossfeedSettings {
+            mix: snapshot.mix,
+            enabled: snapshot.enabled,
+        }
     }
 
     /// Set crossfeed enabled

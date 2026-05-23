@@ -118,6 +118,7 @@ impl AudioPlayer {
             credentials,
             self.loudness_enabled,
             mode,
+            self.loudness_db.clone(),
         )
     }
 

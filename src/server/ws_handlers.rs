@@ -183,6 +183,7 @@ async fn websocket(
                         if shared_state.gapless_swap_pending.swap(false, std::sync::atomic::Ordering::AcqRel) {
                             let next_path = shared_state.pending_file_path.write().take();
                             let next_metadata = shared_state.pending_metadata.write().take();
+                            let next_cached_loudness = shared_state.pending_cached_loudness.write().take();
                             if let Some(ref p) = next_path {
                                 *shared_state.file_path.write() = Some(p.clone());
                             }
@@ -195,6 +196,7 @@ async fn websocket(
                                 }
                                 *shared_state.track_metadata.write() = enhanced.clone();
                             }
+                            *shared_state.current_cached_loudness.write() = next_cached_loudness;
                             *shared_state.current_track_path.write() = next_path;
                             if let Some(ref current_path) = *shared_state.current_track_path.read() {
                                 super::playback::mark_current_track_as_played(&data, current_path);

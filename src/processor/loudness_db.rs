@@ -319,6 +319,19 @@ impl LoudnessDatabase {
         Ok(result)
     }
 
+    /// Get loudness data only when the cached record is still fresh.
+    ///
+    /// This centralizes the cache-hit contract used by both HTTP analysis
+    /// handlers and playback loading: scan version, file mtime, and file size
+    /// must all still match before a record may skip EBU R128 analysis.
+    pub fn get_fresh(&self, file_path: &str) -> Result<Option<TrackLoudness>, String> {
+        if self.needs_scan(file_path)? {
+            return Ok(None);
+        }
+
+        self.get(file_path)
+    }
+
     /// Check if a track needs scanning (not in DB, outdated version, or file changed)
     ///
     /// FIX for Defect 40: Also check file mtime and size for change detection.
@@ -547,6 +560,7 @@ fn chrono_timestamp() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn test_database_basic_operations() {
@@ -596,5 +610,30 @@ mod tests {
         assert_eq!(first.to_bits(), track.gain_linear(-14.0).to_bits());
         assert_eq!(third.to_bits(), track.gain_linear(-23.0).to_bits());
         assert_ne!(first.to_bits(), third.to_bits());
+    }
+
+    #[test]
+    fn get_fresh_rejects_changed_local_file() {
+        let db = LoudnessDatabase::in_memory().unwrap();
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "audio_player_loudness_fresh_{}_{}.flac",
+            std::process::id(),
+            unique
+        ));
+        std::fs::write(&path, b"initial").unwrap();
+        let path_string = path.to_string_lossy().to_string();
+
+        let track = TrackLoudness::new(&path_string, -18.0, -1.0, None, -14.0);
+        db.upsert(&track).unwrap();
+        assert!(db.get_fresh(&path_string).unwrap().is_some());
+
+        std::fs::write(&path, b"changed file contents").unwrap();
+        assert!(db.get_fresh(&path_string).unwrap().is_none());
+
+        let _ = std::fs::remove_file(path);
     }
 }

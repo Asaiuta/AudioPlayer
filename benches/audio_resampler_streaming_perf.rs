@@ -37,7 +37,6 @@ enum ApiPath {
     Borrowed,
     Into,
     Append,
-    VecWrapper,
 }
 
 impl ApiPath {
@@ -46,12 +45,11 @@ impl ApiPath {
             Self::Borrowed => "process_chunk_borrowed",
             Self::Into => "process_chunk_into",
             Self::Append => "process_chunk_append",
-            Self::VecWrapper => "process_chunk_vec_wrapper",
         }
     }
 
     fn all() -> &'static [Self] {
-        &[Self::Borrowed, Self::Into, Self::Append, Self::VecWrapper]
+        &[Self::Borrowed, Self::Into, Self::Append]
     }
 }
 
@@ -229,12 +227,6 @@ fn run_api(
             append_output.clear();
             let frames = resampler.process_chunk_append(input, append_output);
             black_box(&append_output);
-            frames
-        }
-        ApiPath::VecWrapper => {
-            let output = resampler.process_chunk(input);
-            let frames = output.len() / CHANNELS;
-            black_box(output);
             frames
         }
     }

@@ -97,6 +97,29 @@ fn deleting_active_ncm_account_clears_active_state() {
 }
 
 #[test]
+fn clearing_active_ncm_account_keeps_saved_account() {
+    let db = AppDatabase::in_memory().unwrap();
+    db.upsert_ncm_account(&NcmAccountUpsert {
+        user_id: 8,
+        nickname: Some("Ada".to_string()),
+        avatar_url: None,
+        cookie: "MUSIC_U=saved".to_string(),
+        vip_type: None,
+        level: None,
+        signin_at_ms: None,
+    })
+    .unwrap();
+
+    db.clear_active_ncm_account().unwrap();
+
+    assert!(db.active_ncm_cookie().unwrap().is_none());
+    let (accounts, active_user_id) = db.list_ncm_accounts().unwrap();
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0].user_id, 8);
+    assert_eq!(active_user_id, None);
+}
+
+#[test]
 fn persists_ncm_track_source_and_scrobble_marker() {
     let db = AppDatabase::in_memory().unwrap();
     let source_path = "https://stream.example.test/song.mp3";

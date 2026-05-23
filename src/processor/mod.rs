@@ -42,7 +42,7 @@ pub mod dsp_chain;
 pub mod lockfree_params;
 pub mod traits;
 
-// Re-export all public items for backward compatibility
+// Public processor API re-exports.
 pub use automix_analysis::{
     analyze_automix, AutomixAnalysis, AutomixAnalysisMode, AutomixAnalysisOptions,
 };
@@ -67,10 +67,9 @@ pub use spectrum::SpectrumAnalyzer;
 // Re-export unified abstraction types
 pub use adapters::{
     ConvolverProcessor, CrossfeedProcessor, DynamicLoudnessProcessor, EqProcessor,
-    NoiseShaperProcessor, PassThroughProcessor, PeakLimiterProcessor, SaturationProcessor,
-    VolumeProcessor,
+    NoiseShaperProcessor, PeakLimiterProcessor, SaturationProcessor, VolumeProcessor,
 };
-pub use dsp_chain::{ChainStats, DspChain, DspChainBuilder, ProcessorStats};
+pub use dsp_chain::DspChain;
 pub use lockfree_params::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicNoiseShaperParams, AtomicPeakLimiterParams, AtomicSaturationParams,
@@ -78,4 +77,4 @@ pub use lockfree_params::{
     NoiseShaperParamsSnapshot, PeakLimiterParamsSnapshot, SaturationParamsSnapshot,
     SaturationTypeValue, VolumeParamsSnapshot, EQ_BANDS,
 };
-pub use traits::{AudioProcessor, ChannelAware, LockfreeParams, ProcessResult, SampleRateAware};
+pub use traits::{AudioProcessor, ProcessResult};

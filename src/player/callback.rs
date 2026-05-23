@@ -16,9 +16,10 @@ use super::state::{
 use crate::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicLoudnessState, AtomicNoiseShaperParams, AtomicPeakLimiterParams,
-    AtomicSaturationParams, AtomicVolumeParams, ConvolverProcessor, CrossfeedProcessor, DspChain,
-    DynamicLoudnessProcessor, EqProcessor, FFTConvolver, NoiseShaperProcessor,
-    PeakLimiterProcessor, SaturationProcessor, StreamingResampler, VolumeProcessor,
+    AtomicSaturationParams, AtomicVolumeParams, AudioProcessor, ConvolverProcessor,
+    CrossfeedProcessor, DspChain, DynamicLoudnessProcessor, EqProcessor, FFTConvolver,
+    NoiseShaperProcessor, PeakLimiterProcessor, SaturationProcessor, StreamingResampler,
+    VolumeProcessor,
 };
 
 pub const AUDIO_PROCESS_BUFFER_FRAMES: usize = 8192;
@@ -29,7 +30,39 @@ pub struct CallbackScratch {
     resample_leftover: Vec<f64>,
     resample_leftover_pos: usize,
     resample_output: Vec<f64>,
+    final_output: Vec<f64>,
     spectrum_batch: SpectrumBatch,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OutputPath {
+    Direct,
+    ShaperOnly,
+    ResamplerOnly,
+    Full,
+}
+
+impl OutputPath {
+    fn new(has_resampler: bool, has_shaper: bool) -> Self {
+        match (has_resampler, has_shaper) {
+            (false, false) => Self::Direct,
+            (false, true) => Self::ShaperOnly,
+            (true, false) => Self::ResamplerOnly,
+            (true, true) => Self::Full,
+        }
+    }
+
+    fn uses_resampler(self) -> bool {
+        matches!(self, Self::ResamplerOnly | Self::Full)
+    }
+
+    fn uses_shaper(self) -> bool {
+        matches!(self, Self::ShaperOnly | Self::Full)
+    }
+
+    fn uses_final_buffer(self) -> bool {
+        matches!(self, Self::ShaperOnly | Self::Full)
+    }
 }
 
 impl CallbackScratch {
@@ -45,6 +78,7 @@ impl CallbackScratch {
             resample_leftover: Vec::with_capacity(resample_samples),
             resample_leftover_pos: 0,
             resample_output: Vec::with_capacity(resample_samples),
+            final_output: Vec::with_capacity(resample_samples),
             spectrum_batch: SpectrumBatch::new(),
         }
     }
@@ -119,10 +153,10 @@ pub fn normalize_channels(samples: Vec<f64>, from: usize, to: usize) -> Vec<f64>
 /// AtomicParams ───> DspChain.process() (owned &mut, no Mutex)
 /// (non-blocking)     |
 ///                    v
-///               [EQ → Saturation → Crossfeed → Convolver → PeakLimiter → Volume → DynamicLoudness → NoiseShaper]
+///               [EQ → Saturation → Crossfeed → Convolver → Volume → DynamicLoudness → PeakLimiter]
 ///                    |
 ///                    v
-///               resampler/output
+///               resampler → NoiseShaper → output
 /// ```
 pub struct LockfreeDspContext {
     /// Lock-free parameter references (shared with main thread, read atomically)
@@ -156,7 +190,7 @@ impl LockfreeDspContext {
         crossfeed_params: Arc<AtomicCrossfeedParams>,
         limiter_params: Arc<AtomicPeakLimiterParams>,
         volume_params: Arc<AtomicVolumeParams>,
-        noise_shaper_params: Arc<AtomicNoiseShaperParams>,
+        _noise_shaper_params: Arc<AtomicNoiseShaperParams>,
         dynamic_loudness_params: Arc<AtomicDynamicLoudnessParams>,
         dynamic_loudness_telemetry: Arc<AtomicDynamicLoudnessTelemetry>,
         convolver_swap: Arc<ArcSwapOption<FFTConvolver>>,
@@ -167,11 +201,6 @@ impl LockfreeDspContext {
         chain.add(SaturationProcessor::new(saturation_params));
         chain.add(CrossfeedProcessor::new(sample_rate, crossfeed_params));
         chain.add(ConvolverProcessor::new(convolver_swap, convolver_enabled));
-        chain.add(PeakLimiterProcessor::new(
-            channels,
-            sample_rate as u32,
-            limiter_params,
-        ));
         chain.add(VolumeProcessor::new(volume_params));
         chain.add(DynamicLoudnessProcessor::new(
             channels,
@@ -179,10 +208,10 @@ impl LockfreeDspContext {
             dynamic_loudness_params,
             dynamic_loudness_telemetry,
         ));
-        chain.add(NoiseShaperProcessor::new(
+        chain.add(PeakLimiterProcessor::new(
             channels,
             sample_rate as u32,
-            noise_shaper_params,
+            limiter_params,
         ));
         chain
     }
@@ -353,6 +382,13 @@ impl LockfreeDspContext {
     }
 }
 
+fn output_sample_rate(shared: &SharedState, resampler: &Option<StreamingResampler>) -> f64 {
+    resampler
+        .as_ref()
+        .map(|rs| rs.to_rate() as f64)
+        .unwrap_or_else(|| shared.sample_rate.load(Ordering::Relaxed).max(1) as f64)
+}
+
 fn convolve_interleaved_ir(a: &[f64], b: &[f64], channels: usize) -> Result<Vec<f64>, String> {
     if channels == 0 {
         return Err("channels must be > 0".to_string());
@@ -388,58 +424,37 @@ fn convolve_interleaved_ir(a: &[f64], b: &[f64], channels: usize) -> Result<Vec<
 // AUDIO CALLBACK
 // ============================================================================
 
-/// Main audio callback for cpal output stream (lock-free)
-///
-/// Zero-Mutex audio processing:
-/// - `dsp_chain`: exclusively owned by this closure (&mut), no lock needed
-/// - Parameters: read atomically from shared AtomicXxxParams
-#[allow(clippy::too_many_arguments)]
-pub fn audio_callback_lockfree(
-    data: &mut [f32],
+fn rebuild_dsp_chain_if_requested(
     shared: &SharedState,
     dsp_chain: &mut DspChain,
-    loudness_state: &Arc<AtomicLoudnessState>,
-    spectrum_tx: &Sender<SpectrumBatch>,
-    channels: usize,
-    resampler: &mut Option<StreamingResampler>,
-    scratch: &mut CallbackScratch,
+    mut final_noise_shaper: Option<&mut NoiseShaperProcessor>,
+    resampler: &Option<StreamingResampler>,
 ) {
-    // H-channel fix: Rebuild DspChain when channel count changes (or sample rate).
-    // The LoadComplete handler sets dsp_needs_rebuild=true; we rebuild here
-    // because dsp_chain is exclusively owned by this callback closure.
     if shared
         .dsp_needs_rebuild
         .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
-        .is_ok()
+        .is_err()
     {
-        if let Some(new_chain) = shared.pending_dsp_chain.pop() {
-            *dsp_chain = new_chain;
-        } else {
-            let new_sr = shared.sample_rate.load(Ordering::Relaxed).max(1) as f64;
-            dsp_chain.set_sample_rate(new_sr);
-            dsp_chain.reset();
-        }
-    }
-
-    // If paused or stopped, output silence and return early.
-    // This ensures audio stops even if the platform backend doesn't honor stream.pause().
-    let current_state = shared.state.load();
-    if current_state != PlayerState::Playing {
-        data.fill(0.0);
         return;
     }
 
-    let has_leftover = scratch.resample_leftover_pos < scratch.resample_leftover.len();
+    if let Some(new_chain) = shared.pending_dsp_chain.pop() {
+        *dsp_chain = new_chain;
+    } else {
+        let new_sr = shared.sample_rate.load(Ordering::Relaxed).max(1) as f64;
+        dsp_chain.set_sample_rate(new_sr);
+        dsp_chain.reset();
+    }
 
-    // Gapless and EOF handling
-    let total = shared.total_frames.load(Ordering::Relaxed) as usize;
-    let mut current_pos = shared.position_frames.load(Ordering::Relaxed) as usize;
+    if let Some(noise_shaper) = final_noise_shaper.as_deref_mut() {
+        noise_shaper.set_sample_rate(output_sample_rate(shared, resampler));
+        noise_shaper.reset();
+    }
+}
 
-    // Signal preload — request next track preloading early enough to allow
-    // full decode + optional resampling before EOF. 5 seconds of lead time
-    // handles large files and remote (WebDAV) streams that take longer to decode.
-    // Previously used 2 seconds which was insufficient for slow-decoding tracks,
-    // causing playback_ended to fire instead of gapless transition.
+fn request_gapless_preload_if_needed(shared: &SharedState, total: usize, current_pos: usize) {
+    // Signal preload early enough to allow full decode + optional resampling
+    // before EOF. Five seconds also covers slower remote streams.
     let sr = shared.sample_rate.load(Ordering::Relaxed) as usize;
     let remaining_frames = total.saturating_sub(current_pos);
     if remaining_frames > 0
@@ -449,86 +464,145 @@ pub fn audio_callback_lockfree(
     {
         shared.needs_preload.store(true, Ordering::Release);
     }
+}
 
-    // EOF Detection with gapless
-    if current_pos >= total && !has_leftover {
-        if shared.pending_ready.load(Ordering::Acquire) {
-            // Load pending buffer via ArcSwap (lock-free)
-            let next_samples = shared.pending_buffer.swap(None);
-            if let Some(next) = next_samples {
-                let next_frames = shared.pending_total_frames.load(Ordering::Relaxed);
-                let next_sr = shared.pending_sample_rate.load(Ordering::Relaxed);
-                let next_ch = shared.pending_channels.load(Ordering::Relaxed);
-
-                // Store new audio buffer (wait-free ArcSwap)
-                shared.audio_buffer.store(next);
-                shared.total_frames.store(next_frames, Ordering::Relaxed);
-                shared.sample_rate.store(next_sr, Ordering::Relaxed);
-                shared.channels.store(next_ch, Ordering::Relaxed);
-                shared.position_frames.store(0, Ordering::Relaxed);
-
-                shared.pending_ready.store(false, Ordering::Release);
-                shared.needs_preload.store(false, Ordering::Relaxed);
-                shared.dsp_reset_pending.store(true, Ordering::Release);
-
-                // Signal that metadata needs to be copied by main thread
-                // (avoid RwLock writes in audio callback — P0-1 fix)
-                shared.gapless_swap_pending.store(true, Ordering::Release);
-
-                // Publish the event after the deferred metadata marker is visible.
-                // The websocket pusher consumes event_flags with swap(), so setting
-                // the event first can expose a half-swapped gapless state.
-                shared.event_flags.fetch_or(
-                    EVENT_TRACK_CHANGED | EVENT_NEEDS_PRELOAD_RESET,
-                    Ordering::Release,
-                );
-
-                let pending_gain_bits = shared.pending_target_gain_db.load(Ordering::Relaxed);
-                let pending_gain_db = f64::from_bits(pending_gain_bits);
-                loudness_state.set_target_gain(pending_gain_db);
-
-                // Reset stateful DSP, including any owned convolver, for the new track.
-                dsp_chain.reset();
-                if let Some(ref mut rs) = resampler {
-                    rs.reset();
-                }
-                scratch.resample_leftover.clear();
-                scratch.resample_leftover_pos = 0;
-                shared.dsp_reset_pending.store(false, Ordering::Release);
-
-                data.fill(0.0);
-                return;
-            }
-        }
-
-        data.fill(0.0);
-        // P0 fix: use atomic store instead of try_write() to guarantee state update.
-        // EOF is signaled through a dedicated counter so WebSocket event consumers
-        // cannot steal the backend supervisor's notification.
-        if shared.state.load() == PlayerState::Playing {
-            shared.state.store(PlayerState::Stopped);
-            shared.playback_end_count.fetch_add(1, Ordering::AcqRel);
-            shared
-                .event_flags
-                .fetch_or(EVENT_TRACK_EOF, Ordering::Release);
-        }
-        return;
+#[allow(clippy::too_many_arguments)]
+fn try_activate_pending_gapless(
+    shared: &SharedState,
+    dsp_chain: &mut DspChain,
+    mut final_noise_shaper: Option<&mut NoiseShaperProcessor>,
+    loudness_state: &Arc<AtomicLoudnessState>,
+    resampler: &mut Option<StreamingResampler>,
+    scratch: &mut CallbackScratch,
+) -> bool {
+    if !shared.pending_ready.load(Ordering::Acquire) {
+        return false;
     }
 
-    let mut samples_written = 0;
-    let output_len = data.len();
+    let Some(next) = shared.pending_buffer.swap(None) else {
+        return false;
+    };
 
-    // Drain leftovers from resampling
-    if resampler.is_some() && scratch.resample_leftover_pos < scratch.resample_leftover.len() {
+    let next_frames = shared.pending_total_frames.load(Ordering::Relaxed);
+    let next_sr = shared.pending_sample_rate.load(Ordering::Relaxed);
+    let next_ch = shared.pending_channels.load(Ordering::Relaxed);
+
+    shared.audio_buffer.store(next);
+    shared.total_frames.store(next_frames, Ordering::Relaxed);
+    shared.sample_rate.store(next_sr, Ordering::Relaxed);
+    shared.channels.store(next_ch, Ordering::Relaxed);
+    shared.position_frames.store(0, Ordering::Relaxed);
+
+    shared.pending_ready.store(false, Ordering::Release);
+    shared.needs_preload.store(false, Ordering::Relaxed);
+    shared.dsp_reset_pending.store(true, Ordering::Release);
+
+    // Metadata is copied by the non-realtime side after the atomic buffer swap.
+    shared.gapless_swap_pending.store(true, Ordering::Release);
+    shared.event_flags.fetch_or(
+        EVENT_TRACK_CHANGED | EVENT_NEEDS_PRELOAD_RESET,
+        Ordering::Release,
+    );
+
+    let pending_gain_bits = shared.pending_target_gain_db.load(Ordering::Relaxed);
+    let pending_gain_db = f64::from_bits(pending_gain_bits);
+    loudness_state.set_target_gain(pending_gain_db);
+
+    dsp_chain.reset();
+    if let Some(noise_shaper) = final_noise_shaper.as_deref_mut() {
+        noise_shaper.reset();
+    }
+    if let Some(ref mut rs) = resampler {
+        rs.reset();
+    }
+    scratch.resample_leftover.clear();
+    scratch.resample_leftover_pos = 0;
+    shared.dsp_reset_pending.store(false, Ordering::Release);
+
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
+fn handle_eof_or_gapless(
+    data: &mut [f32],
+    shared: &SharedState,
+    dsp_chain: &mut DspChain,
+    final_noise_shaper: Option<&mut NoiseShaperProcessor>,
+    loudness_state: &Arc<AtomicLoudnessState>,
+    resampler: &mut Option<StreamingResampler>,
+    scratch: &mut CallbackScratch,
+    total: usize,
+    current_pos: usize,
+) -> bool {
+    let has_leftover = scratch.resample_leftover_pos < scratch.resample_leftover.len();
+    if current_pos < total || has_leftover {
+        return false;
+    }
+
+    if try_activate_pending_gapless(
+        shared,
+        dsp_chain,
+        final_noise_shaper,
+        loudness_state,
+        resampler,
+        scratch,
+    ) {
+        data.fill(0.0);
+        return true;
+    }
+
+    data.fill(0.0);
+    if shared.state.load() == PlayerState::Playing {
+        shared.state.store(PlayerState::Stopped);
+        shared.playback_end_count.fetch_add(1, Ordering::AcqRel);
+        shared
+            .event_flags
+            .fetch_or(EVENT_TRACK_EOF, Ordering::Release);
+    }
+    true
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_audio_output(
+    data: &mut [f32],
+    shared: &SharedState,
+    dsp_chain: &mut DspChain,
+    loudness_state: &Arc<AtomicLoudnessState>,
+    channels: usize,
+    resampler: &mut Option<StreamingResampler>,
+    scratch: &mut CallbackScratch,
+    output_path: OutputPath,
+    total: usize,
+    current_pos: &mut usize,
+) -> usize {
+    let output_len = data.len();
+    let mut samples_written = 0;
+
+    if output_path.uses_final_buffer() && scratch.final_output.len() < output_len {
+        scratch.final_output.resize(output_len, 0.0);
+    }
+
+    if output_path.uses_resampler()
+        && scratch.resample_leftover_pos < scratch.resample_leftover.len()
+    {
         let available = scratch.resample_leftover.len() - scratch.resample_leftover_pos;
         let take = available.min(output_len);
         let start = scratch.resample_leftover_pos;
         let end = start + take;
-        for (dst, src) in data[..take]
-            .iter_mut()
-            .zip(scratch.resample_leftover[start..end].iter())
-        {
-            *dst = *src as f32;
+        if matches!(output_path, OutputPath::ResamplerOnly) {
+            for (dst, src) in data[..take]
+                .iter_mut()
+                .zip(scratch.resample_leftover[start..end].iter())
+            {
+                *dst = *src as f32;
+            }
+        } else {
+            for (dst, src) in scratch.final_output[..take]
+                .iter_mut()
+                .zip(scratch.resample_leftover[start..end].iter())
+            {
+                *dst = *src;
+            }
         }
         scratch.resample_leftover_pos += take;
         if scratch.resample_leftover_pos >= scratch.resample_leftover.len() {
@@ -538,31 +612,30 @@ pub fn audio_callback_lockfree(
         samples_written = take;
     }
 
-    // Generate new samples
     while samples_written < output_len {
         let frames_needed_out = (output_len - samples_written) / channels;
         if frames_needed_out == 0 {
             break;
         }
 
-        let mut source_frames_needed = frames_needed_out;
-        if resampler.is_some() {
-            source_frames_needed = 4096;
-        }
+        let source_frames_needed = if output_path.uses_resampler() {
+            4096
+        } else {
+            frames_needed_out
+        };
 
-        let available_source = total.saturating_sub(current_pos);
+        let available_source = total.saturating_sub(*current_pos);
         if available_source == 0 {
             break;
         }
 
-        // Clamp frames_to_read to pre-allocated buffer capacity to prevent
-        // heap allocation inside the audio callback (P0-3 fix)
         let max_frames_from_capacity = scratch.process_buffer.capacity() / channels;
         let frames_to_read = source_frames_needed
             .min(available_source)
             .min(4096)
             .min(max_frames_from_capacity);
-        let start_sample = current_pos * channels;
+
+        let start_sample = *current_pos * channels;
         let end_sample = start_sample + frames_to_read * channels;
 
         scratch.process_buffer.clear();
@@ -579,24 +652,19 @@ pub fn audio_callback_lockfree(
             continue;
         }
 
-        current_pos += frames_to_read;
+        *current_pos += frames_to_read;
         shared
             .position_frames
-            .store(current_pos as u64, Ordering::Relaxed);
+            .store(*current_pos as u64, Ordering::Relaxed);
 
-        // ===== DSP Chain Processing (LOCK-FREE) =====
-        // Apply loudness normalization (atomic, no lock)
         let frames_in_chunk = scratch.process_buffer.len() / channels;
         let linear_gain = loudness_state.process_gain(frames_in_chunk);
         for sample in scratch.process_buffer.iter_mut() {
             *sample *= linear_gain;
         }
-
-        // Process through unified DSP chain (NO Mutex — owned &mut)
         dsp_chain.process(&mut scratch.process_buffer, channels);
 
-        // Resample or direct output
-        if let Some(rs) = resampler {
+        if let Some(rs) = resampler.as_mut() {
             let expected_samples = rs.max_output_len_for_input(scratch.process_buffer.len());
             if scratch.resample_output.len() < expected_samples {
                 scratch.resample_output.resize(expected_samples, 0.0);
@@ -607,7 +675,11 @@ pub fn audio_callback_lockfree(
 
             let mut chunk_idx = 0;
             while samples_written < output_len && chunk_idx < samples_resampled {
-                data[samples_written] = scratch.resample_output[chunk_idx] as f32;
+                if matches!(output_path, OutputPath::ResamplerOnly) {
+                    data[samples_written] = scratch.resample_output[chunk_idx] as f32;
+                } else {
+                    scratch.final_output[samples_written] = scratch.resample_output[chunk_idx];
+                }
                 samples_written += 1;
                 chunk_idx += 1;
             }
@@ -623,45 +695,153 @@ pub fn audio_callback_lockfree(
                 .process_buffer
                 .len()
                 .min(output_len - samples_written);
-            for (dst, src) in data[samples_written..samples_written + take]
-                .iter_mut()
-                .zip(scratch.process_buffer[..take].iter())
-            {
-                *dst = *src as f32;
+            if matches!(output_path, OutputPath::Direct) {
+                for (dst, src) in data[samples_written..samples_written + take]
+                    .iter_mut()
+                    .zip(scratch.process_buffer[..take].iter())
+                {
+                    *dst = *src as f32;
+                }
+            } else {
+                for (dst, src) in scratch.final_output[samples_written..samples_written + take]
+                    .iter_mut()
+                    .zip(scratch.process_buffer[..take].iter())
+                {
+                    *dst = *src;
+                }
             }
             samples_written += take;
         }
     }
 
-    // Fill remaining with silence
     if samples_written < output_len {
         shared.audio_underrun_count.fetch_add(1, Ordering::Relaxed);
         shared.audio_underrun_silence_frames.fetch_add(
             ((output_len - samples_written) / channels) as u64,
             Ordering::Relaxed,
         );
-        data[samples_written..output_len].fill(0.0);
+        if output_path.uses_final_buffer() {
+            scratch.final_output[samples_written..output_len].fill(0.0);
+        } else {
+            data[samples_written..output_len].fill(0.0);
+        }
     }
 
-    // Spectrum output
-    if samples_written > 0 {
-        let take = samples_written.min(1024);
-        scratch.spectrum_batch.clear();
-        for i in (0..take).step_by(channels) {
-            let mut sum = 0.0;
-            for c in 0..channels {
-                if i + c < data.len() {
-                    sum += data[i + c] as f64;
-                }
-            }
-            if !scratch.spectrum_batch.push(sum / channels as f64) {
-                break;
+    samples_written
+}
+
+fn publish_spectrum_batch(
+    data: &[f32],
+    spectrum_tx: &Sender<SpectrumBatch>,
+    scratch: &mut CallbackScratch,
+    channels: usize,
+    samples_written: usize,
+) {
+    if samples_written == 0 {
+        return;
+    }
+
+    let take = samples_written.min(1024);
+    scratch.spectrum_batch.clear();
+    for i in (0..take).step_by(channels) {
+        let mut sum = 0.0;
+        for c in 0..channels {
+            if i + c < data.len() {
+                sum += data[i + c] as f64;
             }
         }
-        if !scratch.spectrum_batch.is_empty() {
-            let _ = spectrum_tx.try_send(scratch.spectrum_batch.clone());
+        if !scratch.spectrum_batch.push(sum / channels as f64) {
+            break;
         }
     }
+    if !scratch.spectrum_batch.is_empty() {
+        let _ = spectrum_tx.try_send(scratch.spectrum_batch.clone());
+    }
+}
+
+/// Main audio callback for cpal output stream (lock-free)
+///
+/// Zero-Mutex audio processing:
+/// - `dsp_chain`: exclusively owned by this closure (&mut), no lock needed
+/// - Parameters: read atomically from shared AtomicXxxParams
+#[allow(clippy::too_many_arguments)]
+pub fn audio_callback_lockfree(
+    data: &mut [f32],
+    shared: &SharedState,
+    dsp_chain: &mut DspChain,
+    mut final_noise_shaper: Option<&mut NoiseShaperProcessor>,
+    loudness_state: &Arc<AtomicLoudnessState>,
+    spectrum_tx: &Sender<SpectrumBatch>,
+    channels: usize,
+    resampler: &mut Option<StreamingResampler>,
+    scratch: &mut CallbackScratch,
+) {
+    rebuild_dsp_chain_if_requested(
+        shared,
+        dsp_chain,
+        final_noise_shaper.as_deref_mut(),
+        resampler,
+    );
+
+    let shaper_enabled = match final_noise_shaper.as_deref_mut() {
+        Some(noise_shaper) => noise_shaper.refresh_is_enabled(),
+        None => false,
+    };
+    let output_path = OutputPath::new(resampler.is_some(), shaper_enabled);
+
+    if shared.state.load() != PlayerState::Playing {
+        data.fill(0.0);
+        return;
+    }
+
+    let total = shared.total_frames.load(Ordering::Relaxed) as usize;
+    let mut current_pos = shared.position_frames.load(Ordering::Relaxed) as usize;
+    request_gapless_preload_if_needed(shared, total, current_pos);
+
+    if handle_eof_or_gapless(
+        data,
+        shared,
+        dsp_chain,
+        final_noise_shaper.as_deref_mut(),
+        loudness_state,
+        resampler,
+        scratch,
+        total,
+        current_pos,
+    ) {
+        return;
+    }
+
+    let samples_written = render_audio_output(
+        data,
+        shared,
+        dsp_chain,
+        loudness_state,
+        channels,
+        resampler,
+        scratch,
+        output_path,
+        total,
+        &mut current_pos,
+    );
+
+    let output_len = data.len();
+    if output_path.uses_final_buffer() && output_len > 0 {
+        if output_path.uses_shaper() {
+            let noise_shaper = final_noise_shaper
+                .as_deref_mut()
+                .expect("output path requires final noise shaper");
+            noise_shaper.process_cached(&mut scratch.final_output[..output_len], channels);
+        }
+        for (dst, src) in data
+            .iter_mut()
+            .zip(scratch.final_output[..output_len].iter())
+        {
+            *dst = *src as f32;
+        }
+    }
+
+    publish_spectrum_batch(data, spectrum_tx, scratch, channels, samples_written);
 }
 
 // ============================================================================
@@ -706,7 +886,122 @@ mod tests {
             scratch.resample_output.capacity(),
             AUDIO_RESAMPLE_BUFFER_FRAMES * 2
         );
+        assert_eq!(
+            scratch.final_output.capacity(),
+            AUDIO_RESAMPLE_BUFFER_FRAMES * 2
+        );
         assert_eq!(scratch.resample_leftover_pos, 0);
+    }
+
+    #[test]
+    fn direct_output_path_skips_final_buffer_when_no_resampler_or_shaper() {
+        let shared = SharedState::new();
+        shared
+            .audio_buffer
+            .store(Arc::new(vec![0.25, -0.5, 0.75, -1.0]));
+        shared.total_frames.store(2, Ordering::Relaxed);
+        shared.sample_rate.store(44_100, Ordering::Relaxed);
+        shared.channels.store(2, Ordering::Relaxed);
+        shared.state.store(PlayerState::Playing);
+
+        let mut chain = DspChain::new(44_100.0);
+        let loudness = Arc::new(AtomicLoudnessState::default());
+        loudness.set_enabled(false);
+        let (tx, _rx) = crossbeam::channel::bounded(16);
+        let mut out = vec![0.0f32; 4];
+        let mut scratch = CallbackScratch::new(2);
+
+        audio_callback_lockfree(
+            &mut out,
+            &shared,
+            &mut chain,
+            None,
+            &loudness,
+            &tx,
+            2,
+            &mut None,
+            &mut scratch,
+        );
+
+        assert_eq!(out, vec![0.25, -0.5, 0.75, -1.0]);
+        assert_eq!(scratch.final_output.len(), 0);
+    }
+
+    #[test]
+    fn disabled_final_shaper_uses_direct_output_path() {
+        let shared = SharedState::new();
+        shared
+            .audio_buffer
+            .store(Arc::new(vec![0.1, 0.2, 0.3, 0.4]));
+        shared.total_frames.store(2, Ordering::Relaxed);
+        shared.sample_rate.store(44_100, Ordering::Relaxed);
+        shared.channels.store(2, Ordering::Relaxed);
+        shared.state.store(PlayerState::Playing);
+
+        let mut chain = DspChain::new(44_100.0);
+        let loudness = Arc::new(AtomicLoudnessState::default());
+        loudness.set_enabled(false);
+        let noise_shaper_params = Arc::new(AtomicNoiseShaperParams::new());
+        noise_shaper_params.set_enabled(false);
+        let mut final_noise_shaper =
+            NoiseShaperProcessor::new(2, 44_100, Arc::clone(&noise_shaper_params));
+        let (tx, _rx) = crossbeam::channel::bounded(16);
+        let mut out = vec![0.0f32; 4];
+        let mut scratch = CallbackScratch::new(2);
+
+        audio_callback_lockfree(
+            &mut out,
+            &shared,
+            &mut chain,
+            Some(&mut final_noise_shaper),
+            &loudness,
+            &tx,
+            2,
+            &mut None,
+            &mut scratch,
+        );
+
+        assert_eq!(out, vec![0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(scratch.final_output.len(), 0);
+    }
+
+    #[test]
+    fn disabled_final_shaper_with_resampler_skips_final_buffer() {
+        let shared = SharedState::new();
+        shared
+            .audio_buffer
+            .store(Arc::new(vec![0.1, 0.2, 0.3, 0.4]));
+        shared.total_frames.store(2, Ordering::Relaxed);
+        shared.sample_rate.store(44_100, Ordering::Relaxed);
+        shared.channels.store(2, Ordering::Relaxed);
+        shared.state.store(PlayerState::Playing);
+
+        let mut chain = DspChain::new(44_100.0);
+        let loudness = Arc::new(AtomicLoudnessState::default());
+        loudness.set_enabled(false);
+        let noise_shaper_params = Arc::new(AtomicNoiseShaperParams::new());
+        noise_shaper_params.set_enabled(false);
+        let mut final_noise_shaper =
+            NoiseShaperProcessor::new(2, 44_100, Arc::clone(&noise_shaper_params));
+        let mut resampler = Some(StreamingResampler::new(2, 44_100, 44_100).unwrap());
+        let (tx, _rx) = crossbeam::channel::bounded(16);
+        let mut out = vec![0.0f32; 4];
+        let mut scratch = CallbackScratch::new(2);
+
+        audio_callback_lockfree(
+            &mut out,
+            &shared,
+            &mut chain,
+            Some(&mut final_noise_shaper),
+            &loudness,
+            &tx,
+            2,
+            &mut resampler,
+            &mut scratch,
+        );
+
+        assert_eq!(out, vec![0.1, 0.2, 0.3, 0.4]);
+        assert_eq!(scratch.final_output.len(), 0);
     }
 
     #[test]
@@ -780,11 +1075,14 @@ mod tests {
         let (tx, _rx) = crossbeam::channel::bounded(16);
         let mut out = vec![0.0f32; 16];
         let mut scratch = CallbackScratch::new(2);
+        let mut final_noise_shaper =
+            NoiseShaperProcessor::new(2, 44100, Arc::new(AtomicNoiseShaperParams::new()));
 
         audio_callback_lockfree(
             &mut out,
             &shared,
             &mut chain,
+            Some(&mut final_noise_shaper),
             &loudness,
             &tx,
             2,
@@ -836,11 +1134,14 @@ mod tests {
         let mut out = vec![0.0f32; 8];
         let mut chain = initial;
         let mut scratch = CallbackScratch::new(1);
+        let mut final_noise_shaper =
+            NoiseShaperProcessor::new(1, 44100, Arc::new(AtomicNoiseShaperParams::new()));
 
         audio_callback_lockfree(
             &mut out,
             &shared,
             &mut chain,
+            Some(&mut final_noise_shaper),
             &loudness,
             &tx,
             1,
@@ -848,7 +1149,7 @@ mod tests {
             &mut scratch,
         );
 
-        assert_eq!(chain.len(), 8);
+        assert_eq!(chain.len(), 7);
         assert!(!shared.dsp_needs_rebuild.load(Ordering::Relaxed));
         assert!(shared.pending_dsp_chain.is_empty());
     }

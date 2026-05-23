@@ -144,24 +144,16 @@ pub(super) fn try_get_cached_loudness(
     data: &web::Data<Arc<AppState>>,
     path: &str,
 ) -> Option<crate::processor::TrackLoudness> {
-    let db_guard = data.analysis.loudness_db.lock();
-    let db = db_guard.as_ref()?;
+    let db = data.analysis.loudness_db.as_ref()?;
 
-    match db.needs_scan(path) {
-        Ok(false) => match db.get(path) {
-            Ok(Some(track)) => {
-                log::info!("Using cached loudness for: {}", path);
-                Some(track)
-            }
-            Ok(None) => None,
-            Err(e) => {
-                log::warn!("Loudness cache read failed for '{}': {}", path, e);
-                None
-            }
-        },
-        Ok(true) => None,
+    match db.get_fresh(path) {
+        Ok(Some(track)) => {
+            log::info!("Using cached loudness for: {}", path);
+            Some(track)
+        }
+        Ok(None) => None,
         Err(e) => {
-            log::warn!("Loudness cache validation failed for '{}': {}", path, e);
+            log::warn!("Loudness cache read failed for '{}': {}", path, e);
             None
         }
     }
@@ -171,8 +163,7 @@ pub(super) fn try_store_loudness(
     data: &web::Data<Arc<AppState>>,
     track: &crate::processor::TrackLoudness,
 ) {
-    let db_guard = data.analysis.loudness_db.lock();
-    if let Some(db) = db_guard.as_ref() {
+    if let Some(db) = data.analysis.loudness_db.as_ref() {
         if let Err(e) = db.upsert(track) {
             log::warn!(
                 "Failed to store loudness cache for '{}': {}",

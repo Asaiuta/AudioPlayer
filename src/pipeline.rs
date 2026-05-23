@@ -264,7 +264,7 @@ impl AudioPipeline {
         &mut self,
         path: String,
         target_sample_rate: Option<u32>,
-        _quality: ResampleQuality,
+        quality: ResampleQuality,
     ) {
         if self.is_running.load(Ordering::Relaxed) {
             return;
@@ -289,6 +289,7 @@ impl AudioPipeline {
                 channels,
                 original_sr,
                 target_sr,
+                quality,
                 ring_buffer,
                 is_running,
                 is_finished,
@@ -307,6 +308,7 @@ impl AudioPipeline {
         channels: usize,
         original_sr: u32,
         target_sr: u32,
+        quality: ResampleQuality,
         ring_buffer: Arc<RwLock<RingBuffer>>,
         is_running: Arc<AtomicBool>,
         is_finished: Arc<AtomicBool>,
@@ -328,7 +330,13 @@ impl AudioPipeline {
 
         // Create resampler if needed
         let mut resampler = if target_sr != original_sr {
-            match StreamingResampler::new(channels, original_sr, target_sr) {
+            match StreamingResampler::with_quality(
+                channels,
+                original_sr,
+                target_sr,
+                crate::config::PhaseResponse::default(),
+                quality,
+            ) {
                 Ok(rs) => Some(rs),
                 Err(e) => {
                     log::error!("Failed to create pipeline resampler: {}", e);

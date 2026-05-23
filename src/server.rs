@@ -63,7 +63,7 @@ pub struct ServerControlState {
 /// so handlers only touch the concerns they actually need.
 pub struct AnalysisState {
     /// Database for pre-computed loudness metadata
-    pub loudness_db: Mutex<Option<LoudnessDatabase>>,
+    pub loudness_db: Option<Arc<LoudnessDatabase>>,
     /// Dedicated runtime for CPU/IO-heavy analysis jobs
     pub analysis_runtime: Arc<AnalysisRuntime>,
     /// Concurrency guard for analysis jobs to avoid starving playback/control plane
@@ -288,7 +288,7 @@ pub async fn run_server(
                 "Loudness database opened: {}",
                 runtime_paths.loudness_db_path.display()
             );
-            Some(db)
+            Some(Arc::new(db))
         }
         Err(e) => {
             log::warn!(
@@ -300,7 +300,7 @@ pub async fn run_server(
     };
 
     // Create player with config
-    let player = AudioPlayer::new(config.settings.clone());
+    let player = AudioPlayer::with_loudness_database(config.settings.clone(), loudness_db.clone());
 
     let analysis_parallelism = config.server.analysis_max_concurrency;
     let analysis_blocking_threads = config.server.analysis_max_blocking_threads;
@@ -340,7 +340,7 @@ pub async fn run_server(
         app_db,
         settings_manager,
         analysis: AnalysisState {
-            loudness_db: Mutex::new(loudness_db),
+            loudness_db,
             analysis_runtime: Arc::new(AnalysisRuntime::new(analysis_runtime)),
             analysis_semaphore: Arc::new(Semaphore::new(analysis_parallelism)),
             analysis_max_concurrency: analysis_parallelism,

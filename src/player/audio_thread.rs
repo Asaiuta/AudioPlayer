@@ -13,20 +13,21 @@ use super::callback::{audio_callback_lockfree, CallbackScratch, LockfreeDspConte
 use super::output_stream::{
     activate_started_stream, build_fallback_output_stream, build_requested_output_stream,
     detect_output_bits, prepare_playback_output, DspParamRefs, OutputStreamContext,
+    ResamplerConfig,
 };
 use super::spectrum::SpectrumBatch;
 use super::state::{
     AudioCommand, PlayerState, SharedState, EVENT_LOAD_COMPLETE, EVENT_PLAYBACK_STARTED,
     EVENT_TRACK_CHANGED,
 };
-use crate::config::PhaseResponse;
+use super::track_loudness::{apply_loaded_track_loudness, refresh_loaded_loudness};
+use crate::config::{PhaseResponse, ResampleQuality};
 use crate::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicLoudnessState, AtomicNoiseShaperParams, AtomicPeakLimiterParams,
     AtomicSaturationParams, AtomicVolumeParams,
 };
 
-const AUDIO_HEADROOM: f64 = 0.99;
 struct AudioThreadDspParams {
     eq_params: Arc<AtomicEqParams>,
     saturation_params: Arc<AtomicSaturationParams>,
@@ -53,7 +54,9 @@ pub(super) struct AudioThreadStartup {
     pub noise_shaper_bits: u32,
     pub spectrum_tx: Sender<SpectrumBatch>,
     pub phase_response: PhaseResponse,
+    pub resample_quality: ResampleQuality,
     pub target_lufs: f64,
+    pub replaygain_reference_lufs: f64,
 }
 
 impl AudioThreadDspParams {
@@ -100,7 +103,9 @@ struct AudioThreadRuntime {
     noise_shaper_bits: u32,
     spectrum_tx: Sender<SpectrumBatch>,
     phase_response: PhaseResponse,
+    resample_quality: ResampleQuality,
     target_lufs: f64,
+    replaygain_reference_lufs: f64,
 }
 
 impl AudioThreadRuntime {
@@ -152,6 +157,20 @@ impl AudioThreadRuntime {
                 log::info!("Noise shaper curve set to {:?} (lock-free path)", curve);
                 ThreadControl::Continue
             }
+            AudioCommand::SetTargetLufs(target_lufs) => {
+                self.target_lufs = target_lufs;
+                log::info!("Loudness target set to {:.2} LUFS", target_lufs);
+                ThreadControl::Continue
+            }
+            AudioCommand::RefreshLoadedLoudness => {
+                refresh_loaded_loudness(
+                    &self.shared_state,
+                    &self.loudness_state,
+                    self.target_lufs,
+                    self.replaygain_reference_lufs,
+                );
+                ThreadControl::Continue
+            }
             AudioCommand::LoadComplete { generation, result } => {
                 handle_load_complete_command(
                     &self.shared_state,
@@ -159,6 +178,7 @@ impl AudioThreadRuntime {
                     &self.loudness_state,
                     self.dsp_params.refs(),
                     self.target_lufs,
+                    self.replaygain_reference_lufs,
                     generation,
                     result,
                 );
@@ -192,6 +212,8 @@ impl AudioThreadRuntime {
                 &self.loudness_state,
                 &self.spectrum_tx,
                 self.target_lufs,
+                self.replaygain_reference_lufs,
+                self.resample_quality,
                 &self.dsp_params.dynamic_loudness_telemetry,
             ) {
                 WasapiPlaybackOutcome::Handled => return ThreadControl::Continue,
@@ -217,7 +239,10 @@ impl AudioThreadRuntime {
             &mut self.owned_dsp_chain,
             &stream_context,
             &dsp_params,
-            self.phase_response,
+            ResamplerConfig {
+                phase_response: self.phase_response,
+                quality: self.resample_quality,
+            },
         ) {
             Ok(s) => {
                 activate_started_stream(&mut self.stream, s, &self.shared_state);
@@ -242,7 +267,10 @@ impl AudioThreadRuntime {
                     &output_plan,
                     &stream_context,
                     &dsp_params,
-                    self.phase_response,
+                    ResamplerConfig {
+                        phase_response: self.phase_response,
+                        quality: self.resample_quality,
+                    },
                 ) {
                     Ok(s) => {
                         activate_started_stream(&mut self.stream, s, &self.shared_state);
@@ -292,7 +320,8 @@ struct WasapiCommandContext<'a> {
     dsp_ctx: &'a Arc<LockfreeDspContext>,
     loudness_state: &'a Arc<AtomicLoudnessState>,
     dynamic_loudness_telemetry: &'a Arc<AtomicDynamicLoudnessTelemetry>,
-    target_lufs: f64,
+    target_lufs: std::cell::Cell<f64>,
+    replaygain_reference_lufs: f64,
 }
 
 /// Main audio thread entry point
@@ -318,7 +347,9 @@ pub fn audio_thread_main(startup: AudioThreadStartup) {
         noise_shaper_bits,
         spectrum_tx,
         phase_response,
+        resample_quality,
         target_lufs,
+        replaygain_reference_lufs,
     } = startup;
 
     log::info!("Audio thread started, initializing cpal host...");
@@ -368,7 +399,9 @@ pub fn audio_thread_main(startup: AudioThreadStartup) {
         noise_shaper_bits,
         spectrum_tx,
         phase_response,
+        resample_quality,
         target_lufs,
+        replaygain_reference_lufs,
     };
     runtime.run();
 }
@@ -431,6 +464,7 @@ fn handle_load_complete_command(
     loudness_state: &Arc<AtomicLoudnessState>,
     dsp_params: DspParamRefs<'_>,
     target_lufs: f64,
+    replaygain_reference_lufs: f64,
     generation: u64,
     result: crate::player::state::LoadResult,
 ) {
@@ -453,6 +487,7 @@ fn handle_load_complete_command(
         loudness_state,
         dsp_params,
         target_lufs,
+        replaygain_reference_lufs,
         result,
     );
 }
@@ -529,118 +564,13 @@ fn apply_loaded_track_state(
         .store(true, Ordering::Release);
 }
 
-fn calc_safe_replay_gain_db(rg_gain_db: f64, peak: Option<f64>, preamp_db: f64) -> f64 {
-    let requested_gain = rg_gain_db + preamp_db;
-    if requested_gain <= 0.0 {
-        return requested_gain;
-    }
-
-    if let Some(peak_val) = peak {
-        if peak_val > 0.0 {
-            let max_linear = AUDIO_HEADROOM / peak_val;
-            let max_gain_db = 20.0 * max_linear.log10();
-            if requested_gain > max_gain_db {
-                log::info!(
-                    "Peak protection: peak={:.4}, requested={:.2} dB, limited to {:.2} dB",
-                    peak_val,
-                    requested_gain,
-                    max_gain_db
-                );
-                return max_gain_db;
-            }
-        }
-    }
-
-    requested_gain
-}
-
-fn analyze_ebu_r128_gain(
-    samples: &Arc<Vec<f64>>,
-    channels: usize,
-    sample_rate: u32,
-    target_lufs: f64,
-    preamp_db: f64,
-) -> Option<f64> {
-    let mut meter = crate::processor::LoudnessMeter::new(channels, sample_rate);
-    meter.process(samples);
-    let loudness = meter.integrated_loudness();
-    loudness
-        .is_finite()
-        .then_some(target_lufs - loudness + preamp_db)
-}
-
-fn apply_loaded_track_loudness(
-    loudness_state: &AtomicLoudnessState,
-    metadata: &crate::decoder::TrackMetadata,
-    samples: &Arc<Vec<f64>>,
-    channels: usize,
-    sample_rate: u32,
-    target_lufs: f64,
-) {
-    loudness_state.set_smoothing(200.0, sample_rate);
-
-    let preamp = loudness_state.preamp_gain_db.load(Ordering::Relaxed);
-    match loudness_state.get_mode() {
-        crate::config::NormalizationMode::ReplayGainTrack => {
-            if let Some(rg_gain) = metadata.rg_track_gain {
-                let peak = metadata.rg_track_peak;
-                let effective_gain = calc_safe_replay_gain_db(rg_gain, peak, preamp);
-                loudness_state.set_target_gain(effective_gain);
-                log::info!(
-                    "ReplayGain Track: {:.2} dB + preamp {:.2} dB -> {:.2} dB (peak: {:?})",
-                    rg_gain,
-                    preamp,
-                    effective_gain,
-                    peak
-                );
-                return;
-            }
-
-            log::warn!("No ReplayGain track gain found, falling back to EBU R128 analysis");
-        }
-        crate::config::NormalizationMode::ReplayGainAlbum => {
-            let rg_gain = metadata.rg_album_gain.or(metadata.rg_track_gain);
-            let peak = metadata.rg_album_peak.or(metadata.rg_track_peak);
-            if let Some(gain) = rg_gain {
-                let effective_gain = calc_safe_replay_gain_db(gain, peak, preamp);
-                loudness_state.set_target_gain(effective_gain);
-                log::info!(
-                    "ReplayGain Album: {:.2} dB + preamp {:.2} dB -> {:.2} dB (peak: {:?})",
-                    gain,
-                    preamp,
-                    effective_gain,
-                    peak
-                );
-                return;
-            }
-
-            log::warn!("No ReplayGain gain found, falling back to EBU R128 analysis");
-        }
-        _ => return,
-    }
-
-    if let Some(gain) = analyze_ebu_r128_gain(samples, channels, sample_rate, target_lufs, preamp) {
-        loudness_state.set_target_gain(gain);
-        log::info!(
-            "EBU R128 fallback: target gain {:.2} dB (target: {:.2} LUFS)",
-            gain,
-            target_lufs
-        );
-    } else {
-        loudness_state.set_target_gain(preamp);
-        log::warn!(
-            "EBU R128 analysis failed, using preamp only: {:.2} dB",
-            preamp
-        );
-    }
-}
-
 fn apply_loaded_track_result(
     shared_state: &Arc<SharedState>,
     dsp_ctx: &Arc<LockfreeDspContext>,
     loudness_state: &Arc<AtomicLoudnessState>,
     dsp_params: DspParamRefs<'_>,
     target_lufs: f64,
+    replaygain_reference_lufs: f64,
     result: crate::player::state::LoadResult,
 ) {
     let crate::player::state::LoadResult {
@@ -649,7 +579,7 @@ fn apply_loaded_track_result(
         channels,
         total_frames,
         file_path,
-        loudness_info: _,
+        cached_loudness,
         metadata,
     } = result;
     let samples_arc = Arc::new(samples);
@@ -663,13 +593,16 @@ fn apply_loaded_track_result(
         &metadata,
         Arc::clone(&samples_arc),
     );
+    *shared_state.current_cached_loudness.write() = cached_loudness.clone();
     apply_loaded_track_loudness(
         loudness_state,
         &metadata,
+        cached_loudness.as_ref(),
         &samples_arc,
         channels,
         sample_rate,
         target_lufs,
+        replaygain_reference_lufs,
     );
 
     shared_state
@@ -706,6 +639,8 @@ fn handle_wasapi_exclusive(
     loudness_state: &Arc<AtomicLoudnessState>,
     spectrum_tx: &Sender<SpectrumBatch>,
     target_lufs: f64,
+    replaygain_reference_lufs: f64,
+    resample_quality: ResampleQuality,
     dynamic_loudness_telemetry: &Arc<AtomicDynamicLoudnessTelemetry>,
 ) -> WasapiPlaybackOutcome {
     log::info!("Starting TRUE WASAPI exclusive mode playback...");
@@ -748,6 +683,7 @@ fn handle_wasapi_exclusive(
             data,
             &cb_shared,
             &mut wasapi_dsp_chain,
+            None,
             &cb_loudness_state,
             &cb_spectrum_tx,
             cb_channels,
@@ -765,7 +701,14 @@ fn handle_wasapi_exclusive(
         None
     };
 
-    match WasapiExclusivePlayer::new(wasapi_device_id, sample_rate, channels, dsp_callback) {
+    match WasapiExclusivePlayer::new(
+        wasapi_device_id,
+        sample_rate,
+        channels,
+        resample_quality,
+        Arc::clone(&dsp_ctx.noise_shaper_params),
+        dsp_callback,
+    ) {
         Ok(wasapi_player) => {
             if let Err(e) = wasapi_player.play() {
                 log::error!("Failed to start WASAPI playback: {}", e);
@@ -800,7 +743,8 @@ fn handle_wasapi_exclusive(
                 dsp_ctx,
                 loudness_state,
                 dynamic_loudness_telemetry,
-                target_lufs,
+                target_lufs: std::cell::Cell::new(target_lufs),
+                replaygain_reference_lufs,
             };
 
             loop {
@@ -901,13 +845,29 @@ fn handle_wasapi_command(
             *context.shared_state.noise_shaper_curve.write() = curve;
             log::info!("Noise shaper curve set to {:?} (WASAPI path)", curve);
         }
+        AudioCommand::SetTargetLufs(target_lufs) => {
+            context.target_lufs.set(target_lufs);
+            log::info!(
+                "Loudness target set to {:.2} LUFS (WASAPI path)",
+                target_lufs
+            );
+        }
+        AudioCommand::RefreshLoadedLoudness => {
+            refresh_loaded_loudness(
+                context.shared_state,
+                context.loudness_state,
+                context.target_lufs.get(),
+                context.replaygain_reference_lufs,
+            );
+        }
         AudioCommand::LoadComplete { generation, result } => {
             handle_load_complete_command(
                 context.shared_state,
                 context.dsp_ctx,
                 context.loudness_state,
                 wasapi_dsp_refs(context),
-                context.target_lufs,
+                context.target_lufs.get(),
+                context.replaygain_reference_lufs,
                 generation,
                 result,
             );

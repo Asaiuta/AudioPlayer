@@ -368,17 +368,12 @@ impl EngineSettings {
 
         let content = fs::read_to_string(path)
             .map_err(|e| format!("Failed to read engine settings '{}': {}", path.display(), e))?;
-        let settings: Self = serde_json::from_str(&content).or_else(|engine_error| {
-            serde_json::from_str::<LegacyPersistentSettings>(&content)
-                .map(EngineSettings::from)
-                .map_err(|legacy_error| {
-                    format!(
-                        "Failed to parse engine settings '{}': {}; legacy parse also failed: {}",
-                        path.display(),
-                        engine_error,
-                        legacy_error
-                    )
-                })
+        let settings: Self = serde_json::from_str(&content).map_err(|e| {
+            format!(
+                "Failed to parse engine settings '{}': {}",
+                path.display(),
+                e
+            )
         })?;
         log::info!("Loaded engine settings from {}", path.display());
         Ok(settings.normalized())
@@ -661,65 +656,6 @@ fn default_use_next_prefetch() -> bool {
     true
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct LegacyPersistentSettings {
-    volume: f32,
-    device_id: Option<usize>,
-    exclusive_mode: bool,
-    eq_type: String,
-    eq_bands: Option<HashMap<String, f64>>,
-    fir_taps: Option<usize>,
-    dither_enabled: bool,
-    output_bits: u32,
-    noise_shaper_curve: String,
-    loudness_enabled: bool,
-    loudness_mode: String,
-    target_lufs: f64,
-    preamp_db: f64,
-    saturation_enabled: bool,
-    saturation_drive: f64,
-    saturation_mix: f64,
-    crossfeed_enabled: bool,
-    crossfeed_mix: f64,
-    dynamic_loudness_enabled: bool,
-    dynamic_loudness_strength: f64,
-    target_samplerate: Option<u32>,
-    resample_quality: String,
-    use_cache: bool,
-    preemptive_resample: bool,
-}
-
-impl From<LegacyPersistentSettings> for EngineSettings {
-    fn from(settings: LegacyPersistentSettings) -> Self {
-        let mut engine = EngineSettings::default();
-        engine.volume = settings.volume;
-        engine.device_id = settings.device_id;
-        engine.exclusive_mode = settings.exclusive_mode;
-        engine.eq_type = settings.eq_type;
-        engine.eq_bands = settings.eq_bands;
-        engine.fir_taps = settings.fir_taps;
-        engine.dither.enabled = settings.dither_enabled;
-        engine.dither.noise_shaper_curve = parse_noise_shaper_curve(&settings.noise_shaper_curve);
-        engine.output_bits = settings.output_bits;
-        engine.loudness.enabled = settings.loudness_enabled;
-        engine.loudness.mode = parse_normalization_mode(&settings.loudness_mode);
-        engine.loudness.target_lufs = settings.target_lufs;
-        engine.dynamic_loudness.pre_gain_db = settings.preamp_db;
-        engine.saturation.enabled = settings.saturation_enabled;
-        engine.saturation.drive = settings.saturation_drive;
-        engine.saturation.mix = settings.saturation_mix;
-        engine.crossfeed.enabled = settings.crossfeed_enabled;
-        engine.crossfeed.mix = settings.crossfeed_mix;
-        engine.dynamic_loudness.enabled = settings.dynamic_loudness_enabled;
-        engine.dynamic_loudness.strength = settings.dynamic_loudness_strength;
-        engine.target_samplerate = settings.target_samplerate;
-        engine.resample_quality = parse_resample_quality(&settings.resample_quality);
-        engine.use_cache = settings.use_cache;
-        engine.preemptive_resample = settings.preemptive_resample;
-        engine.normalized()
-    }
-}
-
 impl RuntimeServerConfig {
     pub fn from_env() -> Self {
         dotenv::dotenv().ok();
@@ -978,51 +914,6 @@ mod tests {
         assert_eq!(fallback.base_url, "https://dav.example.test");
         assert_eq!(fallback.username.as_deref(), Some("user"));
         assert_eq!(fallback.password.as_deref(), Some("pass"));
-    }
-
-    #[test]
-    fn engine_settings_loads_legacy_persistent_settings_shape() {
-        let path = unique_settings_path("legacy");
-        let legacy = serde_json::json!({
-            "volume": 0.25,
-            "device_id": null,
-            "exclusive_mode": false,
-            "eq_type": "IIR",
-            "eq_bands": null,
-            "fir_taps": 1023,
-            "dither_enabled": true,
-            "output_bits": 24,
-            "noise_shaper_curve": "Lipshitz5",
-            "loudness_enabled": true,
-            "loudness_mode": "track",
-            "target_lufs": -12.0,
-            "preamp_db": -2.0,
-            "saturation_enabled": true,
-            "saturation_drive": 0.5,
-            "saturation_mix": 0.2,
-            "crossfeed_enabled": true,
-            "crossfeed_mix": 0.4,
-            "dynamic_loudness_enabled": true,
-            "dynamic_loudness_strength": 0.8,
-            "target_samplerate": null,
-            "resample_quality": "uhq",
-            "use_cache": true,
-            "preemptive_resample": false
-        });
-        fs::write(
-            &path,
-            serde_json::to_string_pretty(&legacy).expect("legacy json should serialize"),
-        )
-        .expect("legacy settings should write");
-
-        let settings = EngineSettings::load_from_file(&path).expect("legacy settings should load");
-        let _ = fs::remove_file(&path);
-
-        assert!((settings.volume - 0.25).abs() < f32::EPSILON);
-        assert_eq!(settings.resample_quality, ResampleQuality::UltraHigh);
-        assert!(settings.use_next_prefetch);
-        assert!(settings.crossfeed.enabled);
-        assert!(settings.dynamic_loudness.enabled);
     }
 
     #[test]

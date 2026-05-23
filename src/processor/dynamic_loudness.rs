@@ -18,8 +18,8 @@
 //!   → Loudness normalizer gain
 //!   → DspChain: EQ → Saturation → Crossfeed
 //!              → merged FFT convolver (external IR and/or FIR EQ)
-//!              → PeakLimiter → Volume → DynamicLoudness → NoiseShaper
-//!   → resampler/output
+//!              → Volume → DynamicLoudness → PeakLimiter
+//!   → resampler → NoiseShaper → output
 //! ```
 
 use atomic_float::AtomicF32;

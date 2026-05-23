@@ -532,24 +532,6 @@ impl StreamingResampler {
         result.frames
     }
 
-    /// Process a chunk of interleaved audio, returning resampled interleaved output
-    ///
-    /// FIX for Defect 33: Uses pre-allocated buffers to avoid heap allocation.
-    /// Note: This still returns a Vec for API compatibility. For zero-allocation,
-    /// use process_chunk_borrowed(), process_chunk_append(), or process_chunk_into().
-    pub fn process_chunk(&mut self, input: &[f64]) -> Vec<f64> {
-        if self.from_rate == self.to_rate {
-            return input.to_vec();
-        }
-
-        let result = self.process_chunk_borrowed(input);
-        if result.frames == 0 {
-            return Vec::new();
-        }
-
-        result.samples.to_vec()
-    }
-
     /// Process a chunk into a pre-allocated output buffer (zero-allocation version)
     ///
     /// Returns the number of frames written to output.
@@ -760,13 +742,16 @@ mod tests {
     }
 
     #[test]
-    fn process_chunk_append_matches_vec_wrapper_for_resampling() {
+    fn process_chunk_append_matches_borrowed_for_resampling() {
         let input = (0..2048)
             .map(|sample| sample as f64 / 2048.0)
             .collect::<Vec<_>>();
-        let mut wrapper_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
+        let mut borrowed_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
         let mut append_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let expected = wrapper_resampler.process_chunk(&input);
+        let expected = borrowed_resampler
+            .process_chunk_borrowed(&input)
+            .samples
+            .to_vec();
         let mut actual = vec![99.0];
 
         let frames = append_resampler.process_chunk_append(&input, &mut actual);
@@ -824,14 +809,16 @@ mod tests {
     }
 
     #[test]
-    fn flush_into_matches_vec_wrapper_and_preserves_prefix() {
+    fn flush_into_matches_flush_and_preserves_prefix() {
         let input = (0..2048)
             .map(|sample| sample as f64 / 2048.0)
             .collect::<Vec<_>>();
         let mut wrapper_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
         let mut append_resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let _ = wrapper_resampler.process_chunk(&input);
-        let _ = append_resampler.process_chunk(&input);
+        let mut scratch = Vec::new();
+        let _ = wrapper_resampler.process_chunk_append(&input, &mut scratch);
+        scratch.clear();
+        let _ = append_resampler.process_chunk_append(&input, &mut scratch);
         let expected = wrapper_resampler.flush();
         let mut actual = vec![99.0];
 
@@ -848,13 +835,15 @@ mod tests {
             .map(|sample| sample as f64 / 4096.0)
             .collect::<Vec<_>>();
         let mut resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
-        let _ = resampler.process_chunk(&input);
+        let mut scratch = Vec::new();
+        let _ = resampler.process_chunk_append(&input, &mut scratch);
         let mut output = Vec::with_capacity(resampler.max_output_len_for_input(input.len()));
 
         let _ = resampler.flush_into(&mut output);
         let warmed_capacity = output.capacity();
         output.clear();
-        let _ = resampler.process_chunk(&input);
+        scratch.clear();
+        let _ = resampler.process_chunk_append(&input, &mut scratch);
         let _ = resampler.flush_into(&mut output);
 
         assert_eq!(output.capacity(), warmed_capacity);
@@ -867,7 +856,8 @@ mod tests {
             .collect::<Vec<_>>();
         let mut resampler = StreamingResampler::new(2, 44_100, 48_000).unwrap();
         let mut output = Vec::with_capacity(resampler.max_output_len_for_input(input.len()));
-        let _ = resampler.process_chunk(&input);
+        let mut scratch = Vec::new();
+        let _ = resampler.process_chunk_append(&input, &mut scratch);
         let _ = resampler.flush_into(&mut output);
         let warmed_channel_caps = resampler
             .channel_outputs
@@ -878,7 +868,8 @@ mod tests {
         let warmed_scratch_len = resampler.output_scratch.len();
 
         output.clear();
-        let _ = resampler.process_chunk(&input);
+        scratch.clear();
+        let _ = resampler.process_chunk_append(&input, &mut scratch);
         let _ = resampler.flush_into(&mut output);
 
         assert_eq!(

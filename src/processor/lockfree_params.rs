@@ -20,12 +20,9 @@ use std::sync::{
 use arc_swap::{ArcSwap, Guard};
 use atomic_float::AtomicF64;
 
-use super::traits::LockfreeParams;
-
 struct SharedParams<T> {
     current: ArcSwap<T>,
     generation: AtomicU64,
-    observed_generation: AtomicU64,
 }
 
 impl<T: Default> SharedParams<T> {
@@ -39,7 +36,6 @@ impl<T> SharedParams<T> {
         Self {
             current: ArcSwap::new(Arc::new(snapshot)),
             generation: AtomicU64::new(0),
-            observed_generation: AtomicU64::new(0),
         }
     }
 
@@ -81,18 +77,6 @@ impl<T> SharedParams<T> {
     }
 
     #[inline]
-    fn has_update(&self) -> bool {
-        self.generation.load(Ordering::Acquire) != self.observed_generation.load(Ordering::Acquire)
-    }
-
-    #[inline]
-    fn clear_update(&self) {
-        let generation = self.generation.load(Ordering::Acquire);
-        self.observed_generation
-            .store(generation, Ordering::Release);
-    }
-
-    #[inline]
     fn publish(&self, snapshot: T) {
         self.current.store(Arc::new(snapshot));
         self.generation.fetch_add(1, Ordering::Release);
@@ -122,48 +106,6 @@ macro_rules! impl_default_via_new {
             fn default() -> Self {
                 Self::new()
             }
-        }
-    };
-}
-
-macro_rules! impl_lockfree_params {
-    ($type:ty, $name:literal) => {
-        impl LockfreeParams for $type {
-            fn processor_name(&self) -> &'static str {
-                $name
-            }
-
-            fn mark_dirty(&self) {
-                self.shared.generation.fetch_add(1, Ordering::Release);
-            }
-
-            fn clear_dirty(&self) {
-                self.shared.clear_update();
-            }
-
-            fn is_dirty(&self) -> bool {
-                self.shared.has_update()
-            }
-        }
-    };
-}
-
-macro_rules! impl_has_update_accessor {
-    () => {
-        #[inline]
-        pub fn has_update(&self) -> bool {
-            self.shared.has_update()
-        }
-    };
-}
-
-macro_rules! impl_dirty_accessors {
-    () => {
-        impl_has_update_accessor!();
-
-        #[inline]
-        pub fn clear_dirty(&self) {
-            self.shared.clear_update();
         }
     };
 }
@@ -268,9 +210,6 @@ impl AtomicEqParams {
 
     impl_snapshot_accessors!(EqParamsSnapshot);
 
-    // Quick check if parameters have been updated (read-only, does not clear).
-    impl_has_update_accessor!();
-
     /// Update a single band gain by patching and publishing a new snapshot.
     pub fn set_band_gain(&self, band: usize, gain_db: f64) {
         if band >= EQ_BANDS {
@@ -293,7 +232,6 @@ impl AtomicEqParams {
 }
 
 impl_default_via_new!(AtomicEqParams);
-impl_lockfree_params!(AtomicEqParams, "Equalizer");
 
 // ============================================================================
 // Saturation Parameters (Simple Atomic)
@@ -484,32 +422,11 @@ impl AtomicSaturationParams {
 
     impl_snapshot_accessors!(SaturationParamsSnapshot);
 
-    // Compatibility update flag for legacy callers. Audio processors compare
-    // published snapshot pointers directly and do not consume this flag.
-    impl_dirty_accessors!();
-
     // Quick check if enabled.
     impl_enabled_reader!();
-
-    /// Get settings as SaturationSettings (for backward compatibility)
-    pub fn get_settings(&self) -> crate::processor::SaturationSettings {
-        let snapshot = self.read();
-        crate::processor::SaturationSettings {
-            sat_type: crate::processor::SaturationType::from(snapshot.sat_type),
-            drive: snapshot.drive,
-            threshold: snapshot.threshold,
-            mix: snapshot.mix,
-            input_gain_db: snapshot.input_gain_db,
-            output_gain_db: snapshot.output_gain_db,
-            enabled: snapshot.enabled,
-            highpass_mode: snapshot.highpass_mode,
-            highpass_cutoff: snapshot.highpass_cutoff,
-        }
-    }
 }
 
 impl_default_via_new!(AtomicSaturationParams);
-impl_lockfree_params!(AtomicSaturationParams, "Saturation");
 
 // ============================================================================
 // Crossfeed Parameters
@@ -568,22 +485,10 @@ impl AtomicCrossfeedParams {
 
     impl_snapshot_accessors!(CrossfeedParamsSnapshot);
 
-    impl_dirty_accessors!();
-
     impl_enabled_reader!();
-
-    /// Get settings as CrossfeedSettings (for backward compatibility)
-    pub fn get_settings(&self) -> crate::processor::CrossfeedSettings {
-        let snapshot = self.read();
-        crate::processor::CrossfeedSettings {
-            mix: snapshot.mix,
-            enabled: snapshot.enabled,
-        }
-    }
 }
 
 impl_default_via_new!(AtomicCrossfeedParams);
-impl_lockfree_params!(AtomicCrossfeedParams, "Crossfeed");
 
 // ============================================================================
 // Peak Limiter Parameters
@@ -642,13 +547,10 @@ impl AtomicPeakLimiterParams {
 
     impl_snapshot_accessors!(PeakLimiterParamsSnapshot);
 
-    impl_dirty_accessors!();
-
     impl_enabled_reader!();
 }
 
 impl_default_via_new!(AtomicPeakLimiterParams);
-impl_lockfree_params!(AtomicPeakLimiterParams, "PeakLimiter");
 
 // ============================================================================
 // Volume Parameters
@@ -716,12 +618,9 @@ impl AtomicVolumeParams {
             snapshot.volume
         }
     }
-
-    impl_dirty_accessors!();
 }
 
 impl_default_via_new!(AtomicVolumeParams);
-impl_lockfree_params!(AtomicVolumeParams, "Volume");
 
 // ============================================================================
 // Noise Shaper Parameters
@@ -780,8 +679,6 @@ impl AtomicNoiseShaperParams {
 
     impl_snapshot_accessors!(NoiseShaperParamsSnapshot);
 
-    impl_dirty_accessors!();
-
     impl_enabled_reader!();
 
     #[inline]
@@ -796,7 +693,6 @@ impl AtomicNoiseShaperParams {
 }
 
 impl_default_via_new!(AtomicNoiseShaperParams);
-impl_lockfree_params!(AtomicNoiseShaperParams, "NoiseShaper");
 
 // ============================================================================
 // Dynamic Loudness Parameters
@@ -844,7 +740,7 @@ impl AtomicDynamicLoudnessParams {
         });
     }
 
-    /// Alias for set_volume - for API compatibility
+    /// Set the reference volume in dB and publish the derived linear volume.
     #[inline]
     pub fn set_ref_volume_db(&self, db: f64) {
         let mut snapshot = self.shared.read();
@@ -872,8 +768,6 @@ impl AtomicDynamicLoudnessParams {
 
     impl_snapshot_accessors!(DynamicLoudnessParamsSnapshot);
 
-    impl_dirty_accessors!();
-
     impl_enabled_reader!();
 
     /// Get strength (0.0 - 1.0)
@@ -884,7 +778,6 @@ impl AtomicDynamicLoudnessParams {
 }
 
 impl_default_via_new!(AtomicDynamicLoudnessParams);
-impl_lockfree_params!(AtomicDynamicLoudnessParams, "DynamicLoudness");
 
 /// Real-time dynamic loudness telemetry published by audio thread.
 ///
@@ -951,28 +844,10 @@ mod tests {
         params.set_mix(0.7);
         params.set_enabled(true);
 
-        assert!(params.has_update());
-
         let snapshot = params.read();
         assert!((snapshot.drive - 1.5).abs() < 1e-10);
         assert!((snapshot.mix - 0.7).abs() < 1e-10);
         assert!(snapshot.enabled);
-    }
-
-    #[test]
-    fn test_saturation_dirty_flag_survives_read_until_cleared() {
-        let params = AtomicSaturationParams::new();
-        assert!(!params.has_update());
-
-        params.set_drive(1.25);
-        assert!(params.has_update());
-
-        let snapshot = params.read();
-        assert!((snapshot.drive - 1.25).abs() < 1e-10);
-        assert!(params.has_update());
-
-        params.clear_dirty();
-        assert!(!params.has_update());
     }
 
     #[test]
@@ -983,7 +858,6 @@ mod tests {
             params.set_strength(1.0 - i as f64 / 100.0);
         }
 
-        assert!(params.has_update());
         let snapshot = params.read();
         assert!((snapshot.volume - 0.99).abs() < 1e-10);
         assert!((snapshot.strength - 0.01).abs() < 1e-10);
@@ -1014,13 +888,11 @@ mod tests {
 
         params.set_ref_volume_db(-6.0);
         let first = params.load();
-        params.clear_dirty();
 
         params.set_ref_volume_db(-6.0);
         let second = params.load();
 
         assert!(Arc::ptr_eq(&first, &second));
-        assert!(!params.has_update());
     }
 
     #[test]

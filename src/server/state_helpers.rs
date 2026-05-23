@@ -69,7 +69,7 @@ pub(crate) fn apply_settings_to_player(player: &mut AudioPlayer, settings: &Engi
         }
     }
 
-    // Dither (state only; lock-free audio path currently does not host NoiseShaper stage)
+    // Dither / noise shaping (lock-free DSP path)
     player.dither_enabled = settings.dither.enabled;
     player.set_output_bits(settings.output_bits);
     let _ = player.set_noise_shaper_curve(settings.dither.noise_shaper_curve);

@@ -16,11 +16,11 @@ use assert_no_alloc::assert_no_alloc;
 use super::callback::{audio_callback_lockfree, CallbackScratch, LockfreeDspContext};
 use super::spectrum::SpectrumBatch;
 use super::state::{PlayerState, SharedState, EVENT_PLAYBACK_STARTED};
-use crate::config::PhaseResponse;
+use crate::config::{PhaseResponse, ResampleQuality};
 use crate::processor::{
     AtomicCrossfeedParams, AtomicDynamicLoudnessParams, AtomicDynamicLoudnessTelemetry,
     AtomicEqParams, AtomicLoudnessState, AtomicNoiseShaperParams, AtomicPeakLimiterParams,
-    AtomicSaturationParams, AtomicVolumeParams, StreamingResampler,
+    AtomicSaturationParams, AtomicVolumeParams, NoiseShaperProcessor, StreamingResampler,
 };
 
 const MAX_DAC_RATE: u32 = 384000;
@@ -48,6 +48,12 @@ pub(super) struct DspParamRefs<'a> {
     pub noise_shaper_params: &'a Arc<AtomicNoiseShaperParams>,
     pub dynamic_loudness_params: &'a Arc<AtomicDynamicLoudnessParams>,
     pub dynamic_loudness_telemetry: &'a Arc<AtomicDynamicLoudnessTelemetry>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ResamplerConfig {
+    pub phase_response: PhaseResponse,
+    pub quality: ResampleQuality,
 }
 
 pub(super) fn prepare_playback_output(
@@ -106,7 +112,7 @@ pub(super) fn build_requested_output_stream(
     owned_dsp_chain: &mut Option<crate::processor::DspChain>,
     context: &OutputStreamContext<'_>,
     dsp_params: &DspParamRefs<'_>,
-    phase_response: PhaseResponse,
+    resampler_config: ResamplerConfig,
 ) -> Result<Stream, String> {
     let dsp_chain = owned_dsp_chain.take().unwrap_or_else(|| {
         build_dsp_chain(
@@ -124,7 +130,7 @@ pub(super) fn build_requested_output_stream(
         output_plan.channels as usize,
         output_plan.requested_sample_rate,
         output_plan.actual_sample_rate,
-        phase_response,
+        resampler_config,
         dsp_chain,
         context,
     )
@@ -134,7 +140,7 @@ pub(super) fn build_fallback_output_stream(
     output_plan: &PlaybackOutputPlan,
     context: &OutputStreamContext<'_>,
     dsp_params: &DspParamRefs<'_>,
-    phase_response: PhaseResponse,
+    resampler_config: ResamplerConfig,
 ) -> Result<Stream, String> {
     let fallback_config: StreamConfig = output_plan
         .device
@@ -156,7 +162,7 @@ pub(super) fn build_fallback_output_stream(
         fallback_channels,
         output_plan.requested_sample_rate,
         fallback_sample_rate,
-        phase_response,
+        resampler_config,
         fallback_chain,
         context,
     )
@@ -191,17 +197,18 @@ fn build_output_stream_with_callback(
     channels: usize,
     source_sample_rate: u32,
     output_sample_rate: u32,
-    phase_response: PhaseResponse,
+    resampler_config: ResamplerConfig,
     mut dsp_chain: crate::processor::DspChain,
     context: &OutputStreamContext<'_>,
 ) -> Result<Stream, String> {
     let mut resampler = if output_sample_rate != source_sample_rate {
         Some(
-            StreamingResampler::with_phase(
+            StreamingResampler::with_quality(
                 channels,
                 source_sample_rate,
                 output_sample_rate,
-                phase_response,
+                resampler_config.phase_response,
+                resampler_config.quality,
             )
             .map_err(|e| format!("Failed to create resampler: {}", e))?,
         )
@@ -213,6 +220,11 @@ fn build_output_stream_with_callback(
     let cb_loudness_state = Arc::clone(context.loudness_state);
     let cb_spectrum_tx = context.spectrum_tx.clone();
     let mut scratch = CallbackScratch::new(channels);
+    let mut final_noise_shaper = NoiseShaperProcessor::new(
+        channels,
+        output_sample_rate,
+        Arc::clone(context.dsp_ctx.noise_shaper_params()),
+    );
 
     device
         .build_output_stream(
@@ -228,6 +240,7 @@ fn build_output_stream_with_callback(
                         data,
                         &cb_shared,
                         &mut dsp_chain,
+                        Some(&mut final_noise_shaper),
                         &cb_loudness_state,
                         &cb_spectrum_tx,
                         channels,
@@ -241,6 +254,7 @@ fn build_output_stream_with_callback(
                     data,
                     &cb_shared,
                     &mut dsp_chain,
+                    Some(&mut final_noise_shaper),
                     &cb_loudness_state,
                     &cb_spectrum_tx,
                     channels,
