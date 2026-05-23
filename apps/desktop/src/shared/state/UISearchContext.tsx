@@ -54,15 +54,17 @@ const readHistory = (): string[] => {
   }
 };
 
-const persistHistory = (history: readonly string[]) => {
+const persistHistory = (history: readonly string[], serializedHistory = JSON.stringify(history)): boolean => {
   if (typeof window === "undefined") {
-    return;
+    return false;
   }
 
   try {
-    window.localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(history));
+    window.localStorage.setItem(SEARCH_HISTORY_KEY, serializedHistory);
+    return true;
   } catch {
     // Ignore storage failures.
+    return false;
   }
 };
 
@@ -72,13 +74,22 @@ const persistHistory = (history: readonly string[]) => {
  * to consume the query or render a "search disabled" hint.
  */
 export function UISearchProvider(props: UISearchProviderProps) {
+  const initialHistory = readHistory();
   const [query, setQuery] = createSignal("");
   const [submitNonce, setSubmitNonce] = createSignal(0);
-  const [history, setHistory] = createSignal<readonly string[]>(readHistory());
+  const [history, setHistory] = createSignal<readonly string[]>(initialHistory);
   const activePage = toAccessor(props.activePage);
+  let lastPersistedHistory = JSON.stringify(initialHistory);
 
   createEffect(() => {
-    persistHistory(history());
+    const nextHistory = history();
+    const serializedHistory = JSON.stringify(nextHistory);
+    if (serializedHistory === lastPersistedHistory) {
+      return;
+    }
+    if (persistHistory(nextHistory, serializedHistory)) {
+      lastPersistedHistory = serializedHistory;
+    }
   });
 
   const pushHistory = (value: string) => {

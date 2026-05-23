@@ -1,4 +1,4 @@
-import { For, createSignal } from "solid-js";
+import { For, createMemo, createSignal } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
 import {
   commitUISettingField,
@@ -46,7 +46,7 @@ export function HomeSectionManager() {
   const commitSections = (next: HomeSectionConfig[]) =>
     commitUISettingField("homeSections", next, sections, setSections);
 
-  const sorted = () => [...sections()].sort((a, b) => a.order - b.order);
+  const sorted = createMemo(() => [...sections()].sort((a, b) => a.order - b.order));
 
   const toggleVisibility = (key: HomeSectionKey) => {
     const next = sections().map((s) =>

@@ -1,4 +1,4 @@
-import { For } from "solid-js";
+import { For, createMemo } from "solid-js";
 
 interface SkeletonProps {
   shape?: "rect" | "circle" | "text";
@@ -11,6 +11,8 @@ const toCssLength = (value: string | number | undefined): string | undefined => 
   if (value == null) return undefined;
   return typeof value === "number" ? `${value}px` : value;
 };
+
+const buildIndexes = (count: number): number[] => Array.from({ length: count }, (_, index) => index);
 
 /**
  * Pulsing placeholder block. Matches SPlayer's `n-skeleton` visual rhythm
@@ -41,9 +43,10 @@ interface CoverGridSkeletonProps {
 export function CoverGridSkeleton(props: CoverGridSkeletonProps) {
   const total = () => props.count ?? 50;
   const isRound = () => props.shape === "round";
+  const indexes = createMemo(() => buildIndexes(total()));
   return (
     <div class="album-grid skeleton-grid" aria-hidden="true">
-      <For each={Array.from({ length: total() }, (_, i) => i)}>
+      <For each={indexes()}>
         {() => (
           <div class={`album-card skeleton-card${isRound() ? " album-card--round" : ""}`}>
             <span class={`album-card-art skeleton${isRound() ? " skeleton--circle" : ""}`} />
@@ -68,9 +71,10 @@ interface ListSkeletonProps {
 export function ListSkeleton(props: ListSkeletonProps) {
   const total = () => props.count ?? 10;
   const height = () => props.rowHeight ?? 72;
+  const indexes = createMemo(() => buildIndexes(total()));
   return (
     <div class="skeleton-list" aria-hidden="true">
-      <For each={Array.from({ length: total() }, (_, i) => i)}>
+      <For each={indexes()}>
         {() => <span class="skeleton skeleton-row" style={{ height: `${height()}px` }} />}
       </For>
     </div>
