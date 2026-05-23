@@ -27,6 +27,11 @@ export interface UISettingsStore {
   sync: () => void;
 }
 
+interface SharedUISettingsStore {
+  store: UISettingsStore;
+  dispose: () => void;
+}
+
 export type HomeSectionKey = "dailyPicks" | "playlists" | "radar" | "artists" | "mvs" | "podcasts" | "albums";
 
 export type ThemeMode = "dark" | "light" | "auto";
@@ -701,6 +706,8 @@ const browserUISettingsRuntime = (): UISettingsRuntime => ({
   }
 });
 
+let browserSharedUISettingsStore: SharedUISettingsStore | null = null;
+
 function readBool(runtime: UISettingsRuntime, key: string, fallback: boolean): boolean {
   try {
     const raw = runtime.storage.getItem(key);
@@ -822,6 +829,47 @@ export function storageKeyToUISettingField(key: string): UISettingsFieldName | n
   return UI_SETTING_FIELD_BY_STORAGE_KEY[key] ?? null;
 }
 
+function shouldSyncUISettingsFromEvent(event: Event): boolean {
+  if (event.type !== "storage" || !("key" in event)) {
+    return true;
+  }
+  const key = (event as StorageEvent).key;
+  return key === null || storageKeyToUISettingField(key) !== null;
+}
+
+function listenToUISettingsRuntime(runtime: UISettingsRuntime, store: UISettingsStore): () => void {
+  const handleChange: EventListener = (event) => {
+    if (shouldSyncUISettingsFromEvent(event)) {
+      store.sync();
+    }
+  };
+
+  runtime.events.addEventListener(UI_SETTINGS_CHANGED_EVENT, handleChange);
+  runtime.events.addEventListener("storage", handleChange);
+
+  return () => {
+    runtime.events.removeEventListener(UI_SETTINGS_CHANGED_EVENT, handleChange);
+    runtime.events.removeEventListener("storage", handleChange);
+  };
+}
+
+function getBrowserSharedUISettingsStore(): SharedUISettingsStore {
+  if (!browserSharedUISettingsStore) {
+    const runtime = browserUISettingsRuntime();
+    const store = createUISettingsStore(runtime);
+    browserSharedUISettingsStore = {
+      store,
+      dispose: listenToUISettingsRuntime(runtime, store)
+    };
+  }
+  return browserSharedUISettingsStore;
+}
+
+export function disposeBrowserSharedUISettingsStore(): void {
+  browserSharedUISettingsStore?.dispose();
+  browserSharedUISettingsStore = null;
+}
+
 function readNumber(runtime: UISettingsRuntime, key: string, fallback: number): number {
   try {
     const raw = runtime.storage.getItem(key);
@@ -899,16 +947,20 @@ export function createUISettingsStore(runtime: UISettingsRuntime): UISettingsSto
  * Reads UI settings from the supplied runtime and listens for changes
  * dispatched by the settings sections.
  */
-export function useUISettings(runtime: UISettingsRuntime = browserUISettingsRuntime()): UISettings {
+export function useUISettings(runtime?: UISettingsRuntime): UISettings {
+  if (!runtime) {
+    return getBrowserSharedUISettingsStore().store.settings;
+  }
+
   const store = createUISettingsStore(runtime);
-  const handleChange = () => store.sync();
+  let dispose: (() => void) | undefined;
 
   onMount(() => {
-    runtime.events.addEventListener(UI_SETTINGS_CHANGED_EVENT, handleChange);
+    dispose = listenToUISettingsRuntime(runtime, store);
   });
 
   onCleanup(() => {
-    runtime.events.removeEventListener(UI_SETTINGS_CHANGED_EVENT, handleChange);
+    dispose?.();
   });
 
   return store.settings;

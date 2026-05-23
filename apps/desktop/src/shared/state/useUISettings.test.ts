@@ -4,10 +4,13 @@ import type { Setter } from "solid-js";
 import {
   commitUISettingField,
   createUISettingsStore,
+  disposeBrowserSharedUISettingsStore,
   persistUISettingField,
   persistUISetting,
   readUISettingsSnapshot,
   STORAGE_KEYS,
+  UI_SETTINGS_CHANGED_EVENT,
+  useUISettings,
   type UISettingsRuntime
 } from "./useUISettings";
 
@@ -25,6 +28,11 @@ interface MutableSettingsRuntime extends UISettingsRuntime {
   values: Record<string, string>;
 }
 
+type ListenerEntry = {
+  type: string;
+  listener: EventListener;
+};
+
 const mutableRuntimeFromValues = (values: Record<string, string>): MutableSettingsRuntime => {
   return {
     values,
@@ -36,6 +44,78 @@ const mutableRuntimeFromValues = (values: Record<string, string>): MutableSettin
       removeEventListener: () => undefined
     }
   };
+};
+
+const installBrowserSettingsRuntime = (values: Record<string, string> = {}) => {
+  const listeners: ListenerEntry[] = [];
+  let readCount = 0;
+  const previousLocalStorage = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const storage = {
+    getItem: (key: string) => {
+      readCount += 1;
+      return values[key] ?? null;
+    },
+    setItem: (key: string, value: string) => {
+      values[key] = value;
+    },
+    removeItem: (key: string) => {
+      delete values[key];
+    }
+  };
+  const events = {
+    addEventListener: (type: string, listener: EventListener) => {
+      listeners.push({ type, listener });
+    },
+    removeEventListener: (type: string, listener: EventListener) => {
+      const index = listeners.findIndex((entry) => entry.type === type && entry.listener === listener);
+      if (index >= 0) {
+        listeners.splice(index, 1);
+      }
+    },
+    dispatchEvent: (event: Event) => {
+      listeners
+        .filter((entry) => entry.type === event.type)
+        .forEach((entry) => entry.listener(event));
+      return true;
+    }
+  };
+
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: storage
+  });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: events
+  });
+
+  return {
+    listeners,
+    values,
+    events,
+    readCount: () => readCount,
+    restore: () => {
+      if (previousLocalStorage) {
+        Object.defineProperty(globalThis, "localStorage", previousLocalStorage);
+      } else {
+        Reflect.deleteProperty(globalThis, "localStorage");
+      }
+      if (previousWindow) {
+        Object.defineProperty(globalThis, "window", previousWindow);
+      } else {
+        Reflect.deleteProperty(globalThis, "window");
+      }
+    }
+  };
+};
+
+const createStorageEvent = (key: string | null): Event => {
+  const event = new Event("storage");
+  Object.defineProperty(event, "key", {
+    value: key
+  });
+  return event;
 };
 
 test("readUISettingsSnapshot reads settings from an injected storage adapter", () => {
@@ -129,6 +209,59 @@ test("createUISettingsStore keeps injected runtimes isolated", () => {
   assert.equal(secondStore.settings.bgEnabled, true);
   assert.equal(firstStore.settings.bgBlur, 18);
   assert.equal(secondStore.settings.bgBlur, 44);
+});
+
+test("useUISettings shares one browser store and one listener pair", () => {
+  disposeBrowserSharedUISettingsStore();
+  const runtime = installBrowserSettingsRuntime({
+    [STORAGE_KEYS.bgEnabled]: "false",
+    [STORAGE_KEYS.bgBlur]: "12"
+  });
+
+  try {
+    const firstSettings = useUISettings();
+    const readsAfterFirstConsumer = runtime.readCount();
+    const secondSettings = useUISettings();
+
+    assert.equal(firstSettings, secondSettings);
+    assert.equal(runtime.readCount(), readsAfterFirstConsumer);
+    assert.equal(runtime.listeners.filter((entry) => entry.type === UI_SETTINGS_CHANGED_EVENT).length, 1);
+    assert.equal(runtime.listeners.filter((entry) => entry.type === "storage").length, 1);
+
+    runtime.values[STORAGE_KEYS.bgEnabled] = "true";
+    runtime.events.dispatchEvent(new Event(UI_SETTINGS_CHANGED_EVENT));
+
+    assert.equal(firstSettings.bgEnabled, true);
+    assert.equal(secondSettings.bgEnabled, true);
+
+    disposeBrowserSharedUISettingsStore();
+    assert.equal(runtime.listeners.length, 0);
+  } finally {
+    disposeBrowserSharedUISettingsStore();
+    runtime.restore();
+  }
+});
+
+test("useUISettings browser store syncs only known storage keys", () => {
+  disposeBrowserSharedUISettingsStore();
+  const runtime = installBrowserSettingsRuntime({
+    [STORAGE_KEYS.bgEnabled]: "false"
+  });
+  try {
+    const settings = useUISettings();
+
+    runtime.values[STORAGE_KEYS.bgEnabled] = "true";
+    runtime.events.dispatchEvent(createStorageEvent("unrelated"));
+    assert.equal(settings.bgEnabled, false);
+
+    runtime.events.dispatchEvent(createStorageEvent(STORAGE_KEYS.bgEnabled));
+    assert.equal(settings.bgEnabled, true);
+
+    disposeBrowserSharedUISettingsStore();
+  } finally {
+    disposeBrowserSharedUISettingsStore();
+    runtime.restore();
+  }
 });
 
 test("persistUISetting writes through the injected runtime and notifies listeners", () => {
