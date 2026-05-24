@@ -6,6 +6,7 @@ import type {
   NcmTrackSupplement
 } from "../features/online/ncmPlayback";
 import type { UserPlaylistMode } from "../features/online/ncmPlaylistSummary";
+import { getNcmLikedPlaylistCached } from "../features/online/ncmPlaylistSummaryCache";
 import type { FeedCardItem, OnlineTrackItem, RadioSubscribeEvent } from "../features/online/shared/types";
 import type {
   PlayerState,
@@ -245,8 +246,7 @@ export function useAppController(api: ApiClient): AppController {
     }
 
     try {
-      const playlists = await api.listNcmUserPlaylists({ uid: account.userId, limit: 1 });
-      const likedPlaylist = playlists.find((entry) => entry.userId === account.userId) ?? playlists[0];
+      const likedPlaylist = await getNcmLikedPlaylistCached(api, account.userId);
       if (!likedPlaylist) {
         playback.setCommandError(t("player.heartbeat.failed"));
         return;

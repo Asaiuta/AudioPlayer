@@ -10,11 +10,17 @@ import { useTranslation } from "../shared/i18n";
 import { resolveArtworkUrl } from "../shared/ui/artwork";
 import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import { CreatePlaylistModal } from "./CreatePlaylistModal";
+import type { OnlinePlaylistSummary, UserPlaylistMode } from "../features/online/ncmPlaylistSummary";
 import {
-  loadNcmUserPlaylistGroups,
-  type OnlinePlaylistSummary,
-  type UserPlaylistMode
-} from "../features/online/ncmPlaylistSummary";
+  loadNcmUserPlaylistGroupsCached,
+  refreshNcmUserPlaylistGroupsCache,
+  subscribeNcmUserPlaylistGroups
+} from "../features/online/ncmPlaylistSummaryCache";
+import {
+  loadLocalPlaylistsCached,
+  refreshLocalPlaylistsCache,
+  subscribeLocalPlaylists
+} from "../features/library/localPlaylistSummaryCache";
 import {
   IconChevronDown,
   IconCloud,
@@ -225,12 +231,14 @@ export function Sidebar(props: SidebarProps) {
   });
 
   onMount(() => {
-    void props.api.listLocalPlaylists()
+    const unsubscribe = subscribeLocalPlaylists(setLocalPlaylists);
+    void loadLocalPlaylistsCached(props.api)
       .then(setLocalPlaylists)
       .catch((error) => {
         setLocalPlaylists([]);
         console.warn("[Sidebar] failed to load local playlists", readErrorMessage(error));
       });
+    onCleanup(unsubscribe);
   });
 
   createEffect(() => {
@@ -245,7 +253,7 @@ export function Sidebar(props: SidebarProps) {
   });
 
   const loadUserPlaylists = async (userId: number) => {
-    const groups = await loadNcmUserPlaylistGroups(props.api, userId);
+    const groups = await loadNcmUserPlaylistGroupsCached(props.api, userId);
     return [groups.created, groups.collected] as const;
   };
 
@@ -259,6 +267,10 @@ export function Sidebar(props: SidebarProps) {
     }
 
     let cancelled = false;
+    const unsubscribe = subscribeNcmUserPlaylistGroups(activeAccount.userId, (groups) => {
+      setCreatedPlaylists(groups.created);
+      setCollectedPlaylists(groups.collected);
+    });
     void (async () => {
       try {
         const [created, collected] = await loadUserPlaylists(activeAccount.userId);
@@ -275,6 +287,7 @@ export function Sidebar(props: SidebarProps) {
 
     onCleanup(() => {
       cancelled = true;
+      unsubscribe();
     });
   });
 
@@ -343,15 +356,15 @@ export function Sidebar(props: SidebarProps) {
   };
   const handlePlaylistCreated = async (mode: CreatedPlaylistSource) => {
     if (mode === "local") {
-      setLocalPlaylists(await props.api.listLocalPlaylists());
+      setLocalPlaylists(await refreshLocalPlaylistsCache(props.api));
       return;
     }
 
     const activeAccount = accountStore.activeAccount();
     if (!activeAccount) return;
-    const [created, collected] = await loadUserPlaylists(activeAccount.userId);
-    setCreatedPlaylists(created);
-    setCollectedPlaylists(collected);
+    const groups = await refreshNcmUserPlaylistGroupsCache(props.api, activeAccount.userId);
+    setCreatedPlaylists(groups.created);
+    setCollectedPlaylists(groups.collected);
   };
   const showOnlineCreatedPlaylists = () => createdPlaylistSource() === "online";
   const createdSectionTitle = () =>

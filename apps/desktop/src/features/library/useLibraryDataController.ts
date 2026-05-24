@@ -21,6 +21,11 @@ import {
   mediaIdsForPlaybackContext
 } from "./libraryQueueActions";
 import { createLibraryControllerViewState } from "./libraryControllerViewState";
+import {
+  loadLocalPlaylistsCached,
+  refreshLocalPlaylistsCache,
+  subscribeLocalPlaylists
+} from "./localPlaylistSummaryCache";
 
 export type LibraryDataControllerApi = Pick<
   ApiClient,
@@ -185,24 +190,37 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     }
   };
 
-  const refreshPlaylists = async () => {
+  let appliedLocalPlaylistSnapshot: Awaited<ReturnType<LibraryDataControllerApi["listLocalPlaylists"]>> | null = null;
+  const applyLocalPlaylists = async (playlists: Awaited<ReturnType<LibraryDataControllerApi["listLocalPlaylists"]>>) => {
+    if (playlists === appliedLocalPlaylistSnapshot) return;
+    appliedLocalPlaylistSnapshot = playlists;
+    viewState.setLocalPlaylists(playlists);
+    const selected = viewState.selectedPlaylistId();
+    const nextSelected =
+      playlists.find((playlist) => playlist.playlist_id === selected)?.playlist_id ?? null;
+    viewState.setSelectedPlaylistId(nextSelected);
+    await refreshSelectedPlaylist(nextSelected);
+  };
+
+  const refreshPlaylists = async (options: { force?: boolean } = {}) => {
     try {
-      const playlists = await api.listLocalPlaylists();
-      viewState.setLocalPlaylists(playlists);
-      const selected = viewState.selectedPlaylistId();
-      const nextSelected =
-        playlists.find((playlist) => playlist.playlist_id === selected)?.playlist_id ?? null;
-      viewState.setSelectedPlaylistId(nextSelected);
-      await refreshSelectedPlaylist(nextSelected);
+      const playlists = options.force
+        ? await refreshLocalPlaylistsCache(api)
+        : await loadLocalPlaylistsCached(api);
+      await applyLocalPlaylists(playlists);
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
     }
   };
 
   onMount(() => {
+    const unsubscribe = subscribeLocalPlaylists((playlists) => {
+      void applyLocalPlaylists(playlists);
+    });
     void refreshRoots();
     void refreshItems();
     void refreshPlaylists();
+    onCleanup(unsubscribe);
   });
 
   const { handleScan, handleRescan } = createLibraryScanActions({
@@ -215,14 +233,14 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     setIsScanning: viewState.setIsScanning,
     setScanProgress: viewState.setScanProgress,
     refreshAfterScan: async () => {
-      await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
+      await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists({ force: true })]);
     }
   });
 
   const deleteLibraryRoot = async (root: LibraryRoot) => {
     try {
       await api.deleteLibraryRoot(root.root_id);
-      await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists()]);
+      await Promise.all([refreshRoots(), refreshItems(), refreshPlaylists({ force: true })]);
       setRawFeedback("success", t("library.roots.feedback.deleted", { name: root.display_name }));
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
@@ -330,7 +348,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const createLocalPlaylist = async (name: string, description?: string | null) => {
     try {
       const playlist = await api.createLocalPlaylist({ name, description });
-      await refreshPlaylists();
+      await refreshPlaylists({ force: true });
       await selectLocalPlaylist(playlist.playlist_id);
       setRawFeedback("success", t("library.playlists.feedback.created", { name: playlist.name }));
       return playlist;
@@ -347,7 +365,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
         viewState.setSelectedPlaylistId(null);
         viewState.setSelectedPlaylistItems([]);
       }
-      await refreshPlaylists();
+      await refreshPlaylists({ force: true });
       setRawFeedback("success", t("library.playlists.feedback.deleted"));
     } catch (error) {
       setRawFeedback("error", readErrorMessage(error));
@@ -361,7 +379,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     if (mediaIds.length === 0) return 0;
     try {
       const addedCount = await api.addMediaToLocalPlaylist(playlistId, mediaIds);
-      await refreshPlaylists();
+      await refreshPlaylists({ force: true });
       if (viewState.selectedPlaylistId() === playlistId) {
         await refreshSelectedPlaylist(playlistId);
       }
@@ -380,7 +398,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     const mediaIds = uniqueMediaIds(details);
     try {
       const removedCount = await api.removeMediaFromLocalPlaylist(playlistId, mediaIds);
-      await refreshPlaylists();
+      await refreshPlaylists({ force: true });
       await refreshSelectedPlaylist(playlistId);
       setRawFeedback("success", t("library.playlists.feedback.removed", { count: removedCount }));
       return removedCount;
@@ -396,7 +414,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     if (mediaIds.length === 0) return 0;
     try {
       const deletedCount = await api.deleteMediaItems(mediaIds);
-      await Promise.all([refreshItems(), refreshPlaylists()]);
+      await Promise.all([refreshItems(), refreshPlaylists({ force: true })]);
       await refreshSelectedPlaylist();
       setRawFeedback("success", t("library.feedback.deleted", { count: deletedCount }));
       return deletedCount;
@@ -449,7 +467,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
   const handleRefresh = () => {
     void refreshRoots();
     void refreshItems();
-    void refreshPlaylists();
+    void refreshPlaylists({ force: true });
   };
 
   const formatScanTimestamp = (epochSecs: number | null) => {

@@ -9,7 +9,11 @@ import type { FeedbackSetter } from "../shared/feedback";
 import { createErrorMessageReader } from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
 import type { NcmProfile, OnlineTrackItem } from "../shared/types";
-import { loadNcmUserPlaylistsByMode } from "../ncmPlaylistSummary";
+import {
+  loadNcmUserPlaylistsByModeCached,
+  refreshNcmUserPlaylistGroupsCache,
+  subscribeNcmUserPlaylistGroups
+} from "../ncmPlaylistSummaryCache";
 
 interface DailySongsBatchModalProps {
   open: boolean;
@@ -52,7 +56,7 @@ export function DailySongsBatchModal(props: DailySongsBatchModalProps) {
   });
 
   const loadCreatedPlaylists = (userId: number): Promise<NcmPlaylistSummary[]> =>
-    loadNcmUserPlaylistsByMode(api, userId, "created-playlists");
+    loadNcmUserPlaylistsByModeCached(api, userId, "created-playlists");
 
   createEffect(on(
     () => [props.open, props.loginProfile?.userId] as const,
@@ -62,6 +66,9 @@ export function DailySongsBatchModal(props: DailySongsBatchModalProps) {
         return;
       }
       let cancelled = false;
+      const unsubscribe = subscribeNcmUserPlaylistGroups(userId, (groups) => {
+        setPlaylists(groups.created);
+      });
       setLoadingPlaylists(true);
       void loadCreatedPlaylists(userId).then((result) => {
         if (!cancelled) setPlaylists(result);
@@ -75,6 +82,7 @@ export function DailySongsBatchModal(props: DailySongsBatchModalProps) {
       });
       onCleanup(() => {
         cancelled = true;
+        unsubscribe();
       });
     }
   ));
@@ -84,7 +92,8 @@ export function DailySongsBatchModal(props: DailySongsBatchModalProps) {
     if (userId === undefined) return;
     setLoadingPlaylists(true);
     try {
-      setPlaylists(await loadCreatedPlaylists(userId));
+      const groups = await refreshNcmUserPlaylistGroupsCache(api, userId);
+      setPlaylists(groups.created);
     } catch (error) {
       props.setFeedback("error", readErrorMessage(error));
     } finally {

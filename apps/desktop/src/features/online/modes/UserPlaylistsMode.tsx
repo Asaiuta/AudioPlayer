@@ -7,9 +7,13 @@ import { useTranslation } from "../../../shared/i18n";
 import { createApiClient } from "../../../shared/api/client";
 import { useUISettings } from "../../../shared/state/useUISettings";
 import {
-  loadNcmUserPlaylistsByMode,
   type OnlinePlaylistSummary
 } from "../ncmPlaylistSummary";
+import {
+  applyNcmPlaylistSubscribeCacheUpdate,
+  loadNcmUserPlaylistsByModeCached,
+  subscribeNcmUserPlaylistGroups
+} from "../ncmPlaylistSummaryCache";
 import { PlaylistDetail } from "../details/PlaylistDetail";
 import {
   createErrorMessageReader,
@@ -55,6 +59,10 @@ export function UserPlaylistsMode(props: UserPlaylistsModeProps) {
     setFeedback: props.setFeedback,
     onSelectedPlaylistChange: props.onSelectedPlaylistChange,
     onPlaylistSubscribeChange: (playlist, subscribed) => {
+      const profile = props.loginProfile();
+      if (profile) {
+        applyNcmPlaylistSubscribeCacheUpdate(profile.userId, playlist, subscribed);
+      }
       if (props.kind !== "collected-playlists") return;
       setUserPlaylistsState((current) => {
         if (!subscribed) {
@@ -86,11 +94,14 @@ export function UserPlaylistsMode(props: UserPlaylistsModeProps) {
     const profile = props.loginProfile();
     const kind = props.kind;
     if (profile === null) return;
+    const unsubscribe = subscribeNcmUserPlaylistGroups(profile.userId, (groups) => {
+      setUserPlaylistsState(kind === "created-playlists" ? groups.created : groups.collected);
+    });
     let cancelled = false;
     const run = async () => {
       setIsLoadingUserPlaylists(true);
       try {
-        const playlists = await loadNcmUserPlaylistsByMode(api, profile.userId, kind);
+        const playlists = await loadNcmUserPlaylistsByModeCached(api, profile.userId, kind);
         if (cancelled) return;
         setUserPlaylistsState(playlists);
       } catch (error) {
@@ -105,6 +116,7 @@ export function UserPlaylistsMode(props: UserPlaylistsModeProps) {
     void run();
     onCleanup(() => {
       cancelled = true;
+      unsubscribe();
     });
   });
 

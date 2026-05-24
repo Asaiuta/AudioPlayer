@@ -15,6 +15,7 @@ import { createAlbumDetailInfo, parseAlbumDynamicInfo, type AlbumDetailInfo } fr
 import { parseArtistDetailInfo, type ArtistDetailInfo } from "../artistParsers";
 import { parseNcmArtistAlbums, parseNcmArtistVideos } from "../searchParsers";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
+import { getNcmLikedPlaylistCached } from "../ncmPlaylistSummaryCache";
 import {
   createPlaylistDetailInfo,
   parsePlaylistDynamicInfo,
@@ -446,11 +447,7 @@ export function useDetailNavigation(ctx: DetailNavigationContext) {
     if (!profile) return;
     setIsLoadingLikedSongs(true);
     try {
-      const playlists = await api.listNcmUserPlaylists({
-        uid: profile.userId,
-        limit: 1
-      });
-      const likedPlaylist = playlists[0] ?? null;
+      const likedPlaylist = await getNcmLikedPlaylistCached(api, profile.userId);
       if (likedPlaylist === null) {
         setLikedSongsTotal(0);
         setLikedSongsState([]);

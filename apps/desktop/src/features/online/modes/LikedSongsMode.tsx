@@ -6,6 +6,7 @@ import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
 import { PlaylistDetail } from "../details/PlaylistDetail";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
+import { getNcmLikedPlaylistCached } from "../ncmPlaylistSummaryCache";
 import {
   createErrorMessageReader,
   createLoginStatusText,
@@ -67,12 +68,8 @@ export function LikedSongsMode(props: LikedSongsModeProps) {
     const run = async () => {
       setIsLoadingLikedPlaylist(true);
       try {
-        const playlists = await api.listNcmUserPlaylists({
-          uid: profile.userId,
-          limit: 1
-        });
+        const likedPlaylist = await getNcmLikedPlaylistCached(api, profile.userId);
         if (cancelled) return;
-        const likedPlaylist = playlists[0] ?? null;
         if (likedPlaylist === null) {
           detailNav.setSelectedPlaylist(null);
           detailNav.setPlaylistTracksState([]);

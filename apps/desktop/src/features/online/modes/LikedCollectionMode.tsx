@@ -23,9 +23,13 @@ import {
 } from "../../../shared/api/ncm/user";
 import { useUISettings } from "../../../shared/state/useUISettings";
 import {
-  loadNcmUserPlaylistGroups,
   type OnlinePlaylistSummary
 } from "../ncmPlaylistSummary";
+import {
+  applyNcmPlaylistSubscribeCacheUpdate,
+  loadNcmUserPlaylistGroupsCached,
+  subscribeNcmUserPlaylistGroups
+} from "../ncmPlaylistSummaryCache";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
 import { PlaylistDetail } from "../details/PlaylistDetail";
@@ -213,6 +217,10 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
     setFeedback: props.setFeedback,
     onSelectedPlaylistChange: props.onSelectedPlaylistChange,
     onPlaylistSubscribeChange: (playlist, subscribed) => {
+      const profile = props.loginProfile();
+      if (profile) {
+        applyNcmPlaylistSubscribeCacheUpdate(profile.userId, playlist, subscribed);
+      }
       setCollectedPlaylists((current) => {
         if (!subscribed) {
           return current.filter((item) => item.id !== playlist.id);
@@ -311,13 +319,17 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
     if (profile === null) return;
 
     let cancelled = false;
+    const unsubscribePlaylists = subscribeNcmUserPlaylistGroups(profile.userId, (groups) => {
+      setCreatedPlaylists(groups.created);
+      setCollectedPlaylists(groups.collected);
+    });
     const run = async () => {
       setIsLoadingPlaylists(true);
       setIsLoadingCollections(true);
       setHasLoadedCollections(false);
       try {
         const [playlistGroups, countEnvelope, albums, artists, videos, radios] = await Promise.all([
-          loadNcmUserPlaylistGroups(api, profile.userId),
+          loadNcmUserPlaylistGroupsCached(api, profile.userId),
           userSubcount().catch(() => null),
           loadAllSublist(userAlbumSublist, "data", parseCoverCollectionItem),
           loadAllSublist(userArtistSublist, "data", parseArtistCollectionItem),
@@ -356,6 +368,7 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
     void run();
     onCleanup(() => {
       cancelled = true;
+      unsubscribePlaylists();
     });
   });
 
