@@ -1,4 +1,5 @@
 import { For } from "solid-js";
+import { NaiveDivider, NaiveFlex, NaivePopover } from "../../shared/ui/naive";
 import type { MediaSortField, MediaSortOrder, MediaSortState } from "./MediaList";
 
 interface MediaSortPopoverProps {
@@ -19,46 +20,60 @@ interface MediaSortPopoverProps {
 
 export function MediaSortPopover(props: MediaSortPopoverProps) {
   return (
-    <div
-      ref={props.ref}
+    <NaivePopover
+      triggerMode="manual"
+      open={true}
+      showArrow={false}
+      raw
+      placement="bottom-start"
+      getAnchorRect={() => ({ x: props.x, y: props.y, width: 0, height: 0 })}
       class="media-sort-popover"
-      style={{ top: `${props.y}px`, left: `${props.x}px` }}
+      ariaLabel={props.dialogLabel}
       role="dialog"
-      aria-label={props.dialogLabel}
     >
-      <div class="media-sort-group">
-        <div class="media-sort-label">{props.fieldLabel}</div>
-        <For each={props.fields}>
-          {(field) => (
-            <label class="media-sort-radio">
-              <input
-                type="radio"
-                name="media-sort-field"
-                checked={(props.sort?.field ?? "default") === field}
-                onChange={() => props.onFieldChange(field)}
-              />
-              <span>{props.sortLabel(field)}</span>
-            </label>
-          )}
-        </For>
+      <div ref={props.ref} class="media-sort-popover-body">
+        <NaiveFlex class="media-sort-group" vertical>
+          <div class="media-sort-label">{props.fieldLabel}</div>
+          <div class="media-sort-radio-group">
+            <NaiveFlex class="media-sort-radio-stack" vertical>
+              <For each={props.fields}>
+                {(field) => (
+                  <label class="media-sort-radio">
+                    <input
+                      type="radio"
+                      name="media-sort-field"
+                      checked={(props.sort?.field ?? "default") === field}
+                      onChange={() => props.onFieldChange(field)}
+                    />
+                    <span>{props.sortLabel(field)}</span>
+                  </label>
+                )}
+              </For>
+            </NaiveFlex>
+          </div>
+        </NaiveFlex>
+        <NaiveDivider class="media-sort-divider" vertical />
+        <NaiveFlex class="media-sort-group" vertical>
+          <div class="media-sort-label">{props.orderLabel}</div>
+          <div class="media-sort-radio-group">
+            <NaiveFlex class="media-sort-radio-stack" vertical>
+              <For each={props.orders}>
+                {(order) => (
+                  <label class="media-sort-radio">
+                    <input
+                      type="radio"
+                      name="media-sort-order"
+                      checked={(props.sort?.order ?? "default") === order}
+                      onChange={() => props.onOrderChange(order)}
+                    />
+                    <span>{props.sortOrderLabel(order)}</span>
+                  </label>
+                )}
+              </For>
+            </NaiveFlex>
+          </div>
+        </NaiveFlex>
       </div>
-      <div class="media-sort-divider" aria-hidden="true" />
-      <div class="media-sort-group">
-        <div class="media-sort-label">{props.orderLabel}</div>
-        <For each={props.orders}>
-          {(order) => (
-            <label class="media-sort-radio">
-              <input
-                type="radio"
-                name="media-sort-order"
-                checked={(props.sort?.order ?? "default") === order}
-                onChange={() => props.onOrderChange(order)}
-              />
-              <span>{props.sortOrderLabel(order)}</span>
-            </label>
-          )}
-        </For>
-      </div>
-    </div>
+    </NaivePopover>
   );
 }
