@@ -48,6 +48,8 @@ export interface NaiveDropdownProps {
   /**
    * Trigger element rendered inline. Receives Kobalte's button semantics
    * (`aria-haspopup`, `aria-expanded`, focus management).
+   *
+   * Ignored when virtual mode is active (`x` and `y` are both defined).
    */
   children?: JSX.Element;
   /** Option list. */
@@ -79,6 +81,25 @@ export interface NaiveDropdownProps {
   triggerClass?: string;
   /** Accessible label forwarded to the menu surface. */
   ariaLabel?: string;
+  /**
+   * Virtual anchor x coordinate (CSS px, viewport-relative).
+   *
+   * When both `x` and `y` are defined the facade switches to virtual mode:
+   * Kobalte's trigger element is rendered invisible at `(x, y)` so the
+   * positioner anchors against that point. The `children` trigger slot is
+   * ignored in this mode. SPlayer's `NDropdown :x/:y/:show` shape maps here.
+   */
+  x?: number;
+  /** Virtual anchor y coordinate. See `x`. */
+  y?: number;
+  /**
+   * Controlled open state for virtual mode. Equivalent to SPlayer's `:show`.
+   * Mirrors `open` when present — virtual mode prefers `show` for SPlayer
+   * ergonomics. If both are supplied, `show` wins.
+   */
+  show?: boolean;
+  /** Controlled change callback for virtual mode. */
+  onShowChange?: (show: boolean) => void;
 }
 
 export type NaiveDropdownComponent = (props: NaiveDropdownProps) => JSX.Element;

@@ -1,5 +1,5 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
-import { For, Show, onCleanup, type JSX } from "solid-js";
+import { For, Show, createEffect, onCleanup, type JSX } from "solid-js";
 import type {
   NaiveDropdownOption,
   NaiveDropdownProps,
@@ -19,12 +19,21 @@ const HOVER_OPEN_DELAY = 100;
 const HOVER_CLOSE_DELAY = 200;
 
 let cascadeWarnLogged = false;
+let virtualVsTriggerWarnLogged = false;
 
 const warnCascadeOnce = (): void => {
   if (cascadeWarnLogged) return;
   cascadeWarnLogged = true;
   console.warn(
     "[NaiveDropdown] cascade children deferred — flatten options or use Popover"
+  );
+};
+
+const warnVirtualVsTriggerOnce = (): void => {
+  if (virtualVsTriggerWarnLogged) return;
+  virtualVsTriggerWarnLogged = true;
+  console.warn(
+    "[NaiveDropdown] virtual x/y takes precedence over trigger children"
   );
 };
 
@@ -74,6 +83,17 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
   const triggerMode = (): NaiveDropdownTriggerMode => props.triggerMode ?? "click";
   const isManual = (): boolean => triggerMode() === "manual";
 
+  // Virtual mode is active when both x and y coords are defined.
+  const isVirtual = (): boolean =>
+    typeof props.x === "number" && typeof props.y === "number";
+
+  // One-shot warn when both a trigger slot AND virtual coords are present.
+  createEffect(() => {
+    if (isVirtual() && props.children !== undefined) {
+      warnVirtualVsTriggerOnce();
+    }
+  });
+
   let openTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -92,6 +112,9 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
 
   const handleOpenChange = (nextOpen: boolean): void => {
     clearTimers();
+    if (isVirtual()) {
+      props.onShowChange?.(nextOpen);
+    }
     props.onOpenChange?.(nextOpen);
   };
 
@@ -102,7 +125,7 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
   };
 
   const scheduleHoverOpen = (): void => {
-    if (props.disabled || isManual()) return;
+    if (props.disabled || isManual() || isVirtual()) return;
     if (closeTimer !== undefined) {
       clearTimeout(closeTimer);
       closeTimer = undefined;
@@ -115,7 +138,7 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
   };
 
   const scheduleHoverClose = (): void => {
-    if (props.disabled || isManual()) return;
+    if (props.disabled || isManual() || isVirtual()) return;
     if (openTimer !== undefined) {
       clearTimeout(openTimer);
       openTimer = undefined;
@@ -132,13 +155,29 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
     joinClassNames("naive-dropdown-trigger", props.triggerClass);
   const menuClass = () => naiveDropdownMenuClass({ class: props.class });
 
-  // Determine the open prop pass-through. When manual, always pass the controlled
-  // value. When click/hover, only pass through if caller wired it (otherwise let
-  // Kobalte own uncontrolled state).
+  // Determine the open prop pass-through. In virtual mode, `show` wins over
+  // `open`. Otherwise pass `open` if caller wired it (else Kobalte uncontrolled).
   const rootOpen = (): boolean | undefined => {
+    if (isVirtual()) {
+      if (props.show !== undefined) return props.show;
+      if (props.open !== undefined) return props.open;
+      return undefined;
+    }
     if (props.open !== undefined) return props.open;
     return undefined;
   };
+
+  // Reactive style for the invisible virtual trigger. SolidJS updates only the
+  // changed style fields per prop change, so the Trigger element is never
+  // re-rendered when (x, y) moves.
+  const virtualTriggerStyle = (): JSX.CSSProperties => ({
+    position: "fixed",
+    left: `${props.x ?? 0}px`,
+    top: `${props.y ?? 0}px`,
+    width: "0px",
+    height: "0px",
+    "pointer-events": "none"
+  });
 
   return (
     <DropdownMenu
@@ -150,28 +189,42 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
       modal={false}
       preventScroll={false}
     >
-      <DropdownMenu.Trigger
-        as="span"
-        class={triggerClass()}
-        data-naive-dropdown-trigger
-        // Hover semantics on the trigger. Kobalte click-toggle stays for "click"
-        // mode; for hover we keep click-toggle as well so keyboard activation
-        // remains a working fallback.
-        onPointerEnter={
-          triggerMode() === "hover" && !isManual() ? scheduleHoverOpen : undefined
-        }
-        onPointerLeave={
-          triggerMode() === "hover" && !isManual() ? scheduleHoverClose : undefined
+      <Show
+        when={isVirtual()}
+        fallback={
+          <DropdownMenu.Trigger
+            as="span"
+            class={triggerClass()}
+            data-naive-dropdown-trigger
+            // Hover semantics on the trigger. Kobalte click-toggle stays for "click"
+            // mode; for hover we keep click-toggle as well so keyboard activation
+            // remains a working fallback.
+            onPointerEnter={
+              triggerMode() === "hover" && !isManual() ? scheduleHoverOpen : undefined
+            }
+            onPointerLeave={
+              triggerMode() === "hover" && !isManual() ? scheduleHoverClose : undefined
+            }
+          >
+            {props.children}
+          </DropdownMenu.Trigger>
         }
       >
-        {props.children}
-      </DropdownMenu.Trigger>
+        <DropdownMenu.Trigger
+          as="span"
+          class={triggerClass()}
+          data-naive-dropdown-virtual-trigger
+          aria-hidden="true"
+          tabindex={-1}
+          style={virtualTriggerStyle()}
+        />
+      </Show>
       <DropdownMenu.Portal mount={mountTarget()}>
         <DropdownMenu.Content
           class={menuClass()}
           aria-label={props.ariaLabel}
           onPointerEnter={
-            triggerMode() === "hover" && !isManual()
+            triggerMode() === "hover" && !isManual() && !isVirtual()
               ? () => {
                   if (closeTimer !== undefined) {
                     clearTimeout(closeTimer);
@@ -181,7 +234,7 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
               : undefined
           }
           onPointerLeave={
-            triggerMode() === "hover" && !isManual()
+            triggerMode() === "hover" && !isManual() && !isVirtual()
               ? scheduleHoverClose
               : undefined
           }
