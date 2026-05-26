@@ -37,6 +37,8 @@ This package is an app-local facade layer for SPlayer/NaiveUI parity. The route 
 | `NaiveSlider` | `NSlider` | source-backed NaiveUI 2.43.2 single-thumb slider facade with startup-light public proxy plus lazy Kobalte `Slider`; emits `.n-slider*` rail, fill, handle, tooltip, marks, vertical, disabled, and with-mark hooks | source-backed PR-1 volume migrated |
 | `NaiveCheckbox` / `NaiveCheckboxGroup` | `NCheckbox` / `NCheckboxGroup` | source-backed NaiveUI 2.43.2 checkbox facade with startup-light public proxy plus lazy Kobalte `Checkbox`; group is a handwritten coordinator because Kobalte has no checkbox-group primitive | source-backed package ready |
 | `NaiveRadio` / `NaiveRadioGroup` / `NaiveRadioButton` | `NRadio` / `NRadioGroup` / `NRadioButton` | source-backed NaiveUI 2.43.2 radio facade with startup-light public proxy plus lazy Kobalte `RadioGroup`; button skin and splitor hooks are included for inventory parity | source-backed package ready |
+| `NaiveCollapse` / `NaiveCollapseItem` | `NCollapse` / `NCollapseItem` | source-backed NaiveUI 2.43.2 disclosure facade with startup-light public proxy plus lazy Kobalte `Accordion`; emits item/header/content class hooks, active/disabled modifiers, and left/right arrow placement | source-backed package ready |
+| `NaiveCollapseTransition` | `NCollapseTransition` | handwritten measured max-height transition primitive, no Kobalte dependency; mirrors NaiveUI fade-in-expand behavior enough for package adoption | source-backed package ready |
 | `NaiveAvatar` | `NAvatar` | handwritten display facade | initial |
 | `NaiveBadge` | `NBadge` | handwritten display facade | initial |
 | `NaiveDivider` | `NDivider` | handwritten display facade | initial |
@@ -130,7 +132,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 | `NSkeleton` | 13 | `NaiveSkeleton` handwritten display facade |
 | `NAlert` | 11 | `NaiveAlert` handwritten display facade |
 | `NInputNumber` | 11 | Kobalte/form-control candidate or custom numeric control |
-| `NCollapseTransition` | 10 | CSS transition primitive |
+| `NCollapseTransition` | 12 active occurrences / 12 total | `NaiveCollapseTransition` handwritten measured max-height primitive |
 | `NDivider` | 10 | `NaiveDivider` handwritten display facade |
 | `NSelect` | 10 | `NaiveSelect` source-backed/Kobalte facade; single/filterable now, multiple/tag deferred |
 | `NH3` | 9 | `NaiveH3` handwritten typography facade |
@@ -144,8 +146,8 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 | `NA` | 5 | `NaiveAnchor` handwritten native anchor facade |
 | `NAvatar` | 5 | handwritten display facade |
 | `NH1` | 5 | `NaiveH1` handwritten typography facade |
-| `NCollapse` | 4 | Kobalte disclosure/collapsible candidate |
-| `NCollapseItem` | 4 | Kobalte disclosure/collapsible candidate |
+| `NCollapse` | 5 active occurrences / 6 including commented | `NaiveCollapse` source-backed/Kobalte Accordion facade |
+| `NCollapseItem` | 6 active occurrences / 6 total | `NaiveCollapseItem` source-backed/Kobalte Accordion item facade |
 | `NFormItemGi` | 4 | CSS/grid plus form facade |
 | `NInputGroup` | 4 | CSS/layout only unless behavior appears |
 | `NPopconfirm` | 7 instances / 4 files | `NaivePopconfirm` composition facade over `NaivePopover`; first real AudioPlayer call site deferred until a destructive-confirm surface lands |
@@ -207,6 +209,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 
 ## Migration Log
 
+- 2026-05-26: Added `NaiveCollapse`, `NaiveCollapseItem`, and `NaiveCollapseTransition` against SPlayer about/download/wiki disclosure usage plus NaiveUI 2.43.2 `Collapse.mjs` / `CollapseItem.mjs` / `_internal/fade-in-expand-transition`. `collapse.tsx` stays startup-light and lazy-loads Kobalte `Accordion`; `collapse-transition.tsx` is handwritten with no Kobalte import. The facade keeps `.n-collapse*` hooks, active/disabled and left/right arrow-placement modifiers, numeric-name coercion, `expandedNames` union normalization, and derived `onItemHeaderClick` metadata. Inventory counts were corrected from the umbrella rough 4/4/10 to the audited 5/6/12 active footprint.
 - 2026-05-26: Added `NaiveCheckbox` and `NaiveCheckboxGroup` against SPlayer close-confirm and copy-lyrics checkbox usage plus NaiveUI 2.43.2 `Checkbox.mjs` / `CheckboxGroup.mjs`. `checkbox.tsx` stays startup-light; `NaiveCheckboxKobalte.tsx` owns the Kobalte leaf, while the group is handwritten because `@kobalte/core@0.13.11` has no checkbox-group primitive. The facade keeps `.n-checkbox*` / `.n-checkbox-group` hooks, controlled indeterminate, label/children fallback, numeric value round trips, and NaiveUI max/min quota behavior.
 - 2026-05-26: Added `NaiveRadio`, `NaiveRadioGroup`, and `NaiveRadioButton` against SPlayer song-list sort and download-quality radio usage plus NaiveUI 2.43.2 `Radio.mjs` / `RadioGroup.mjs` / `RadioButton.mjs`. `radio.tsx` stays startup-light; `NaiveRadioKobalte.tsx` owns the Kobalte `RadioGroup` implementation, original string/number value lookup, auto-generated names, and button-mode splitor priority hooks. `NaiveRadioButton` is package-ready for parity even though SPlayer has zero current call sites.
 - 2026-05-26: Corrected checkbox/radio inventory counts from the umbrella rough counts to the audited SPlayer footprint: `NCheckbox` 7, `NCheckboxGroup` 2, `NRadio` 3, `NRadioGroup` 3, and `NRadioButton` 0. No AudioPlayer business surface was migrated in this pass; package facade validation is by logic tests, typecheck, build chunk inspection, and future call-site adoption.

@@ -1,5 +1,7 @@
 export * from "./button";
 export * from "./checkbox";
+export * from "./collapse";
+export * from "./collapse-transition";
 export * from "./display";
 export * from "./dropdown";
 export * from "./feedback";
