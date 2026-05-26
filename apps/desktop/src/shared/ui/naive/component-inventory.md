@@ -48,6 +48,7 @@ This package is an app-local facade layer for SPlayer/NaiveUI parity. The route 
 | `NaiveAnchor` | `NA` | handwritten native anchor facade with safe blank-target rel default | initial |
 | `NaiveEmpty` | `NEmpty` | handwritten display facade, app wrapper owns i18n default text | initial |
 | `NaiveNumberAnimation` | `NNumberAnimation` | handwritten SolidJS display/tween facade with NaiveUI 2.43.2 `easeOutQuint`, Intl integer/decimal formatting, and an intentional tabular-nums wrapper span | source-backed |
+| local icon contract | `NIcon` | no facade; callers pass local icon JSX directly into facade slots/props and let NaiveUI class hooks or page classes own sizing/color | bridge |
 | `NaiveProgress` | `NProgress` | handwritten display facade for line progress | initial |
 | `NaiveResult` | `NResult` | handwritten display facade for status pages and error states | initial |
 | `NaiveSkeleton` | `NSkeleton` | handwritten display facade, existing list/grid wrappers compose it | initial |
@@ -154,7 +155,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 | `NColorPicker` | 2 | feature-specific custom/Kobalte candidate |
 | `NDynamicTags` | 2 | Kobalte/custom tag input candidate |
 | `NH2` | 3 | `NaiveH2` handwritten typography facade |
-| `NIcon` | 2 | local icon contract; no Naive dependency |
+| `NIcon` | 2 | routed to local icon contract; no facade |
 | `NModal` | 2 | existing modal route, Kobalte dialog candidate later |
 | `NProgress` | 2 | `NaiveProgress` handwritten line progress facade |
 | `NRadio` | 2 | Kobalte/form-control candidate |
@@ -196,6 +197,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 
 ## Migration Log
 
+- 2026-05-26: Documented the `NIcon` bridge as a no-facade boundary. AudioPlayer keeps local icon components and passes raw JSX through existing facade slots/props (`NaiveButton` children, `NaiveSwitch` icon props, `NaiveTabs` JSX labels, and `NaiveSelect` render hooks); sizing/color remain owned by NaiveUI class hooks or page-level classes.
 - 2026-05-26: Added `NaiveNumberAnimation` against SPlayer's 9 `NNumberAnimation` occurrences across 6 files and NaiveUI 2.43.2 `NumberAnimation.mjs` / `utils.mjs`. The facade is handwritten SolidJS, uses the exact JS `easeOutQuint` curve (`t=0.5 -> 0.96875`), keeps NaiveUI's `Intl.NumberFormat` integer/decimal split, and intentionally wraps the output in `.naive-number-animation` with `tabular-nums` plus `aria-live="polite"` instead of NaiveUI's bare 3-node fragment. `StreamingPage` now uses the package facade for the song-count status strip; behavior/style contract is covered by `number-animation.test.ts` and `output/playwright/naive_number_animation_probe.mjs`.
 - 2026-05-26: Added `NaiveSelect` against SPlayer `SettingItemRenderer.vue`, playlist/theme/login/font/streaming/local select usage, and NaiveUI 2.43.2 `Select.mjs` plus internal selection/select-menu styles. The public facade keeps NaiveUI class hooks (`n-select`, `n-base-selection`, label/input/placeholder/suffix/clear/loading/border/state-border, `n-base-select-menu`, option content/check/state modifiers), while the lazy implementation preserves Kobalte `Select`/`Combobox` root semantics and lets CSS/tokens recreate the visual shell; settings `SelectSettingItem` now consumes the package-level select facade. The public `select.tsx` entry is intentionally a startup-light `lazy()` proxy, with shared visual helpers in `select-core.tsx`. Multiple/tag select remains deferred.
 - 2026-05-26: Added `NaiveGrid`, `NaiveGridItem`, and `NaiveGi` against SPlayer playlist footer, toplists, radio categories, copy-song-info forms, and NaiveUI 2.43.2 `Grid.mjs` / `GridItem.mjs`. The facade keeps the `n-grid` / `n-gi` class hooks plus NaiveUI's inline grid contract for responsive cols/gaps, item span/offset, collapsed rows, and suffix overflow state; no Kobalte wrapper is needed because this is pure layout.

@@ -18,6 +18,10 @@ This directory is the local package boundary for SPlayer/NaiveUI-compatible UI f
 - Kobalte DOM semantics are trusted as-is. When Kobalte and NaiveUI disagree on root roles or element shape, keep Kobalte's structure and place NaiveUI class/state hooks on the visible shell/control so UnoCSS, tokens, and CSS can recreate the NaiveUI visuals.
 - SPlayer source remains the reference for component semantics. Update `component-inventory.md` when a new NaiveUI surface is audited or migrated.
 
+## Icon Bridge
+
+NaiveUI's `NIcon` is routed to AudioPlayer's existing local icon contract; this package does not add a `NaiveIcon` facade. Callers should pass local icon JSX directly into facade slots and props, for example as `NaiveButton` children, `NaiveSwitch` icon props, `NaiveTabs` labels, or `NaiveSelect` `renderLabel` / `renderOption` output. Keep icon sizing/color on the visible NaiveUI class hook or the caller's page class, not in a generic wrapper.
+
 ## Source-Backed Components
 
 - `NaiveTabs` follows SPlayer's `naive-ui@2.43.2` `NTabs` / `NTab` segment branch: `n-tabs`, `n-tabs-nav`, `n-tabs-rail`, `n-tabs-capsule`, `n-tabs-wrapper`, `n-tabs-tab-wrapper`, `n-tabs-tab`, and `n-tabs-tab__label` class hooks are part of the package contract.
