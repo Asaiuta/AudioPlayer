@@ -34,6 +34,7 @@ This package is an app-local facade layer for SPlayer/NaiveUI parity. The route 
 | `NaiveSwitch` | `NSwitch` | source-backed NaiveUI 2.43.2 state/class facade with lightweight fallback plus lazy Kobalte `Switch`; Kobalte DOM semantics are preserved and `.n-switch` visuals live on the visible control | source-backed |
 | `NaiveInput` | `NInput` | source-backed NaiveUI 2.43.2 form-control facade with lightweight fallback plus lazy Kobalte `TextField`; Kobalte DOM semantics are preserved and `.n-input` visuals live on the visible shell | source-backed |
 | `NaiveSelect` | `NSelect` | source-backed NaiveUI 2.43.2 selection/menu facade with a startup-light `lazy()` public proxy plus lazy Kobalte `Select`/`Combobox`; Kobalte DOM semantics are preserved and `.n-select` / `.n-base-selection` / `.n-base-select-menu` visuals live on the visible shell/menu | source-backed single/filterable |
+| `NaiveSlider` | `NSlider` | source-backed NaiveUI 2.43.2 single-thumb slider facade with startup-light public proxy plus lazy Kobalte `Slider`; emits `.n-slider*` rail, fill, handle, tooltip, marks, vertical, disabled, and with-mark hooks | source-backed PR-1 volume migrated |
 | `NaiveAvatar` | `NAvatar` | handwritten display facade | initial |
 | `NaiveBadge` | `NBadge` | handwritten display facade | initial |
 | `NaiveDivider` | `NDivider` | handwritten display facade | initial |
@@ -137,7 +138,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 | `NFormItem` | 7 | form facade once validation/runtime contract is needed |
 | `NGrid` | 6 | `NaiveGrid` source-backed handwritten layout facade |
 | `NNumberAnimation` | 9 occurrences / 6 files | `NaiveNumberAnimation` handwritten source-backed display/tween facade; `StreamingPage` is the first representative AudioPlayer migration |
-| `NSlider` | 6 | Kobalte/custom range candidate |
+| `NSlider` | 6 | `NaiveSlider` source-backed/Kobalte facade; PR-1 migrated PlayerVolumePopover vertical volume, while settings RangeInput, progress sliders, EQ bands, and long-tail range behavior stay deferred |
 | `NA` | 5 | `NaiveAnchor` handwritten native anchor facade |
 | `NAvatar` | 5 | handwritten display facade |
 | `NH1` | 5 | `NaiveH1` handwritten typography facade |
@@ -203,6 +204,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 
 ## Migration Log
 
+- 2026-05-26: Added `NaiveSlider` against SPlayer `PlayerRightMenu.vue` volume usage, the audited `NSlider` call-site set, and NaiveUI 2.43.2 `Slider.mjs` / `styles/index.cssr.mjs`. The public `slider.tsx` entry stays startup-light and lazy-loads `NaiveSliderKobalte.tsx`, which wraps Kobalte `Slider` while emitting NaiveUI class hooks for rail/fill/handle/indicator/marks, vertical and disabled states, `keyboard={false}`, drag callbacks, and the single-thumb active-mark rule. `PlayerVolumePopover` now consumes the vertical facade with `tooltip={false}`; settings `RangeInput`, player progress, and EQ sliders remain deliberate follow-ups.
 - 2026-05-26: Added page utility facades for `NBackTop`, `NFloatButton`, `NFloatButtonGroup`, and `NQrCode`. `BackToTop` and `MediaListFloatTools` now consume the package-level button utilities while keeping their existing page/media placement classes; `NaiveQrCode` ships as a ready wrapper that lazy-loads `qrcode/lib/browser.js` instead of adding QR generation to startup.
 - 2026-05-26: Added app-level feedback services for NaiveUI provider-only surfaces. `NaiveFeedbackProvider` mounts once near `App` and exposes singleton `message`, `notification`, `dialog`, `modal`, and `loadingBar` APIs; provider rows are marked as app services rather than facades. The implementation is handwritten SolidJS/Portal code and does not import Kobalte.
 - 2026-05-26: Audited the shell/provider/global-style NaiveUI surfaces as no-facade routes. `NLayout`, `NLayoutHeader`, and `NLayoutSider` map to AudioPlayer's app shell CSS (`global.css`, `tokens.css`, `components/shell.css`); `NConfigProvider` maps to the existing appearance/token system; `NGlobalStyle` maps to `global.css`. The only source-backed reset gap was WebKit tap highlight, now covered by `body { -webkit-tap-highlight-color: transparent; }`.

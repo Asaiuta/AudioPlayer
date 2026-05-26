@@ -15,6 +15,7 @@ export * from "./popselect";
 export * from "./scrollbar";
 export * from "./select";
 export * from "./sidebar";
+export * from "./slider";
 export * from "./switch";
 export * from "./tabs";
 export * from "./typography";

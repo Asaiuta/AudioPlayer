@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import type { Component, JSX } from "solid-js";
+import { NaiveSlider } from "../../shared/ui/naive";
 
 interface PlayerVolumePopoverProps {
   open: boolean;
@@ -23,14 +24,6 @@ interface PlayerVolumePopoverProps {
 export function PlayerVolumePopover(props: PlayerVolumePopoverProps) {
   const Icon = () => props.icon;
 
-  const handleInput = (event: InputEvent) => {
-    const target = event.currentTarget;
-    if (!(target instanceof HTMLInputElement)) return;
-    const next = Number.parseFloat(target.value);
-    if (!Number.isFinite(next)) return;
-    props.onValueChange(next);
-  };
-
   return (
     <>
       <button
@@ -51,16 +44,17 @@ export function PlayerVolumePopover(props: PlayerVolumePopoverProps) {
       </button>
       <Show when={props.open}>
         <div class={props.popoverClass} role="dialog" aria-label={props.dialogLabel}>
-          <input
-            type="range"
+          <NaiveSlider
             min={0}
             max={1}
             step={0.01}
             value={props.value}
-            onInput={handleInput}
+            onUpdateValue={props.onValueChange}
             disabled={props.sliderDisabled}
             class={props.sliderClass ?? "volume-slider"}
-            aria-label={props.dialogLabel}
+            ariaLabel={props.dialogLabel}
+            orientation="vertical"
+            tooltip={false}
             style={props.sliderStyle}
           />
           <span class={props.valueClass}>{Math.round(props.value * 100)}%</span>
