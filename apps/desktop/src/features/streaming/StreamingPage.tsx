@@ -8,12 +8,16 @@ import {
 import { EmptyState } from "../../components/EmptyState";
 import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { useTranslation } from "../../shared/i18n";
+import { NaiveNumberAnimation } from "../../shared/ui/naive";
 
 type StreamingTab = "songs" | "artists" | "albums" | "playlists";
 
 export function StreamingPage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = createSignal<StreamingTab>("songs");
+  const songCount = () => 0;
+  const songCountSuffix = () =>
+    t("streaming.status.songCount", { count: "" });
 
   return (
     <section class="panel panel-page auxiliary-page auxiliary-page-streaming">
@@ -23,7 +27,8 @@ export function StreamingPage() {
           <div class="auxiliary-page-status">
             <span class="auxiliary-page-status-item">
               <IconMusic />
-              {t("streaming.status.songCount", { count: 0 })}
+              <NaiveNumberAnimation from={0} to={songCount()} />
+              {songCountSuffix()}
             </span>
             <span class="auxiliary-page-status-item">
               <IconCloud />

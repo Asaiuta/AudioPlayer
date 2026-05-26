@@ -47,6 +47,7 @@ This package is an app-local facade layer for SPlayer/NaiveUI parity. The route 
 | `NaiveLi` | `NLi` | handwritten list-item facade | initial |
 | `NaiveAnchor` | `NA` | handwritten native anchor facade with safe blank-target rel default | initial |
 | `NaiveEmpty` | `NEmpty` | handwritten display facade, app wrapper owns i18n default text | initial |
+| `NaiveNumberAnimation` | `NNumberAnimation` | handwritten SolidJS display/tween facade with NaiveUI 2.43.2 `easeOutQuint`, Intl integer/decimal formatting, and an intentional tabular-nums wrapper span | source-backed |
 | `NaiveProgress` | `NProgress` | handwritten display facade for line progress | initial |
 | `NaiveResult` | `NResult` | handwritten display facade for status pages and error states | initial |
 | `NaiveSkeleton` | `NSkeleton` | handwritten display facade, existing list/grid wrappers compose it | initial |
@@ -128,7 +129,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 | `NForm` | 7 | form facade once validation/runtime contract is needed |
 | `NFormItem` | 7 | form facade once validation/runtime contract is needed |
 | `NGrid` | 6 | `NaiveGrid` source-backed handwritten layout facade |
-| `NNumberAnimation` | 6 | custom display/animation primitive candidate |
+| `NNumberAnimation` | 9 occurrences / 6 files | `NaiveNumberAnimation` handwritten source-backed display/tween facade; `StreamingPage` is the first representative AudioPlayer migration |
 | `NSlider` | 6 | Kobalte/custom range candidate |
 | `NA` | 5 | `NaiveAnchor` handwritten native anchor facade |
 | `NAvatar` | 5 | handwritten display facade |
@@ -195,6 +196,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 
 ## Migration Log
 
+- 2026-05-26: Added `NaiveNumberAnimation` against SPlayer's 9 `NNumberAnimation` occurrences across 6 files and NaiveUI 2.43.2 `NumberAnimation.mjs` / `utils.mjs`. The facade is handwritten SolidJS, uses the exact JS `easeOutQuint` curve (`t=0.5 -> 0.96875`), keeps NaiveUI's `Intl.NumberFormat` integer/decimal split, and intentionally wraps the output in `.naive-number-animation` with `tabular-nums` plus `aria-live="polite"` instead of NaiveUI's bare 3-node fragment. `StreamingPage` now uses the package facade for the song-count status strip; behavior/style contract is covered by `number-animation.test.ts` and `output/playwright/naive_number_animation_probe.mjs`.
 - 2026-05-26: Added `NaiveSelect` against SPlayer `SettingItemRenderer.vue`, playlist/theme/login/font/streaming/local select usage, and NaiveUI 2.43.2 `Select.mjs` plus internal selection/select-menu styles. The public facade keeps NaiveUI class hooks (`n-select`, `n-base-selection`, label/input/placeholder/suffix/clear/loading/border/state-border, `n-base-select-menu`, option content/check/state modifiers), while the lazy implementation preserves Kobalte `Select`/`Combobox` root semantics and lets CSS/tokens recreate the visual shell; settings `SelectSettingItem` now consumes the package-level select facade. The public `select.tsx` entry is intentionally a startup-light `lazy()` proxy, with shared visual helpers in `select-core.tsx`. Multiple/tag select remains deferred.
 - 2026-05-26: Added `NaiveGrid`, `NaiveGridItem`, and `NaiveGi` against SPlayer playlist footer, toplists, radio categories, copy-song-info forms, and NaiveUI 2.43.2 `Grid.mjs` / `GridItem.mjs`. The facade keeps the `n-grid` / `n-gi` class hooks plus NaiveUI's inline grid contract for responsive cols/gaps, item span/offset, collapsed rows, and suffix overflow state; no Kobalte wrapper is needed because this is pure layout.
 - 2026-05-26: Added `NaiveInput` against SPlayer `SettingSearch.vue`, `SearchInp.vue`, `UI\s-input.vue`, `Modal\Setting\CustomCode.vue`, `Local\layout.vue`, and NaiveUI 2.43.2 `Input.mjs` / `styles/input.cssr.mjs`. The public facade keeps NaiveUI class hooks (`n-input`, wrapper/input/textarea/placeholder/prefix/suffix/border/state-border, clear/loading/status modifiers), while the lazy implementation preserves Kobalte `TextField` semantics and lets CSS/tokens recreate the visual shell; `SettingsSearchBox` is the first representative migration.

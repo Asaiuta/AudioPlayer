@@ -1862,6 +1862,10 @@
     line-height: 1;
   }
 
+  .naive-number-animation {
+    font-variant-numeric: tabular-nums;
+  }
+
   .naive-result {
     display: flex;
     min-width: 0;
