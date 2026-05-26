@@ -11,8 +11,9 @@ This directory is the local package boundary for SPlayer/NaiveUI-compatible UI f
 
 ## Implementation Route
 
-- Display-only primitives are handwritten facades: `NaiveAlert`, `NaiveAnchor`, `NaiveButton`, `NaiveAvatar`, `NaiveBadge`, `NaiveDivider`, `NaiveEllipsis`, `NaiveH1`, `NaiveH2`, `NaiveH3`, `NaiveLi`, `NaiveOl`, `NaiveP`, `NaiveText`, `NaiveEmpty`, `NaiveNumberAnimation`, `NaiveProgress`, `NaiveResult`, `NaiveSkeleton`, `NaiveSpin`, `NaiveTag`.
+- Display-only primitives are handwritten facades: `NaiveAlert`, `NaiveAnchor`, `NaiveButton`, `NaiveAvatar`, `NaiveBadge`, `NaiveDivider`, `NaiveEllipsis`, `NaiveH1`, `NaiveH2`, `NaiveH3`, `NaiveLi`, `NaiveOl`, `NaiveP`, `NaiveText`, `NaiveEmpty`, `NaiveNumberAnimation`, `NaiveProgress`, `NaiveQrCode`, `NaiveResult`, `NaiveSkeleton`, `NaiveSpin`, `NaiveTag`.
 - Layout/surface/list primitives stay thin and handwritten: `NaiveFlex`, `NaiveGrid`, `NaiveGridItem` / `NaiveGi`, `NaiveCard`, `NaiveList`, `NaiveListItem`, `NaiveThing`, `NaiveScrollbar`.
+- Page utility primitives stay handwritten and compose local icons through slots: `NaiveBackTop`, `NaiveFloatButton`, `NaiveFloatButtonGroup`.
 - Complex interaction primitives can wrap Kobalte behind lazy files. Keep those wrappers out of startup-critical imports. `NaivePopselect`, `NaiveTabs`, `NaiveSwitch`, `NaiveInput`, and `NaiveSelect` are the first package-level examples.
 - Provider-only NaiveUI surfaces are app services, not facades. `NaiveFeedbackProvider` mounts once near the app root and exposes `message`, `notification`, `dialog`, `modal`, and `loadingBar` singleton APIs.
 - Visual parity belongs in CSS/tokens. Facade props should model behavior and state, not encode one-off page styling.
@@ -55,6 +56,8 @@ NaiveUI's feedback providers (`NMessageProvider`, `NNotificationProvider`, `NDia
 - Reference files for the current Dropdown pass: `D:\AI\SPlayer\src\components\Layout\Nav.vue`, `D:\AI\SPlayer\src\components\Layout\User.vue`, `D:\AI\SPlayer\src\components\Menu\SongListMenu.vue`, `D:\AI\SPlayer\src\components\Menu\CoverMenu.vue`, `D:\AI\SPlayer\src\components\Menu\SearchInpMenu.vue`, `D:\AI\SPlayer\src\components\Player\PlayerRightMenu.vue`, `D:\AI\SPlayer\node_modules\naive-ui\es\dropdown\src\Dropdown.mjs`, and `src\styles\index.cssr.mjs`.
 - `NaiveNumberAnimation` follows SPlayer's 9 `NNumberAnimation` occurrences across 6 files (`Cloud.vue`, `Layout/User.vue`, `Like/layout.vue`, `Streaming/layout.vue`, `Download/layout.vue`, `Local/layout.vue`) and NaiveUI 2.43.2's JS `easeOutQuint` tween plus `Intl.NumberFormat` integer/decimal split. It is handwritten SolidJS with no Kobalte dependency. The single wrapper span and `.naive-number-animation { font-variant-numeric: tabular-nums; }` are intentional AudioPlayer deviations from NaiveUI's bare fragment output, used to prevent count-up width jitter and expose `aria-live="polite"`.
 - Reference files for the current NumberAnimation pass: `D:\AI\SPlayer\node_modules\naive-ui\es\number-animation\src\NumberAnimation.mjs`, `utils.mjs`, and the SPlayer call sites listed above.
+- `NaiveBackTop`, `NaiveFloatButton`, `NaiveFloatButtonGroup`, and `NaiveQrCode` follow SPlayer's page utility usage in `layout\AppLayout.vue`, `components\List\SongList.vue`, and `components\Modal\Login\LoginQRCode.vue`. The button utilities are handwritten and preserve local icon-slot ownership; `NaiveQrCode` lazy-loads the existing `qrcode/lib/browser.js` dependency so exporting the facade does not pull QR generation into startup.
+- Reference files for the current Page Utilities pass: `D:\AI\SPlayer\node_modules\naive-ui\es\back-top\src\BackTop.mjs`, `float-button\src\FloatButton.mjs`, `float-button-group\src\FloatButtonGroup.mjs`, `qr-code\src\QrCode.mjs`, and their `styles\index.cssr.mjs` files.
 
 ## Existing Probe Assets
 
@@ -67,7 +70,7 @@ Reusable browser probes already live under `output/playwright/`. Treat these as 
 
 ## Current Guardrails
 
-- Do not import `@kobalte/core` from `index.ts`, `button.tsx`, `display.tsx`, `dropdown.tsx`, `feedback.tsx`, `feedback-services.tsx`, `feedback-services-logic.ts`, `grid.tsx`, `grid-logic.ts`, `input.tsx`, `layout.tsx`, `list.tsx`, `number-animation.tsx`, `number-animation-logic.ts`, `popover.tsx`, `popconfirm.tsx`, `popselect.tsx`, `select.tsx`, `select-core.tsx`, `sidebar.tsx`, `switch.tsx`, `tabs.tsx`, or `typography.tsx`.
+- Do not import `@kobalte/core` from `index.ts`, `button.tsx`, `display.tsx`, `dropdown.tsx`, `feedback.tsx`, `feedback-services.tsx`, `feedback-services-logic.ts`, `grid.tsx`, `grid-logic.ts`, `input.tsx`, `layout.tsx`, `list.tsx`, `number-animation.tsx`, `number-animation-logic.ts`, `page-utilities.tsx`, `page-utilities-logic.ts`, `popover.tsx`, `popconfirm.tsx`, `popselect.tsx`, `select.tsx`, `select-core.tsx`, `sidebar.tsx`, `switch.tsx`, `tabs.tsx`, or `typography.tsx`.
 - Keep lazy Kobalte wrappers in dedicated files such as `NaivePopselectKobalte.tsx`, `NaivePopoverKobalte.tsx`, `NaiveDropdownKobalte.tsx`, `NaiveTabsKobalte.tsx`, `NaiveSwitchKobalte.tsx`, `NaiveInputKobalte.tsx`, and `NaiveSelectKobalte.tsx`.
 - Keep page or shell-specific wrappers thin: pass class slots and render slots into package-level facades instead of owning generic interaction logic.
 - Keep call sites on the public `index.ts` export so future extraction does not require broad import rewrites.

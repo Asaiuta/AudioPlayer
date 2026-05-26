@@ -15,6 +15,7 @@ export interface NaiveButtonProps {
   ariaCurrent?: "page" | "step" | "location" | "date" | "time" | boolean;
   ariaExpanded?: boolean;
   ariaHasPopup?: NaiveAriaHasPopup;
+  ariaHidden?: boolean;
   ariaLabel?: string;
   ariaPressed?: boolean;
   block?: boolean;
@@ -30,6 +31,8 @@ export interface NaiveButtonProps {
   secondary?: boolean;
   size?: NaiveButtonSize;
   strong?: boolean;
+  style?: JSX.CSSProperties;
+  tabIndex?: number;
   title?: string;
   variant?: NaiveButtonVariant;
 }
@@ -62,8 +65,11 @@ export function NaiveButton(props: NaiveButtonProps): JSX.Element {
       aria-current={props.ariaCurrent}
       aria-expanded={props.ariaExpanded}
       aria-haspopup={props.ariaHasPopup}
+      aria-hidden={props.ariaHidden}
       aria-label={props.ariaLabel}
       aria-pressed={props.ariaPressed}
+      style={props.style}
+      tabIndex={props.tabIndex}
       title={props.title}
       disabled={props.disabled}
       onClick={props.onClick}

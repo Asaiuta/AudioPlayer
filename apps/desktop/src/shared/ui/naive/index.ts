@@ -8,6 +8,7 @@ export * from "./input";
 export * from "./list";
 export * from "./layout";
 export * from "./number-animation";
+export * from "./page-utilities";
 export * from "./popover";
 export * from "./popconfirm";
 export * from "./popselect";

@@ -43,6 +43,157 @@
     min-height: 34px;
   }
 
+  /* ============================================================
+     Naive page utility facades.
+     BackTop and FloatButton stay hand-written so page wrappers can
+     preserve their existing placement classes while exposing NaiveUI
+     class hooks.
+     ============================================================ */
+
+  .n-back-top {
+    position: fixed;
+    right: 40px;
+    bottom: 40px;
+    display: flex;
+    min-width: 42px;
+    height: 42px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-primary-tonal-28);
+    border-radius: var(--radius-pill);
+    color: var(--text-soft);
+    background: var(--floating-surface);
+    box-shadow: var(--floating-shadow);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(8px) scale(0.98);
+    transition:
+      opacity var(--duration-base) var(--ease-standard),
+      transform var(--duration-base) var(--ease-standard),
+      color var(--duration-fast) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard);
+  }
+
+  .n-back-top.n-back-top--visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0) scale(1);
+  }
+
+  .n-back-top:hover {
+    color: var(--text);
+    border-color: var(--color-primary-tonal-58);
+  }
+
+  .n-float-button-group {
+    position: fixed;
+    right: 40px;
+    bottom: 40px;
+    z-index: var(--z-sticky);
+    display: flex;
+    gap: 8px;
+    pointer-events: none;
+  }
+
+  .n-float-button-group--vertical {
+    flex-direction: column;
+  }
+
+  .n-float-button-group--horizontal {
+    flex-direction: row;
+  }
+
+  .n-float-button {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    justify-content: center;
+    overflow: hidden;
+    border: 1px solid var(--color-primary-tonal-28);
+    color: var(--text-soft);
+    background: var(--floating-surface);
+    box-shadow: var(--floating-shadow);
+    pointer-events: auto;
+    transition:
+      color var(--duration-fast) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard),
+      box-shadow var(--duration-fast) var(--ease-standard),
+      opacity var(--duration-base) var(--ease-standard);
+  }
+
+  .n-float-button--circle-shape {
+    border-radius: var(--radius-pill);
+  }
+
+  .n-float-button--square-shape {
+    border-radius: var(--radius-md);
+  }
+
+  .n-float-button--primary-type {
+    color: var(--color-on-primary);
+    background: var(--color-primary);
+    border-color: color-mix(in oklch, var(--color-primary) 60%, transparent);
+  }
+
+  .n-float-button:hover {
+    color: var(--text);
+    border-color: var(--color-primary-tonal-58);
+  }
+
+  .n-float-button__fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: transparent;
+    transition: background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .n-float-button:hover .n-float-button__fill {
+    background: var(--state-hover-on-surface);
+  }
+
+  .n-float-button__body {
+    position: relative;
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    border-radius: inherit;
+  }
+
+  .n-float-button__body svg,
+  .n-back-top svg {
+    pointer-events: none;
+  }
+
+  .n-qr-code {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: content-box;
+    border-radius: var(--radius-sm);
+    background: #fff;
+  }
+
+  .n-qr-code__image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    user-select: none;
+  }
+
+  .n-qr-code__placeholder {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    background:
+      linear-gradient(90deg, transparent 25%, rgb(0 0 0 / 0.08) 50%, transparent 75%)
+      0 0 / 200% 100%;
+    animation: naive-skeleton-shimmer 1.4s linear infinite;
+  }
+
   .naive-text {
     color: inherit;
   }

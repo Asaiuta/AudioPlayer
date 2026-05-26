@@ -1,5 +1,6 @@
 import { Show } from "solid-js";
 import { IconChevronUp, IconLocation } from "../icons";
+import { NaiveFloatButton, NaiveFloatButtonGroup } from "../../shared/ui/naive";
 
 interface MediaListFloatToolsProps {
   canLocateCurrent: boolean;
@@ -13,30 +14,31 @@ interface MediaListFloatToolsProps {
 
 export function MediaListFloatTools(props: MediaListFloatToolsProps) {
   return (
-    <div class="media-list-float-tools">
+    <NaiveFloatButtonGroup class="media-list-float-tools" position="fixed" direction="vertical">
       <Show when={props.canLocateCurrent}>
-        <button
-          type="button"
+        <NaiveFloatButton
           class="media-list-float-button"
           onClick={props.onScrollToCurrent}
-          aria-label={props.currentLabel}
+          ariaLabel={props.currentLabel}
           title={props.currentLabel}
+          width={42}
+          height={42}
         >
           <IconLocation />
-        </button>
+        </NaiveFloatButton>
       </Show>
       <Show when={props.showTop}>
-        <button
-          type="button"
-          class="media-list-float-button"
-          classList={{ "is-hidden": props.scrollTop <= 100 }}
+        <NaiveFloatButton
+          class={`media-list-float-button${props.scrollTop <= 100 ? " is-hidden" : ""}`}
           onClick={props.onScrollToTop}
-          aria-label={props.topLabel}
+          ariaLabel={props.topLabel}
           title={props.topLabel}
+          width={42}
+          height={42}
         >
           <IconChevronUp />
-        </button>
+        </NaiveFloatButton>
       </Show>
-    </div>
+    </NaiveFloatButtonGroup>
   );
 }

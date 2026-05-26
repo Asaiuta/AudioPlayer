@@ -7,6 +7,7 @@ import { readUISettingsSnapshot } from "./shared/state/useUISettings";
 import { applyUserAppearanceSettings } from "./shared/styles/customAppearance";
 import "./shared/styles/global.css";
 import "./shared/styles/appearance.css";
+import "./shared/styles/components/naive.css";
 import "./shared/styles/components/shell.css";
 import "./shared/styles/transitions.css";
 import "virtual:uno.css";
