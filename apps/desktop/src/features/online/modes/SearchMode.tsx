@@ -5,6 +5,7 @@ import { MediaList } from "../../../components/media/MediaList";
 import { SegmentedTabs } from "../../../components/page/SegmentedTabs";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveH1 } from "../../../shared/ui/naive";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import type { PlaybackController } from "../shared/playback";
 import type { FeedCardItem, OnlineTrackItem, SearchTab } from "../shared/types";
@@ -49,7 +50,7 @@ export function SearchMode(props: SearchModeProps) {
   return (
     <section class="online-search-page">
       <div class="online-search-title">
-        <h1>{searchKeyword() || t("ncm.search.title")}</h1>
+        <NaiveH1>{searchKeyword() || t("ncm.search.title")}</NaiveH1>
         <span>
           {searchKeyword()
             ? t("ncm.search.relatedSuffix")

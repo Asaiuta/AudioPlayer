@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { AlbumCard } from "../../../components/AlbumCard";
-import { IconAlbum, IconChevronLeft, IconHeart, IconHeartFilled, IconMusic, IconSpinner, IconVideo } from "../../../components/icons";
+import { IconAlbum, IconChevronLeft, IconHeart, IconHeartFilled, IconMusic, IconVideo } from "../../../components/icons";
 import { MediaList } from "../../../components/media/MediaList";
 import { SegmentedTabs, type SegmentedTabItem } from "../../../components/page/SegmentedTabs";
 import { BackToTop } from "../../../components/page/BackToTop";
@@ -12,6 +12,7 @@ import { useTranslation } from "../../../shared/i18n";
 import type { TranslationKey } from "../../../shared/i18n";
 import type { NcmArtistTrackOrder } from "../../../shared/api/ncmDomainTypes";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveP, NaiveSpin } from "../../../shared/ui/naive";
 import type { ArtistDetailInfo } from "../artistParsers";
 import type { PlaybackController } from "../shared/playback";
 import type { FeedCardItem, OnlineTrackItem } from "../shared/types";
@@ -152,7 +153,7 @@ export function ArtistDetail(props: ArtistDetailProps) {
                     onClick={() => void props.onToggleSubscribe()}
                   >
                     <Show when={props.isTogglingSubscribe} fallback={props.detail?.followed === true ? <IconHeartFilled /> : <IconHeart />}>
-                      <IconSpinner />
+                      <NaiveSpin size={18} ariaHidden />
                     </Show>
                     {props.isTogglingSubscribe ? t("ncm.artist.subscribeWorking") : subscribeLabel()}
                   </button>
@@ -189,7 +190,7 @@ export function ArtistDetail(props: ArtistDetailProps) {
                       if (action === "song-wiki") props.onNavigateToSongWiki?.(item);
                     }}
                     isLoading={props.isLoading}
-                    emptyState={<div class="panel-note">{t("ncm.artist.empty")}</div>}
+                    emptyState={<NaiveP class="panel-note">{t("ncm.artist.empty")}</NaiveP>}
                     hideTopScrollTool
                   />
                   <Show when={props.hasMoreTracks && props.tracks.length > 0}>
@@ -279,7 +280,7 @@ function ArtistResourceGrid(props: ArtistResourceGridProps) {
     <div class="ncm-artist-resource-panel">
       <Show
         when={props.items.length > 0}
-        fallback={<div class="panel-note">{props.isLoading ? props.loadingText : props.emptyText}</div>}
+        fallback={<NaiveP class="panel-note">{props.isLoading ? props.loadingText : props.emptyText}</NaiveP>}
       >
         <div class={`album-grid content-fade-in ncm-artist-resource-grid${props.variant === "videos" ? " ncm-artist-resource-grid--videos" : ""}`}>
           <For each={props.items}>

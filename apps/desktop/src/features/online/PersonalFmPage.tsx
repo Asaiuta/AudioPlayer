@@ -16,6 +16,7 @@ import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { useNcmAccount } from "../../shared/state/NcmAccountContext";
 import { useUISettings } from "../../shared/state/useUISettings";
+import { NaiveH2, NaiveH3 } from "../../shared/ui/naive";
 import type { NcmTrackReference } from "./ncmPlayback";
 import {
   createErrorMessageReader,
@@ -158,6 +159,15 @@ export function PersonalFmPage(props: PersonalFmPageProps) {
     }
     if (action === "song-wiki") {
       props.onNavigateToSongWiki?.(item);
+      return;
+    }
+    if (action === "mv") {
+      // TODO: Navigate to MV page
+      return;
+    }
+    if (action === "copy-song-info") {
+      // TODO: Implement copy song info
+      return;
     }
   };
 
@@ -224,7 +234,7 @@ export function PersonalFmPage(props: PersonalFmPageProps) {
               </div>
             </Show>
             <div class="personal-fm-copy">
-              <h2>{heroTitle()}</h2>
+              <NaiveH2>{heroTitle()}</NaiveH2>
               <div class="personal-fm-meta">
                 <span>
                   <IconArtist />
@@ -287,7 +297,7 @@ export function PersonalFmPage(props: PersonalFmPageProps) {
 
           <section class="personal-fm-list">
             <div class="song-wiki-section-title">
-              <h3>{t("ncm.fm.queue")}</h3>
+              <NaiveH3>{t("ncm.fm.queue")}</NaiveH3>
             </div>
             <MediaList
               items={tracks()}
@@ -301,13 +311,17 @@ export function PersonalFmPage(props: PersonalFmPageProps) {
               contextActions={[
                 "play",
                 "enqueue",
+                "add-to-playlist",
+                "mv",
+                "view-comments",
                 "daily-dislike",
                 "search",
                 "copy-name",
                 "copy-id",
+                "copy-song-info",
                 "share-link",
-                "song-wiki",
-                "view-comments"
+                "music-tag-editor",
+                "song-wiki"
               ]}
               isLoading={isLoading()}
               emptyState={<div class="panel-note">{isLoading() ? t("ncm.radio.loading") : t("ncm.fm.feedback.empty")}</div>}

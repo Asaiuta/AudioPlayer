@@ -22,6 +22,7 @@ import {
   type NcmUserSubcountData
 } from "../../../shared/api/ncm/user";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveH1, NaiveP } from "../../../shared/ui/naive";
 import {
   type OnlinePlaylistSummary,
   type UserPlaylistGroups
@@ -532,9 +533,9 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
     <Show
       when={items().length > 0}
       fallback={
-        <div class="panel-note">
+        <NaiveP class="panel-note">
           {activeCollectionLoading() ? t("ncm.playlist.loading") : t(emptyKey)}
-        </div>
+        </NaiveP>
       }
     >
       <div class={`album-grid content-fade-in${options.video ? " liked-collection-video-grid" : ""}`}>
@@ -563,7 +564,7 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
         <section class="liked-collection">
           <header class="liked-collection-head">
             <div class="liked-collection-title">
-              <h1>{t("ncm.collection.title")}</h1>
+              <NaiveH1>{t("ncm.collection.title")}</NaiveH1>
               <div class="liked-collection-status" aria-label={loginStatusText()}>
                 <For each={stats()}>
                   {(item) => {
@@ -607,7 +608,7 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
             </Show>
           </header>
 
-          <Show when={props.loginProfile() !== null} fallback={<div class="panel-note">{t("ncm.empty.loginRequired")}</div>}>
+          <Show when={props.loginProfile() !== null} fallback={<NaiveP class="panel-note">{t("ncm.empty.loginRequired")}</NaiveP>}>
             <SegmentedTabs
               value={activeTab()}
               onChange={(next) => setActiveTab(next as CollectionTab)}
@@ -639,9 +640,9 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
                   <Show
                     when={currentPlaylists().length > 0}
                     fallback={
-                      <div class="panel-note">
+                      <NaiveP class="panel-note">
                         {activeTabLoading() ? t("ncm.playlist.loading") : t("ncm.empty.noUserPlaylists")}
-                      </div>
+                      </NaiveP>
                     }
                   >
                     <div class="album-grid content-fade-in">

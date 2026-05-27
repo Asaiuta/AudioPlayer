@@ -1,5 +1,5 @@
 import { Show, createEffect, createMemo, createSignal } from "solid-js";
-import { IconChat, IconChevronLeft, IconHeart, IconHeartFilled, IconMusic, IconShare, IconSpinner } from "../../../components/icons";
+import { IconChat, IconChevronLeft, IconHeart, IconHeartFilled, IconMusic, IconShare } from "../../../components/icons";
 import { MediaList } from "../../../components/media/MediaList";
 import { SegmentedTabs, type SegmentedTabItem } from "../../../components/page/SegmentedTabs";
 import { BackToTop } from "../../../components/page/BackToTop";
@@ -9,6 +9,7 @@ import { PageStickyHeader } from "../../../components/page/PageStickyHeader";
 import { PageSurface } from "../../../components/page/PageSurface";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveP, NaiveSpin } from "../../../shared/ui/naive";
 import type { AlbumDetailInfo } from "../albumParsers";
 import type { PlaybackController } from "../shared/playback";
 import type { FeedCardItem, OnlineTrackItem } from "../shared/types";
@@ -120,7 +121,7 @@ export function AlbumDetail(props: AlbumDetailProps) {
                     onClick={() => void props.onToggleSubscribe()}
                   >
                     <Show when={props.isTogglingSubscribe} fallback={props.detail?.subscribed === true ? <IconHeartFilled /> : <IconHeart />}>
-                      <IconSpinner />
+                      <NaiveSpin size={18} ariaHidden />
                     </Show>
                     {props.isTogglingSubscribe ? t("ncm.album.subscribeWorking") : subscribeLabel()}
                   </button>
@@ -160,7 +161,7 @@ export function AlbumDetail(props: AlbumDetailProps) {
                     if (action === "song-wiki") props.onNavigateToSongWiki?.(item);
                   }}
                   isLoading={props.isLoading}
-                  emptyState={<div class="panel-note">{t("ncm.album.empty")}</div>}
+                  emptyState={<NaiveP class="panel-note">{t("ncm.album.empty")}</NaiveP>}
                   hideTopScrollTool
                 />
               </Show>

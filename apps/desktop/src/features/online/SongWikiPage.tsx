@@ -28,11 +28,11 @@ import {
   IconClock,
   IconList,
   IconPlay,
-  IconSpinner,
   IconStar
 } from "../../components/icons";
 import { MediaList } from "../../components/media/MediaList";
 import { SImage } from "../../components/SImage";
+import { NaiveH2, NaiveH3, NaiveSkeleton, NaiveSpin } from "../../shared/ui/naive";
 import { createErrorMessageReader, type FeedbackSetter } from "./shared/feedback";
 import { createPlaybackController, type PlaybackController } from "./shared/playback";
 import type { NcmTrackReference } from "./ncmPlayback";
@@ -290,7 +290,7 @@ export function SongWikiPage(props: SongWikiPageProps) {
                 </div>
               </Show>
               <div class="song-wiki-copy">
-                <h2 title={currentTitle()}>{currentTitle()}</h2>
+                <NaiveH2 title={currentTitle()}>{currentTitle()}</NaiveH2>
                 <div class="song-wiki-meta">
                   <Show when={songMeta()?.artists.length}>
                     <span>
@@ -388,7 +388,7 @@ export function SongWikiPage(props: SongWikiPageProps) {
                 <Show when={(viewModel()?.similarSongIds.length ?? 0) > 0}>
                   <section class="song-wiki-section song-wiki-similar">
                     <div class="song-wiki-section-title">
-                      <h3>{t("ncm.songWiki.sections.similar")}</h3>
+                      <NaiveH3>{t("ncm.songWiki.sections.similar")}</NaiveH3>
                     </div>
                     <MediaList
                       items={similarSongs()}
@@ -428,7 +428,7 @@ function SongWikiStorySection(props: { model: SongWikiViewModel | null }) {
       {(item) => (
         <section class="song-wiki-section">
           <div class="song-wiki-section-title">
-            <h3>{t("ncm.songWiki.sections.story")}</h3>
+            <NaiveH3>{t("ncm.songWiki.sections.story")}</NaiveH3>
           </div>
           <div class="song-wiki-card-grid is-story">
             <Show when={item().firstListen}>
@@ -469,7 +469,7 @@ function SongWikiBasicSection(props: { model: SongWikiViewModel | null }) {
     <Show when={(props.model?.basicInfo.length ?? 0) > 0}>
       <section class="song-wiki-section">
         <div class="song-wiki-section-title">
-          <h3>{t("ncm.songWiki.sections.basic")}</h3>
+          <NaiveH3>{t("ncm.songWiki.sections.basic")}</NaiveH3>
         </div>
         <div class="song-wiki-card-grid">
           <For each={props.model?.basicInfo ?? []}>
@@ -501,7 +501,7 @@ function SongWikiSheetSection(props: {
     <Show when={(props.model?.sheets.length ?? 0) > 0}>
       <section class="song-wiki-section">
         <div class="song-wiki-section-title">
-          <h3>{t("ncm.songWiki.sections.sheets")}</h3>
+          <NaiveH3>{t("ncm.songWiki.sections.sheets")}</NaiveH3>
         </div>
         <div class="song-wiki-sheets">
           <For each={props.model?.sheets ?? []}>
@@ -543,7 +543,7 @@ function SongWikiSheetSection(props: {
                       <Switch>
                         <Match when={preview().status === "loading"}>
                           <div class="song-wiki-sheet-state">
-                            <IconSpinner />
+                            <NaiveSpin size={18} ariaHidden />
                             {t("ncm.songWiki.sheets.loading")}
                           </div>
                         </Match>
@@ -589,7 +589,7 @@ function SongWikiAchievementsSection(props: { model: SongWikiViewModel | null })
     <Show when={(props.model?.achievements.length ?? 0) > 0}>
       <section class="song-wiki-section">
         <div class="song-wiki-section-title">
-          <h3>{t("ncm.songWiki.sections.achievements")}</h3>
+          <NaiveH3>{t("ncm.songWiki.sections.achievements")}</NaiveH3>
         </div>
         <div class="song-wiki-achievements">
           <For each={props.model?.achievements ?? []}>
@@ -624,18 +624,18 @@ function SongWikiSkeleton() {
   return (
     <div class="song-wiki-skeleton">
       <div class="song-wiki-skeleton-head">
-        <div class="skeleton song-wiki-skeleton-cover" />
+        <NaiveSkeleton class="song-wiki-skeleton-cover" />
         <div class="song-wiki-skeleton-copy">
-          <div class="skeleton skeleton-line skeleton-line--title" />
-          <div class="skeleton skeleton-line" />
-          <div class="skeleton skeleton-line" />
-          <div class="skeleton song-wiki-skeleton-button" />
+          <NaiveSkeleton class="skeleton-line skeleton-line--title" />
+          <NaiveSkeleton class="skeleton-line" />
+          <NaiveSkeleton class="skeleton-line" />
+          <NaiveSkeleton class="song-wiki-skeleton-button" />
         </div>
       </div>
       <div class="song-wiki-card-grid is-story">
-        <div class="skeleton song-wiki-skeleton-card" />
-        <div class="skeleton song-wiki-skeleton-card" />
-        <div class="skeleton song-wiki-skeleton-card" />
+        <NaiveSkeleton class="song-wiki-skeleton-card" />
+        <NaiveSkeleton class="song-wiki-skeleton-card" />
+        <NaiveSkeleton class="song-wiki-skeleton-card" />
       </div>
     </div>
   );

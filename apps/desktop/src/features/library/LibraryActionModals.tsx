@@ -3,6 +3,7 @@ import { Modal } from "../../components/Modal";
 import { IconDelete, IconPlaylist, IconPlus } from "../../components/icons";
 import type { LocalPlaylist } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
+import { NaiveList, NaiveListItem, NaiveThing } from "../../shared/ui/naive";
 import type { LibraryListItem } from "./libraryViewTypes";
 
 interface LibraryPlaylistTargetModalProps {
@@ -98,28 +99,30 @@ export function LibraryPlaylistTargetModal(props: LibraryPlaylistTargetModalProp
             when={props.playlists.length > 0}
             fallback={<div class="status-line">{t("library.playlists.empty")}</div>}
           >
-            <div class="local-playlist-target-list">
+            <NaiveList class="local-playlist-target-list" hoverable clickable>
               <For each={props.playlists}>
                 {(playlist) => (
-                  <button
-                    type="button"
+                  <NaiveListItem
                     class="local-playlist-target"
                     onClick={() => void handleAdd(playlist.playlist_id)}
                     disabled={submittingPlaylistId() !== null || creating()}
-                  >
-                    <span class="local-playlist-target-icon" aria-hidden="true">
-                      <IconPlaylist />
-                    </span>
-                    <span class="local-playlist-target-copy">
-                      <span class="local-playlist-target-name">{playlist.name}</span>
-                      <span class="local-playlist-target-count">
-                        {t("library.group.songCount", { count: playlist.track_count })}
+                    prefix={
+                      <span class="local-playlist-target-icon" aria-hidden="true">
+                        <IconPlaylist />
                       </span>
-                    </span>
-                  </button>
+                    }
+                  >
+                    <NaiveThing
+                      class="local-playlist-target-copy"
+                      titleClass="local-playlist-target-name"
+                      descriptionClass="local-playlist-target-count"
+                      title={playlist.name}
+                      description={t("library.group.songCount", { count: playlist.track_count })}
+                    />
+                  </NaiveListItem>
                 )}
               </For>
-            </div>
+            </NaiveList>
           </Show>
         </Show>
 

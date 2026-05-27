@@ -10,8 +10,7 @@ import {
   IconMusic,
   IconPlay,
   IconSearch,
-  IconShare,
-  IconSpinner
+  IconShare
 } from "../../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../../components/media/ContextMenu";
 import type { MediaContextAction } from "../../../components/media/MediaList";
@@ -24,6 +23,7 @@ import { PageSurface } from "../../../components/page/PageSurface";
 import { SImage } from "../../../components/SImage";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveH2, NaiveP, NaiveSpin } from "../../../shared/ui/naive";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import type { PlaylistDetailInfo } from "../playlistParsers";
 import type { FeedbackSetter } from "../shared/feedback";
@@ -173,6 +173,12 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
       void props.onRemoveTracks?.([item.songId]);
     } else if (action === "song-wiki") {
       props.onNavigateToSongWiki?.(item);
+    } else if (action === "mv") {
+      // TODO: Navigate to MV page
+    } else if (action === "copy-song-info") {
+      // TODO: Implement copy song info
+    } else if (action === "download") {
+      // TODO: Implement download — developer mode only
     }
   };
   const mediaContextActions = (): readonly MediaContextAction[] => {
@@ -180,12 +186,16 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
       "play",
       "enqueue",
       "add-to-playlist",
+      "mv",
+      "view-comments",
       "search",
       "copy-name",
       "copy-id",
+      "copy-song-info",
       "share-link",
+      "music-tag-editor",
       "song-wiki",
-      "view-comments"
+      "download"
     ];
     if (props.onRemoveTracks) {
       actions.push("delete-from-playlist");
@@ -230,10 +240,10 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                       </div>
                     </Show>
                     <div class="playlist-detail-copy">
-                      <h2 title={playlist().name}>{playlist().name}</h2>
+                      <NaiveH2 title={playlist().name}>{playlist().name}</NaiveH2>
                       <div class="playlist-detail-collapse">
                         <Show when={uiSettings.playlistPageElements.description && (playlist().description ?? props.subtitleText)}>
-                          {(description) => <p class="playlist-detail-desc">{description()}</p>}
+                          {(description) => <NaiveP class="playlist-detail-desc">{description()}</NaiveP>}
                         </Show>
                         <Show
                           when={
@@ -337,7 +347,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                               disabled={props.isLoadingDetail || props.isTogglingSubscribe}
                             >
                               <Show when={props.isTogglingSubscribe} fallback={isSubscribed() ? <IconHeartFilled /> : <IconHeart />}>
-                                <IconSpinner />
+                                <NaiveSpin size={18} ariaHidden />
                               </Show>
                               {subscribeLabel()}
                             </button>
@@ -420,7 +430,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                       draggable={Boolean(props.onReorderTracks) && props.filter.trim().length === 0}
                       onReorder={(fromIndex, toIndex) => void props.onReorderTracks?.(fromIndex, toIndex)}
                       isLoading={props.isLoadingTracks}
-                      emptyState={<div class="panel-note">{emptyStateText()}</div>}
+                      emptyState={<NaiveP class="panel-note">{emptyStateText()}</NaiveP>}
                       hideTopScrollTool
                     />
                   </Show>

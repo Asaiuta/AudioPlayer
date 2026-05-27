@@ -7,8 +7,7 @@ import {
   IconChevronUp,
   IconHeart,
   IconHeartFilled,
-  IconList,
-  IconSpinner
+  IconList
 } from "../../components/icons";
 import { MediaList } from "../../components/media/MediaList";
 import { PageHeader } from "../../components/page/PageHeader";
@@ -27,6 +26,7 @@ import {
 import { useTranslation } from "../../shared/i18n";
 import { useUISettings } from "../../shared/state/useUISettings";
 import { ncmDjRadioPageUrl } from "../../shared/api/ncm/urls";
+import { NaiveH2, NaiveSkeleton, NaiveSpin } from "../../shared/ui/naive";
 import {
   type RadioCategory,
   type RadioCategorySection,
@@ -48,6 +48,7 @@ type RadioDetailTab = "programs" | "comments";
 
 const CARD_LIMIT = 20;
 const PROGRAM_LIMIT = 500;
+const COLLAPSED_CATEGORY_COUNT = 6;
 const api = createApiClient();
 
 const safeLoad = async <T,>(load: () => Promise<T>, fallback: T): Promise<T> => {
@@ -117,6 +118,20 @@ function RadioCardGrid(props: {
   );
 }
 
+function RadioCategorySkeleton() {
+  return (
+    <div class="radio-category-grid is-loading" aria-hidden="true">
+      <For each={Array.from({ length: 20 }, (_, index) => index)}>
+        {() => (
+          <div class="radio-category-card radio-category-card--skeleton">
+            <NaiveSkeleton shape="text" />
+          </div>
+        )}
+      </For>
+    </div>
+  );
+}
+
 export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
   const { t } = useTranslation();
   const uiSettings = useUISettings();
@@ -132,6 +147,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
   const [feedback, setFeedback] = createSignal<Feedback>({ tone: "neutral", message: "" });
   const [categoryTab, setCategoryTab] = createSignal<RadioTab>("hot");
   const [radioDetailTab, setRadioDetailTab] = createSignal<RadioDetailTab>("programs");
+  const [categoryLoadFailed, setCategoryLoadFailed] = createSignal<boolean>(false);
 
   const playback = createPlaybackController({
     api,
@@ -141,9 +157,16 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
     setFeedback: (tone, message) => setFeedback({ tone, message })
   });
 
-  const [categories] = createResource(() =>
-    safeLoad(async () => parseRadioCategories(await radioCatList()), [])
-  );
+  const [categories] = createResource(async () => {
+    try {
+      setCategoryLoadFailed(false);
+      return parseRadioCategories(await radioCatList());
+    } catch (error) {
+      console.warn("[NeteaseRadioPage] radio categories fetch failed", error);
+      setCategoryLoadFailed(true);
+      return [];
+    }
+  });
 
   const [hotRadios] = createResource(() =>
     safeLoad(async () => parseRadioCardsFromKey(await radioToplist({ type: "hot", limit: CARD_LIMIT }), "toplist"), [])
@@ -177,9 +200,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
   );
 
   const categoryItems = createMemo(() => categories() ?? []);
-  const visibleCategories = createMemo(() =>
-    categoriesExpanded() ? categoryItems() : categoryItems().slice(0, 20)
-  );
+  const hasOverflowCategories = createMemo(() => categoryItems().length > COLLAPSED_CATEGORY_COUNT);
   const sections = createMemo<RadioCategorySection[]>(() => categorySections() ?? []);
   const categoryTabs = createMemo(() => [
     { value: "hot", label: t("ncm.radio.tab.hot") },
@@ -362,7 +383,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
   };
 
   return (
-    <div class="panel panel-page online-page is-discover-page radio-page">
+    <div class="panel panel-page online-page is-radio-page radio-page">
       <Show
         when={selectedRadio()}
         fallback={
@@ -373,16 +394,31 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
                 <PageHeader title={t("ncm.radio.title")} meta={<span>{t("ncm.radio.meta")}</span>} />
 
                 <section class="radio-type">
-                  <Show when={visibleCategories().length > 0} fallback={<div class="radio-category-grid is-loading" />}>
-                    <div class="radio-category-grid content-fade-in">
-                      <For each={visibleCategories()}>
+                  <Show
+                    when={categoryItems().length > 0}
+                    fallback={
+                      categories.loading ? (
+                        <RadioCategorySkeleton />
+                      ) : categoryLoadFailed() ? (
+                        <div class="panel-note status-error">{t("common.error.requestFailed")}</div>
+                      ) : (
+                        <div class="panel-note">{emptyText()}</div>
+                      )
+                    }
+                  >
+                    <div
+                      class={`radio-category-grid content-fade-in${
+                        !categoriesExpanded() && hasOverflowCategories() ? " is-collapsed" : ""
+                      }`}
+                    >
+                      <For each={categoryItems()}>
                         {(item) => (
-                          <button type="button" class="radio-category-card" onClick={() => setSelectedCategory(item)}>
+                          <button type="button" class="radio-category-card radio-category-card--item" onClick={() => setSelectedCategory(item)}>
                             <span>{item.name}</span>
                           </button>
                         )}
                       </For>
-                      <Show when={categoryItems().length > 20}>
+                      <Show when={hasOverflowCategories()}>
                         <button
                           type="button"
                           class="radio-category-card radio-category-card--toggle"
@@ -398,7 +434,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
 
                 <section class="online-discover-section radio-rec">
                   <div class="radio-section-title">
-                    <h2>{t("ncm.radio.section.hot")}</h2>
+                    <NaiveH2>{t("ncm.radio.section.hot")}</NaiveH2>
                   </div>
                   <RadioCardGrid items={hotRadios() ?? []} hiddenCover={uiSettings.hiddenCovers.radio} emptyText={emptyText()} onSelectRadio={(radio) => void loadRadioDetail(radio)} />
                 </section>
@@ -411,7 +447,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
                         class="radio-section-title radio-section-title--clickable"
                         onClick={() => setSelectedCategory({ id: section.id, name: section.name })}
                       >
-                        <h2>{section.name}</h2>
+                        <NaiveH2>{section.name}</NaiveH2>
                         <span aria-hidden="true"><IconChevronRight /></span>
                       </button>
                       <RadioCardGrid items={section.radios} hiddenCover={uiSettings.hiddenCovers.radio} emptyText={emptyText()} onSelectRadio={(radio) => void loadRadioDetail(radio)} />
@@ -432,12 +468,14 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
                     </button>
                   }
                   tabs={
-                    <SegmentedTabs
-                      value={categoryTab()}
-                      onChange={(next) => setCategoryTab(next as RadioTab)}
-                      items={categoryTabs()}
-                      ariaLabel={t("ncm.radio.tabs.aria")}
-                    />
+                    <div class="radio-category-tabs">
+                      <SegmentedTabs
+                        value={categoryTab()}
+                        onChange={(next) => setCategoryTab(next as RadioTab)}
+                        items={categoryTabs()}
+                        ariaLabel={t("ncm.radio.tabs.aria")}
+                      />
+                    </div>
                   }
                 />
                 <section class="online-discover-section radio-rec">
@@ -506,7 +544,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
                       onClick={() => void toggleRadioSub()}
                     >
                       <Show when={isTogglingRadioSub()} fallback={isRadioSubscribed() ? <IconHeartFilled /> : <IconHeart />}>
-                        <IconSpinner />
+                        <NaiveSpin size={17} ariaHidden />
                       </Show>
                       {radioSubLabel()}
                     </button>

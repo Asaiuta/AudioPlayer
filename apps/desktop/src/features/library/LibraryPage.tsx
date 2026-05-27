@@ -25,6 +25,7 @@ import {
 import { LibraryTabContent } from "./LibraryTabContent";
 import { ALL_FOLDERS_VALUE, type LibraryListItem, type LibraryTab } from "./libraryViewTypes";
 import { createLibraryPlaybackCoordinator } from "./libraryPlaybackCoordinator";
+import { NaiveH1 } from "../../shared/ui/naive";
 import { useLibraryDataController } from "./useLibraryDataController";
 
 interface LibraryPageProps {
@@ -159,6 +160,19 @@ export function LibraryPage(props: LibraryPageProps) {
       openRemoveFromPlaylist([item]);
     } else if (action === "delete-from-library" || action === "delete") {
       openDeleteFromLibrary([item]);
+    } else if (action === "delete-from-local-disk") {
+      void controller.deleteItemFromLocalDisk(item).catch(() => undefined);
+    } else if (action === "music-tag-editor") {
+      // TODO: Implement music tag editor modal
+      controller.notifyCopyName();
+    } else if (action === "mv") {
+      // TODO: Navigate to MV page — requires router integration
+    } else if (action === "cloud-import") {
+      // TODO: Implement cloud import
+    } else if (action === "download") {
+      // TODO: Implement download — developer mode only
+    } else if (action === "copy-song-info") {
+      // TODO: Implement copy song info
     }
   };
 
@@ -257,7 +271,7 @@ export function LibraryPage(props: LibraryPageProps) {
     <section class="panel panel-library panel-page">
       <header class="local-library-head">
         <div class="local-library-title">
-          <h1>{t("library.title")}</h1>
+          <NaiveH1>{t("library.title")}</NaiveH1>
           <div
             class="local-library-status"
             aria-label={t("library.subtitle.complete", { count: controller.virtualTotal() })}

@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import {
   IconDownload,
   IconList,
@@ -7,8 +7,8 @@ import {
   IconRefresh
 } from "../../components/icons";
 import { EmptyState } from "../../components/EmptyState";
-import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { useTranslation } from "../../shared/i18n";
+import { NaiveTabs, type NaiveTabItem } from "../../shared/ui/naive";
 
 type DownloadTab = "downloaded" | "downloading";
 
@@ -20,6 +20,10 @@ export function DownloadPage() {
   const downloadingCount = () => 0;
   const currentCount = () =>
     activeTab() === "downloaded" ? downloadedCount() : downloadingCount();
+  const tabItems = createMemo<ReadonlyArray<NaiveTabItem<DownloadTab>>>(() => [
+    { value: "downloaded", label: t("download.tab.downloaded") },
+    { value: "downloading", label: t("download.tab.downloading") }
+  ]);
 
   return (
     <section class="panel panel-page auxiliary-page auxiliary-page-download">
@@ -60,13 +64,12 @@ export function DownloadPage() {
               <IconRefresh />
             </button>
           </div>
-          <SegmentedTabs
+          <NaiveTabs
             value={activeTab()}
-            onChange={(next) => setActiveTab(next as DownloadTab)}
-            items={[
-              { value: "downloaded", label: t("download.tab.downloaded") },
-              { value: "downloading", label: t("download.tab.downloading") }
-            ]}
+            onChange={setActiveTab}
+            items={tabItems()}
+            type="segment"
+            class="tabs"
             ariaLabel={t("download.title")}
           />
         </div>

@@ -4,6 +4,7 @@ import { useTranslation } from "../../../shared/i18n";
 import { createApiClient } from "../../../shared/api/client";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveP } from "../../../shared/ui/naive";
 import { NeteaseHomeFeed } from "../NeteaseHomeFeed";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
@@ -157,7 +158,7 @@ export function RecommendMode(props: RecommendModeProps) {
         <PageHeader title={recommendGreeting()} />
       </Show>
       <Show when={!hasDetailView() && uiSettings.showHomeGreeting}>
-        <p class="online-recommend-subtitle">{t("ncm.home.welcome")}</p>
+        <NaiveP class="online-recommend-subtitle">{t("ncm.home.welcome")}</NaiveP>
       </Show>
       <Switch fallback={renderHomeFeed()}>
         <Match when={detailNav.selectedDailySongs()}>
@@ -181,7 +182,7 @@ export function RecommendMode(props: RecommendModeProps) {
         <Match when={detailNav.selectedLikedSongs()}>
           <Show
             when={detailNav.selectedPlaylist()}
-            fallback={<div class="panel-note">{detailNav.isLoadingLikedSongs() ? t("ncm.playlist.loading") : t("ncm.liked.empty")}</div>}
+            fallback={<NaiveP class="panel-note">{detailNav.isLoadingLikedSongs() ? t("ncm.playlist.loading") : t("ncm.liked.empty")}</NaiveP>}
           >
             <PlaylistDetail
               playlist={detailNav.selectedPlaylist()}

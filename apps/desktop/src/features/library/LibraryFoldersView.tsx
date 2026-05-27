@@ -1,5 +1,5 @@
-import { For, Show, createMemo, createSignal } from "solid-js";
-import { IconChevronDown, IconChevronRight, IconFolder, IconMusic } from "../../components/icons";
+import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
+import { IconChevronDown, IconChevronRight, IconFolder } from "../../components/icons";
 import {
   MediaList,
   type MediaContextAction,
@@ -9,7 +9,6 @@ import {
 } from "../../components/media/MediaList";
 import { useTranslation } from "../../shared/i18n";
 import {
-  ALL_FOLDERS_VALUE,
   type LibraryFolderNode,
   type LibraryListItem
 } from "./libraryViewTypes";
@@ -38,9 +37,6 @@ interface DisplayFolderNode {
   depth: number;
   children: DisplayFolderNode[];
 }
-
-const totalFolderCount = (nodes: readonly LibraryFolderNode[]): number =>
-  nodes.reduce((total, node) => total + node.totalCount, 0);
 
 /**
  * Mirror SPlayer's folder-tree merging: when a node has no direct songs and
@@ -71,6 +67,16 @@ const mergeNode = (node: LibraryFolderNode, depth: number): DisplayFolderNode =>
   };
 };
 
+const collectNodeKeys = (nodes: readonly DisplayFolderNode[]): Set<string> => {
+  const keys = new Set<string>();
+  const visit = (node: DisplayFolderNode) => {
+    keys.add(node.key);
+    node.children.forEach(visit);
+  };
+  nodes.forEach(visit);
+  return keys;
+};
+
 interface FolderNodeButtonProps {
   node: DisplayFolderNode;
   selectedFolder: string;
@@ -91,7 +97,7 @@ function FolderNodeButton(props: FolderNodeButtonProps) {
         type="button"
         class="local-folder-node"
         classList={{ "is-active": active() }}
-        style={{ "padding-left": `${12 + props.node.depth * 14}px` }}
+        style={{ "padding-left": `${8 + props.node.depth * 14}px` }}
         onClick={() => props.onSelectFolder(props.node.key)}
       >
         <Show when={hasChildren()} fallback={<span class="local-folder-node-toggle local-folder-node-toggle--placeholder" aria-hidden="true" />}>
@@ -112,10 +118,10 @@ function FolderNodeButton(props: FolderNodeButtonProps) {
         <span class="local-folder-node-icon" aria-hidden="true">
           <IconFolder />
         </span>
-        <span class="local-folder-node-copy">
-          <span class="local-folder-node-name" title={props.node.key}>{props.node.label}</span>
-          <span class="local-folder-node-count">
-            {t("library.group.songCount", { count: props.node.totalCount })}
+        <span class="local-folder-node-copy" title={props.node.key}>
+          <span class="local-folder-node-name">{props.node.label}</span>
+          <span class="local-folder-node-count" aria-label={t("library.group.songCount", { count: props.node.totalCount })}>
+            ({props.node.totalCount})
           </span>
         </span>
       </button>
@@ -138,11 +144,23 @@ function FolderNodeButton(props: FolderNodeButtonProps) {
 
 export function LibraryFoldersView(props: LibraryFoldersViewProps) {
   const { t } = useTranslation();
-  const allCount = createMemo<number>(() => totalFolderCount(props.nodes));
   const mergedNodes = createMemo<DisplayFolderNode[]>(() =>
     props.nodes.map((node) => mergeNode(node, 0))
   );
   const [expandedKeys, setExpandedKeys] = createSignal<ReadonlySet<string>>(new Set());
+
+  createEffect(() => {
+    const nodes = mergedNodes();
+    if (nodes.length === 0) return;
+    const visibleKeys = collectNodeKeys(nodes);
+    if (!visibleKeys.has(props.selectedFolder)) {
+      props.onSelectFolder(nodes[0].key);
+    }
+    setExpandedKeys((current) => {
+      if (current.size > 0) return current;
+      return new Set(nodes.filter((node) => node.children.length > 0).map((node) => node.key));
+    });
+  });
 
   const toggleExpand = (key: string) => {
     setExpandedKeys((prev) => {
@@ -167,23 +185,6 @@ export function LibraryFoldersView(props: LibraryFoldersViewProps) {
     >
       <div class="local-browser local-browser-folders">
         <aside class="local-browser-list local-folder-tree" aria-label={t("library.tabs.folders")}>
-          <button
-            type="button"
-            class="local-folder-node local-folder-node-root"
-            classList={{ "is-active": props.selectedFolder === ALL_FOLDERS_VALUE }}
-            onClick={() => props.onSelectFolder(ALL_FOLDERS_VALUE)}
-          >
-            <span class="local-folder-node-toggle local-folder-node-toggle--placeholder" aria-hidden="true" />
-            <span class="local-folder-node-icon" aria-hidden="true">
-              <IconMusic />
-            </span>
-            <span class="local-folder-node-copy">
-              <span class="local-folder-node-name">{t("library.folderFilter.all")}</span>
-              <span class="local-folder-node-count">
-                {t("library.group.songCount", { count: allCount() })}
-              </span>
-            </span>
-          </button>
           <For each={mergedNodes()}>
             {(node) => (
               <FolderNodeButton
@@ -208,7 +209,7 @@ export function LibraryFoldersView(props: LibraryFoldersViewProps) {
             onContextAction={props.onContextAction}
             isLoading={props.isLoading}
             emptyState={t("library.tracks.emptyFilter")}
-            contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "show-in-folder", "delete-from-library"]}
+            contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "copy-id", "copy-song-info", "share-link", "music-tag-editor", "copy-path", "show-in-folder", "song-wiki", "delete-from-library", "delete-from-local-disk"]}
             deleteActionLabel={t("library.action.deleteFromLibrary")}
             sort={props.sort}
             onSortChange={props.onSortChange}

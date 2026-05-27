@@ -1,7 +1,7 @@
 import { onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
 import { createApiClient, type ApiClient } from "../../shared/api/client";
-import { revealPathInFolder } from "../../shared/api/os";
+import { deleteFile, revealPathInFolder } from "../../shared/api/os";
 import type { LibraryRoot, MediaItem, PlayerState } from "../../shared/api/types";
 import type { TranslationKey } from "../../shared/i18n";
 import { type LibraryListItem } from "./libraryViewTypes";
@@ -464,6 +464,21 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     }
   };
 
+  const deleteItemFromLocalDisk = async (item: LibraryListItem) => {
+    try {
+      const detail = await ensureItemDetail(item);
+      if (!detail || !detail.source_path) {
+        throw new Error(t("common.error.requestFailed"));
+      }
+      await deleteFile(detail.source_path);
+      await deleteItemsFromLibrary([item]);
+      setRawFeedback("success", t("library.feedback.deletedFromDisk", { name: item.title ?? "" }));
+    } catch (error) {
+      setRawFeedback("error", readErrorMessage(error));
+      throw error;
+    }
+  };
+
   const handleRefresh = () => {
     void refreshRoots();
     void refreshItems();
@@ -530,6 +545,7 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
     notifyCopyName,
     copyItemPath,
     revealItemInFolder,
+    deleteItemFromLocalDisk,
     handleScan,
     handleRescan,
     deleteLibraryRoot,

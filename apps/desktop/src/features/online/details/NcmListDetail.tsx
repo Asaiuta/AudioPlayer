@@ -3,6 +3,7 @@ import type { JSX } from "solid-js";
 import { SImage } from "../../../components/SImage";
 import { IconEye, IconMusic, IconPlay } from "../../../components/icons";
 import { coverSizeUrl } from "../../../shared/ui/coverSize";
+import { NaiveH2, NaiveP } from "../../../shared/ui/naive";
 
 export interface NcmListDetailMetaItem {
   icon: JSX.Element;
@@ -87,9 +88,9 @@ export function NcmListDetail(props: NcmListDetailProps) {
           )}
         </Show>
         <div class="ncm-list-detail-data">
-          <h2 class="ncm-list-detail-name">{props.title}</h2>
+          <NaiveH2 class="ncm-list-detail-name">{props.title}</NaiveH2>
           <Show when={props.description}>
-            {(description) => <p class="ncm-list-detail-description">{description()}</p>}
+            {(description) => <NaiveP class="ncm-list-detail-description">{description()}</NaiveP>}
           </Show>
           <Show when={(props.metaItems ?? []).length > 0}>
             <div class="ncm-list-detail-meta">

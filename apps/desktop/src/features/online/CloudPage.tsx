@@ -13,6 +13,7 @@ import {
 import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { useNcmAccount } from "../../shared/state/NcmAccountContext";
+import { NaiveH2 } from "../../shared/ui/naive";
 import { CloudMatchModal } from "./details/CloudMatchModal";
 import { DailySongsBatchModal } from "./details/DailySongsBatchModal";
 import type { NcmTrackReference } from "./ncmPlayback";
@@ -341,6 +342,22 @@ export function CloudPage(props: CloudPageProps) {
       props.onNavigateToSongWiki?.(item);
       return;
     }
+    if (action === "mv") {
+      // TODO: Navigate to MV page
+      return;
+    }
+    if (action === "cloud-import") {
+      // TODO: Implement cloud import
+      return;
+    }
+    if (action === "download") {
+      // TODO: Implement download — developer mode only
+      return;
+    }
+    if (action === "copy-song-info") {
+      // TODO: Implement copy song info
+      return;
+    }
     if (action === "delete-from-cloud" || action === "delete") {
       void deleteCloudTrack(item);
     }
@@ -358,7 +375,7 @@ export function CloudPage(props: CloudPageProps) {
         fallback={
           <>
             <section class="cloud-title">
-              <h2>{t("ncm.cloud.title")}</h2>
+              <NaiveH2>{t("ncm.cloud.title")}</NaiveH2>
             </section>
             <section class="online-login-card">
               <div class="status-stack">
@@ -373,7 +390,7 @@ export function CloudPage(props: CloudPageProps) {
         }
       >
         <section class="cloud-title">
-          <h2>{t("ncm.cloud.title")}</h2>
+          <NaiveH2>{t("ncm.cloud.title")}</NaiveH2>
           <div class="cloud-status">
             <span class="cloud-status-item">
               <IconMusic />
@@ -463,13 +480,19 @@ export function CloudPage(props: CloudPageProps) {
           contextActions={[
             "play",
             "enqueue",
+            "add-to-playlist",
+            "mv",
+            "view-comments",
             "search",
             "copy-name",
             "copy-id",
+            "copy-song-info",
             "share-link",
-            "song-wiki",
-            "view-comments",
+            "music-tag-editor",
+            "cloud-import",
             "cloud-match",
+            "song-wiki",
+            "download",
             "delete-from-cloud"
           ]}
           deleteActionLabel={t("ncm.cloud.deleteAction")}

@@ -4,6 +4,7 @@ import { IconPlayCircle } from "../../../components/icons";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
+import { NaiveP } from "../../../shared/ui/naive";
 import { PlaylistDetail } from "../details/PlaylistDetail";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { getNcmLikedPlaylistCached } from "../ncmPlaylistSummaryCache";
@@ -121,15 +122,15 @@ export function LikedSongsMode(props: LikedSongsModeProps) {
           }
         />
       </Show>
-      <Show when={props.loginProfile() !== null} fallback={<div class="panel-note">{t("ncm.empty.loginRequired")}</div>}>
+      <Show when={props.loginProfile() !== null} fallback={<NaiveP class="panel-note">{t("ncm.empty.loginRequired")}</NaiveP>}>
         <Show
           when={detailNav.selectedPlaylist()}
           fallback={
-            <div class="panel-note">
+            <NaiveP class="panel-note">
               {isLoadingLikedPlaylist() || detailNav.isLoadingPlaylistTracks()
                 ? t("ncm.playlist.loading")
                 : t("ncm.liked.empty")}
-            </div>
+            </NaiveP>
           }
         >
           <PlaylistDetail

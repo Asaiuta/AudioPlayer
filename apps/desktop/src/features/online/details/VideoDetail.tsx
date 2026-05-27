@@ -8,6 +8,7 @@ import { SImage } from "../../../components/SImage";
 import { mvDetail, mvDetailInfo, mvUrl, videoDetail, videoDetailInfo, videoUrl } from "../../../shared/api/ncm/video";
 import { ncmMvPageUrl, ncmVideoPageUrl } from "../../../shared/api/ncm/urls";
 import { useTranslation } from "../../../shared/i18n";
+import { NaiveH2, NaiveP } from "../../../shared/ui/naive";
 import type { FeedCardItem } from "../shared/types";
 import { parseVideoDetail, parseVideoSource, type VideoDetailInfo, type VideoSource } from "../videoParsers";
 import { ResourceCommentsPanel } from "./ResourceCommentsPanel";
@@ -121,7 +122,7 @@ export function VideoDetail(props: VideoDetailProps) {
 
         <header class="ncm-video-detail-head">
           <div class="ncm-video-detail-title">
-            <h2>{displayTitle()}</h2>
+            <NaiveH2>{displayTitle()}</NaiveH2>
             <div class="ncm-video-detail-meta">
               <span><IconEye /> {formatNumber(detail()?.playCount ?? props.video?.playCount ?? null)}</span>
               <Show when={detail()?.commentCount !== null && detail()?.commentCount !== undefined}>
@@ -168,7 +169,7 @@ export function VideoDetail(props: VideoDetailProps) {
         </Show>
 
         <Show when={playError()}>
-          {(message) => <div class="panel-note">{message()}</div>}
+          {(message) => <NaiveP class="panel-note">{message()}</NaiveP>}
         </Show>
 
         <div class="ncm-video-menu">
@@ -207,7 +208,7 @@ export function VideoDetail(props: VideoDetailProps) {
         </div>
 
         <Show when={detail()?.description}>
-          {(description) => <p class="ncm-video-description">{description()}</p>}
+          {(description) => <NaiveP class="ncm-video-description">{description()}</NaiveP>}
         </Show>
 
         <Show when={(detail()?.tags ?? []).length > 0}>

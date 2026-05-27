@@ -292,7 +292,7 @@ export function HistoryPage(props: HistoryPageProps) {
               isPlayingNow={props.isPlaying}
               onPlay={(item) => void handlePlay(item)}
               onEnqueue={(item) => void handleEnqueue(item)}
-              contextActions={["play", "enqueue", "search", "copy-name", "copy-id", "share-link", "song-wiki", "view-comments", "copy-path"]}
+              contextActions={["play", "enqueue", "add-to-playlist", "mv", "view-comments", "search", "copy-name", "copy-id", "copy-song-info", "share-link", "music-tag-editor", "copy-path", "song-wiki"]}
               onContextAction={handleContextAction}
               isLoading={isFetching()}
               emptyState={t("history.empty")}

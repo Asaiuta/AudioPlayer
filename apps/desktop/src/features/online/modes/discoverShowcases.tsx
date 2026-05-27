@@ -2,12 +2,13 @@ import { For, Show } from "solid-js";
 import type { Resource } from "solid-js";
 import { AlbumCard } from "../../../components/AlbumCard";
 import { EmptyState } from "../../../components/EmptyState";
-import { IconPlay, IconSpinner } from "../../../components/icons";
+import { IconPlay } from "../../../components/icons";
 import { MediaList } from "../../../components/media/MediaList";
 import { CoverGridSkeleton } from "../../../components/page/Skeleton";
 import { SImage } from "../../../components/SImage";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveSkeleton, NaiveSpin } from "../../../shared/ui/naive";
 import { DISCOVER_PAGE_LIMIT, isTranslationKey } from "../shared/parsers";
 import type { PlaybackController } from "../shared/playback";
 import type {
@@ -40,9 +41,7 @@ function LoadMoreButton(props: LoadMoreButtonProps) {
         onClick={props.onClick}
       >
         <Show when={props.isLoading}>
-          <span class="button-spinner" aria-hidden="true">
-            <IconSpinner />
-          </span>
+          <NaiveSpin class="button-spinner" size={14} ariaHidden />
         </Show>
         {props.isLoading ? t("ncm.playlist.loading") : t("ncm.discover.loadMore")}
       </button>
@@ -56,6 +55,7 @@ export interface DiscoverPlaylistShowcaseProps {
   discoverPlaylistKind: DiscoverPlaylistKind;
   setDiscoverPlaylistKind: (kind: DiscoverPlaylistKind) => void;
   setCatModalOpen: (open: boolean) => void;
+  setCatButtonRef: (element: HTMLButtonElement) => void;
   discoverSectionTitle: string;
   discoverSectionSubtitle: string;
   allPlaylists: DiscoverCardItem[];
@@ -71,7 +71,12 @@ export function DiscoverPlaylistShowcase(props: DiscoverPlaylistShowcaseProps) {
   return (
     <section class="online-discover-section online-discover-playlists">
       <div class="online-discover-menu">
-        <button type="button" class="online-discover-cat-button" onClick={() => props.setCatModalOpen(true)}>
+        <button
+          ref={(element) => props.setCatButtonRef(element)}
+          type="button"
+          class="online-discover-cat-button"
+          onClick={() => props.setCatModalOpen(true)}
+        >
           {props.catName}
           <span aria-hidden="true">›</span>
         </button>
@@ -214,6 +219,29 @@ export interface DiscoverToplistShowcaseProps {
   onLoadPlaylist: (playlist: OnlinePlaylistSummary) => void | Promise<void>;
 }
 
+function OfficialToplistSkeleton() {
+  return (
+    <div class="online-toplist-grid online-toplist-grid--loading" aria-hidden="true">
+      <For each={Array.from({ length: 6 }, (_, index) => index)}>
+        {() => (
+          <div class="online-toplist-card online-toplist-card--skeleton">
+            <NaiveSkeleton class="online-toplist-cover" />
+            <div class="online-toplist-copy">
+              <NaiveSkeleton class="online-toplist-skeleton-title" shape="text" />
+              <NaiveSkeleton class="online-toplist-skeleton-desc" shape="text" />
+              <div class="online-toplist-songs">
+                <NaiveSkeleton class="online-toplist-skeleton-song" shape="text" />
+                <NaiveSkeleton class="online-toplist-skeleton-song" shape="text" />
+                <NaiveSkeleton class="online-toplist-skeleton-song" shape="text" />
+              </div>
+            </div>
+          </div>
+        )}
+      </For>
+    </div>
+  );
+}
+
 export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
   const { t } = useTranslation();
   const uiSettings = useUISettings();
@@ -227,7 +255,7 @@ export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
         when={officialItems().length > 0}
         fallback={
           isLoading() ? (
-            <CoverGridSkeleton count={6} />
+            <OfficialToplistSkeleton />
           ) : (
             <EmptyState description={t("ncm.home.empty")} size="sm" />
           )
@@ -293,6 +321,7 @@ export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
                 title={item.title}
                 subtitle={item.subtitle ?? item.description}
                 coverUrl={item.coverUrl}
+                description={item.description}
                 coverVisible={!uiSettings.hiddenCovers.toplist}
                 onClick={() =>
                   void props.onLoadPlaylist(playlistSummaryFromDiscoverCard(item))
@@ -465,7 +494,7 @@ export function DiscoverNewShowcase(props: DiscoverNewShowcaseProps) {
         <Show when={props.discoverNewKind === "albums"} fallback={
           <div class="online-discover-card-stack content-fade-in">
             <MediaList
-              items={songs().slice(0, 50)}
+              items={songs()}
               currentSourcePath={props.currentTrackPath}
               currentSongId={props.currentSongId}
               isPlayingNow={props.isPlaying}

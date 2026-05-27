@@ -6,6 +6,7 @@ import { SImage } from "../../../components/SImage";
 import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
 import type { NcmPlaylistSummary } from "../../../shared/api/client";
+import { NaiveList, NaiveListItem, NaiveThing } from "../../../shared/ui/naive";
 import type { FeedbackSetter } from "../shared/feedback";
 import { createErrorMessageReader } from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
@@ -325,52 +326,57 @@ export function DailySongsBatchModal(props: DailySongsBatchModalProps) {
               : t("ncm.empty.loginRequired")}
           </div>
           <Show when={props.loginProfile}>
-            <div class="local-playlist-target-list ncm-daily-batch-targets">
-              <button
-                type="button"
+            <NaiveList class="local-playlist-target-list ncm-daily-batch-targets" hoverable clickable>
+              <NaiveListItem
                 class="local-playlist-target"
                 onClick={() => setCreatePlaylistOpen(true)}
                 disabled={busy()}
+                prefix={
+                  <span class="local-playlist-target-icon" aria-hidden="true">
+                    <IconPlus />
+                  </span>
+                }
               >
-                <span class="local-playlist-target-icon" aria-hidden="true">
-                  <IconPlus />
-                </span>
-                <span class="local-playlist-target-copy">
-                  <span class="local-playlist-target-name">{t("playlist.create.title")}</span>
-                </span>
-              </button>
+                <NaiveThing
+                  class="local-playlist-target-copy"
+                  titleClass="local-playlist-target-name"
+                  title={t("playlist.create.title")}
+                />
+              </NaiveListItem>
               <Show
                 when={playlists().length > 0}
                 fallback={<div class="status-line">{loadingPlaylists() ? t("ncm.playlist.loading") : t("ncm.empty.noUserPlaylists")}</div>}
               >
                 <For each={playlists()}>
                   {(playlist, index) => (
-                    <button
-                      type="button"
+                    <NaiveListItem
                       class="local-playlist-target"
                       onClick={() => void addToPlaylist(playlist)}
                       disabled={selectedItems().length === 0 || busy()}
+                      prefix={
+                        <span class="local-playlist-target-icon" aria-hidden="true">
+                          <Show when={playlist.coverUrl} fallback={<IconPlaylist />}>
+                            {(coverUrl) => <SImage src={coverUrl()} alt="" observeVisibility={true} shape="rect" aspect="square" />}
+                          </Show>
+                        </span>
+                      }
                     >
-                      <span class="local-playlist-target-icon" aria-hidden="true">
-                        <Show when={playlist.coverUrl} fallback={<IconPlaylist />}>
-                          {(coverUrl) => <SImage src={coverUrl()} alt="" observeVisibility={true} shape="rect" aspect="square" />}
-                        </Show>
-                      </span>
-                      <span class="local-playlist-target-copy">
-                        <span class="local-playlist-target-name">
-                          {index() === 0 ? t("ncm.liked.title") : playlist.name}
-                        </span>
-                        <span class="local-playlist-target-count">
-                          {submittingPlaylistId() === playlist.id
+                      <NaiveThing
+                        class="local-playlist-target-copy"
+                        titleClass="local-playlist-target-name"
+                        descriptionClass="local-playlist-target-count"
+                        title={index() === 0 ? t("ncm.liked.title") : playlist.name}
+                        description={
+                          submittingPlaylistId() === playlist.id
                             ? t("ncm.daily.batchAdding")
-                            : t("library.group.songCount", { count: playlist.trackCount ?? 0 })}
-                        </span>
-                      </span>
-                    </button>
+                            : t("library.group.songCount", { count: playlist.trackCount ?? 0 })
+                        }
+                      />
+                    </NaiveListItem>
                   )}
                 </For>
               </Show>
-            </div>
+            </NaiveList>
           </Show>
         </div>
       </div>

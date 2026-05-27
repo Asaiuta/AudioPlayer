@@ -68,7 +68,7 @@ export function LibraryTabContent(props: LibraryTabContentProps) {
             onVisibleRangeChange={props.controller.setVirtualRange}
             isLoading={props.controller.isFetching()}
             emptyState={props.t("library.tracks.emptyAll")}
-            contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "show-in-folder", "delete-from-library"]}
+            contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "copy-id", "copy-song-info", "share-link", "music-tag-editor", "copy-path", "show-in-folder", "song-wiki", "delete-from-library", "delete-from-local-disk"]}
             deleteActionLabel={props.t("library.action.deleteFromLibrary")}
             sort={props.controller.sort()}
             onSortChange={props.controller.updateSort}
@@ -90,7 +90,7 @@ export function LibraryTabContent(props: LibraryTabContentProps) {
           onEnqueue={props.onEnqueue}
           onContextAction={props.onContextAction}
           isLoading={props.controller.isFetching()}
-          contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "show-in-folder", "delete-from-library"]}
+          contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "copy-id", "copy-song-info", "share-link", "music-tag-editor", "copy-path", "show-in-folder", "song-wiki", "delete-from-library", "delete-from-local-disk"]}
           deleteActionLabel={props.t("library.action.deleteFromLibrary")}
           sort={props.controller.sort()}
           onSortChange={props.controller.updateSort}
@@ -111,7 +111,7 @@ export function LibraryTabContent(props: LibraryTabContentProps) {
           onEnqueue={props.onEnqueue}
           onContextAction={props.onContextAction}
           isLoading={props.controller.isFetching()}
-          contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "show-in-folder", "delete-from-library"]}
+          contextActions={["play", "enqueue", "add-to-playlist", "search", "copy-name", "copy-id", "copy-song-info", "share-link", "music-tag-editor", "copy-path", "show-in-folder", "song-wiki", "delete-from-library", "delete-from-local-disk"]}
           deleteActionLabel={props.t("library.action.deleteFromLibrary")}
           sort={props.controller.sort()}
           onSortChange={props.controller.updateSort}

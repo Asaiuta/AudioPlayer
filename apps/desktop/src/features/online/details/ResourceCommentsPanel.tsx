@@ -4,7 +4,6 @@ import {
   IconFire,
   IconHeart,
   IconMessage,
-  IconSpinner,
   IconThumbUp,
   IconThumbUpFilled
 } from "../../../components/icons";
@@ -22,6 +21,7 @@ import {
 } from "../../../shared/api/ncm/comment";
 import { useTranslation } from "../../../shared/i18n";
 import { useNcmAccount } from "../../../shared/state/NcmAccountContext";
+import { NaiveH3, NaiveP, NaiveSpin, NaiveText } from "../../../shared/ui/naive";
 
 type ResourceCommentSort = "hot" | "new";
 type CommentFeedback = {
@@ -359,7 +359,7 @@ export function ResourceCommentsPanel(props: ResourceCommentsPanelProps) {
                       when={likeBusyIds().includes(comment.commentId)}
                       fallback={comment.liked ? <IconThumbUpFilled /> : <IconThumbUp />}
                     >
-                      <IconSpinner />
+                      <NaiveSpin size={15} ariaHidden />
                     </Show>
                     <span>{formatNumber(comment.likedCount)}</span>
                   </button>
@@ -372,12 +372,12 @@ export function ResourceCommentsPanel(props: ResourceCommentsPanelProps) {
                     onClick={() => void handleHugComment(comment)}
                   >
                     <Show when={hugBusyIds().includes(comment.commentId)} fallback={<IconHeart />}>
-                      <IconSpinner />
+                      <NaiveSpin size={15} ariaHidden />
                     </Show>
                   </button>
                 </div>
               </header>
-              <p>{comment.content}</p>
+              <NaiveP>{comment.content}</NaiveP>
               <Show when={comment.beReplied}>
                 {(reply) => (
                   <div class="ncm-resource-comment-reply">
@@ -410,11 +410,11 @@ export function ResourceCommentsPanel(props: ResourceCommentsPanelProps) {
     >
       <Show when={props.grouped !== true}>
         <header class="ncm-resource-comments-head">
-          <h3>
+          <NaiveH3>
             <IconChat />
             {title()}
-            <span>{formatNumber(commentTotal())}</span>
-          </h3>
+            <NaiveText depth={3}>{formatNumber(commentTotal())}</NaiveText>
+          </NaiveH3>
           <div class="ncm-resource-comment-tabs">
             <button
               type="button"
@@ -468,7 +468,7 @@ export function ResourceCommentsPanel(props: ResourceCommentsPanelProps) {
             <IconMessage />
             <span>{t("media.comments.all")}</span>
             <Show when={commentTotal() > 0}>
-              <span class="count">{formatNumber(commentTotal())}</span>
+              <NaiveText class="count" depth={3}>{formatNumber(commentTotal())}</NaiveText>
             </Show>
           </div>
           <Show

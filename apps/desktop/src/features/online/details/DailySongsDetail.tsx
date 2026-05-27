@@ -8,6 +8,7 @@ import { PageBody } from "../../../components/page/PageBody";
 import { PageHero } from "../../../components/page/PageHero";
 import { PageSurface } from "../../../components/page/PageSurface";
 import { useTranslation } from "../../../shared/i18n";
+import { NaiveH2, NaiveP } from "../../../shared/ui/naive";
 import { createErrorMessageReader, type FeedbackSetter } from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
 import type { NcmProfile, OnlineTrackItem } from "../shared/types";
@@ -107,6 +108,12 @@ export function DailySongsDetail(props: DailySongsDetailProps) {
       void props.onDislike(item);
     } else if (action === "song-wiki") {
       props.onNavigateToSongWiki?.(item);
+    } else if (action === "mv") {
+      // TODO: Navigate to MV page
+    } else if (action === "copy-song-info") {
+      // TODO: Implement copy song info
+    } else if (action === "download") {
+      // TODO: Implement download — developer mode only
     }
   };
 
@@ -122,8 +129,8 @@ export function DailySongsDetail(props: DailySongsDetailProps) {
           {t("ncm.daily.backToFeed")}
         </button>
         <header class="ncm-daily-detail-hero">
-          <h2>{t("ncm.daily.title")}</h2>
-          <p class="ncm-daily-detail-meta">{tipText()}</p>
+          <NaiveH2>{t("ncm.daily.title")}</NaiveH2>
+          <NaiveP class="ncm-daily-detail-meta">{tipText()}</NaiveP>
           <div class="ncm-daily-detail-menu">
             <button
               type="button"
@@ -158,17 +165,21 @@ export function DailySongsDetail(props: DailySongsDetailProps) {
           contextActions={[
             "play",
             "enqueue",
+            "add-to-playlist",
+            "mv",
+            "view-comments",
             "daily-dislike",
             "search",
             "copy-name",
             "copy-id",
+            "copy-song-info",
             "share-link",
-            "song-wiki",
-            "view-comments"
+            "music-tag-editor",
+            "song-wiki"
           ]}
           sortDisabled={true}
           isLoading={props.isLoading}
-          emptyState={<div class="panel-note">{t("ncm.daily.empty")}</div>}
+          emptyState={<NaiveP class="panel-note">{t("ncm.daily.empty")}</NaiveP>}
           hideTopScrollTool
         />
       </PageBody>

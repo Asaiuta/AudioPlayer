@@ -6,6 +6,7 @@ import { PageHero } from "../../../components/page/PageHero";
 import { PageStickyHeader } from "../../../components/page/PageStickyHeader";
 import { PageSurface } from "../../../components/page/PageSurface";
 import { useTranslation } from "../../../shared/i18n";
+import { NaiveP } from "../../../shared/ui/naive";
 import type { PlaybackController } from "../shared/playback";
 import type { NcmProfile, OnlineTrackItem } from "../shared/types";
 import { NcmListDetail } from "./NcmListDetail";
@@ -85,7 +86,7 @@ export function LikedSongsDetail(props: LikedSongsDetailProps) {
                   if (action === "song-wiki") props.onNavigateToSongWiki?.(item);
                 }}
                 isLoading={props.isLoading}
-                emptyState={<div class="panel-note">{t("ncm.liked.empty")}</div>}
+                emptyState={<NaiveP class="panel-note">{t("ncm.liked.empty")}</NaiveP>}
                 hideTopScrollTool
               />
             </PageBody>

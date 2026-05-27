@@ -1,11 +1,13 @@
 import { For, Match, Show, Switch, createEffect, createMemo, createResource, createSignal, on, onCleanup, onMount } from "solid-js";
 import type { Accessor } from "solid-js";
 import { Portal } from "solid-js/web";
+import { IconClose } from "../../../components/icons";
 import { PageHeader } from "../../../components/page/PageHeader";
 import { SegmentedTabs } from "../../../components/page/SegmentedTabs";
 import { useTranslation } from "../../../shared/i18n";
 import { createApiClient } from "../../../shared/api/client";
 import { usePresenceTransition } from "../../../shared/ui/usePresenceTransition";
+import { NaiveP } from "../../../shared/ui/naive";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
@@ -58,6 +60,12 @@ import { SearchMode } from "./SearchMode";
 import { mvAll } from "../../../shared/api/ncm/video";
 
 const api = createApiClient();
+
+const SPLAYER_DISCOVER_TABS = ["playlists", "toplists", "artists", "new"] as const;
+type SplayerDiscoverTab = typeof SPLAYER_DISCOVER_TABS[number];
+
+const isSplayerDiscoverTab = (tab: string | undefined): tab is SplayerDiscoverTab =>
+  tab !== undefined && (SPLAYER_DISCOVER_TABS as readonly string[]).includes(tab);
 
 const toFeedCardItem = (item: DiscoverCardItem): FeedCardItem => ({
   id: item.id,
@@ -123,10 +131,13 @@ export function DiscoverMode(props: DiscoverModeProps) {
 
   const [catName, setCatName] = createSignal(ALL_PLAYLIST_CATEGORY);
   const [catModalOpen, setCatModalOpen] = createSignal(false);
+  const [catModalType, setCatModalType] = createSignal<number | null>(null);
   const [catTypes, setCatTypes] = createSignal<Record<number, string>>({});
   const [catEntries, setCatEntries] = createSignal<CatEntry[]>([]);
   const [hqCatNames, setHqCatNames] = createSignal<Set<string>>(new Set());
   const catModalPresence = usePresenceTransition(catModalOpen);
+  let catButtonRef: HTMLButtonElement | undefined;
+  let catModalRef: HTMLDivElement | undefined;
 
   const detailNav = useDetailNavigation({
     t,
@@ -354,8 +365,10 @@ export function DiscoverMode(props: DiscoverModeProps) {
       (version) => {
         if (version === undefined || version === 0) return;
         const tab = props.discoverTabRequest?.tab;
-        if (tab) {
-          setDiscoverTab(tab as DiscoverTab);
+        if (isSplayerDiscoverTab(tab)) {
+          setDiscoverTab(tab);
+        } else if (tab) {
+          setDiscoverTab("playlists");
         }
       }
     )
@@ -392,8 +405,7 @@ export function DiscoverMode(props: DiscoverModeProps) {
     { value: "playlists", label: t("ncm.discover.tab.playlists") },
     { value: "toplists", label: t("ncm.discover.tab.toplists") },
     { value: "artists", label: t("ncm.discover.tab.artists") },
-    { value: "new", label: t("ncm.discover.tab.new") },
-    { value: "mvs", label: t("ncm.discover.tab.mvs") }
+    { value: "new", label: t("ncm.discover.tab.new") }
   ]);
   const discoverSectionTitle = createMemo(() => {
     const tab = discoverTab();
@@ -438,14 +450,42 @@ export function DiscoverMode(props: DiscoverModeProps) {
     const types = catTypes();
     return Object.entries(types).map(([key, label]) => ({ key: Number(key), label }));
   });
-
+  const selectedCatTypeKey = createMemo(() => {
+    const selected = catEntries().find((cat) => cat.name === catName());
+    return selected?.category ?? catTypesList()[0]?.key ?? null;
+  });
+  const activeCatTypeKey = createMemo(() => {
+    const selected = catModalType();
+    const available = catTypesList();
+    if (selected !== null && available.some((typeItem) => typeItem.key === selected)) {
+      return selected;
+    }
+    return available[0]?.key ?? null;
+  });
+  const activeCatEntries = createMemo(() => {
+    const activeType = activeCatTypeKey();
+    if (activeType === null) return [];
+    return catEntries().filter((cat) => cat.category === activeType);
+  });
 
   const pageTitle = () => t("ncm.title.discover");
+  const closeCatModal = () => {
+    setCatModalOpen(false);
+    queueMicrotask(() => catButtonRef?.focus());
+  };
+
   createEffect(() => {
     if (!catModalOpen()) return;
+    setCatModalType(selectedCatTypeKey());
+
+    queueMicrotask(() => {
+      const activeTag = catModalRef?.querySelector<HTMLButtonElement>(".cat-modal-tag.is-active");
+      const firstButton = catModalRef?.querySelector<HTMLButtonElement>("button");
+      (activeTag ?? firstButton)?.focus();
+    });
 
     const handleKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setCatModalOpen(false);
+      if (event.key === "Escape") closeCatModal();
     };
 
     window.addEventListener("keydown", handleKey);
@@ -472,42 +512,64 @@ export function DiscoverMode(props: DiscoverModeProps) {
           <div
             class={`cat-modal-overlay${catModalPresence.visible() && !catModalPresence.closing() ? " is-open" : ""}${catModalPresence.closing() ? " is-closing" : ""}`}
             onClick={() => {
-              if (catModalOpen()) setCatModalOpen(false);
+              if (catModalOpen()) closeCatModal();
             }}
           >
-            <div class="cat-modal" role="dialog" aria-modal="true" aria-label={t("ncm.discover.cat.title")} onClick={(e) => e.stopPropagation()}>
+            <div
+              ref={(element) => {
+                catModalRef = element;
+              }}
+              class="cat-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("ncm.discover.cat.title")}
+              onClick={(e) => e.stopPropagation()}
+            >
               <div class="cat-modal-header">
                 <strong>{t("ncm.discover.cat.title")}</strong>
                 <button
                   type="button"
                   class={`cat-modal-tag${catName() === ALL_PLAYLIST_CATEGORY ? " is-active" : ""}`}
-                  onClick={() => { setCatName(ALL_PLAYLIST_CATEGORY); setCatModalOpen(false); }}
+                  onClick={() => { setCatName(ALL_PLAYLIST_CATEGORY); closeCatModal(); }}
                 >
                   {t("ncm.discover.cat.all")}
                 </button>
+                <button type="button" class="cat-modal-close" aria-label={t("window.aria.close")} onClick={closeCatModal}>
+                  <IconClose />
+                </button>
               </div>
               <div class="cat-modal-tabs">
-                <For each={catTypesList()}>
-                  {(typeItem) => (
-                    <div class="cat-modal-group">
-                      <div class="cat-modal-group-label">{typeItem.label}</div>
-                      <div class="cat-modal-tags">
-                        <For each={catEntries().filter((c) => c.category === typeItem.key)}>
-                          {(cat) => (
-                            <button
-                              type="button"
-                              class={`cat-modal-tag${catName() === cat.name ? " is-active" : ""}`}
-                              onClick={() => { setCatName(cat.name); setCatModalOpen(false); }}
-                            >
-                              {cat.hot ? <span class="cat-modal-hot" aria-hidden="true" /> : null}
-                              {cat.name}
-                            </button>
-                          )}
-                        </For>
-                      </div>
-                    </div>
-                  )}
-                </For>
+                <div class="cat-modal-tab-rail" role="tablist" aria-label={t("ncm.discover.cat.title")}>
+                  <For each={catTypesList()}>
+                    {(typeItem) => (
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={activeCatTypeKey() === typeItem.key}
+                        class={`cat-modal-tab${activeCatTypeKey() === typeItem.key ? " is-active" : ""}`}
+                        onClick={() => setCatModalType(typeItem.key)}
+                      >
+                        {typeItem.label}
+                      </button>
+                    )}
+                  </For>
+                </div>
+                <div class="cat-modal-pane" role="tabpanel">
+                  <div class="cat-modal-tags">
+                    <For each={activeCatEntries()}>
+                      {(cat) => (
+                        <button
+                          type="button"
+                          class={`cat-modal-tag${catName() === cat.name ? " is-active" : ""}`}
+                          onClick={() => { setCatName(cat.name); closeCatModal(); }}
+                        >
+                          {cat.hot ? <span class="cat-modal-hot" aria-hidden="true" /> : null}
+                          {cat.name}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -536,7 +598,7 @@ export function DiscoverMode(props: DiscoverModeProps) {
         <Match when={detailView().kind === "liked"}>
           <Show
             when={detailNav.selectedPlaylist()}
-            fallback={<div class="panel-note">{detailNav.isLoadingLikedSongs() ? t("ncm.playlist.loading") : t("ncm.liked.empty")}</div>}
+            fallback={<NaiveP class="panel-note">{detailNav.isLoadingLikedSongs() ? t("ncm.playlist.loading") : t("ncm.liked.empty")}</NaiveP>}
           >
             <PlaylistDetail
               playlist={detailNav.selectedPlaylist()}
@@ -680,6 +742,9 @@ export function DiscoverMode(props: DiscoverModeProps) {
                 discoverPlaylistKind={discoverPlaylistKind()}
                 setDiscoverPlaylistKind={setDiscoverPlaylistKind}
                 setCatModalOpen={setCatModalOpen}
+                setCatButtonRef={(element) => {
+                  catButtonRef = element;
+                }}
                 discoverSectionTitle={discoverSectionTitle()}
                 discoverSectionSubtitle={discoverSectionSubtitle()}
                 allPlaylists={playlistCards.items()}

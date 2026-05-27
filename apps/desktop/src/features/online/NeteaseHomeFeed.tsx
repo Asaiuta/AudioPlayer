@@ -9,6 +9,7 @@ import { createApiClient, type NcmHomeFeed } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { cacheFetch } from "../../shared/state/cacheFetch";
 import { useUISettings, type CoverHiddenKey, type HomeSectionKey } from "../../shared/state/useUISettings";
+import { NaiveSkeleton } from "../../shared/ui/naive";
 import { playlistSummaryFromFeedCard, type OnlinePlaylistSummary } from "./ncmPlaylistSummary";
 import type { DiscoverTab, FeedCardItem } from "./shared/types";
 
@@ -68,16 +69,16 @@ function HomeFeedSkeleton() {
       <section class="card-row ncm-home-feed-skeleton" aria-hidden="true">
         <header class="card-row-head">
           <div class="card-row-copy">
-            <span class="card-row-title ncm-home-feed-skeleton-title skeleton" />
+            <NaiveSkeleton class="card-row-title ncm-home-feed-skeleton-title" />
           </div>
         </header>
         <div class="card-row-grid" role="list">
           <For each={[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}>
             {() => (
               <div class="album-card skeleton-card">
-                <span class="album-card-art skeleton" />
-                <span class="skeleton skeleton-line skeleton-line--title" />
-                <span class="skeleton skeleton-line" />
+                <NaiveSkeleton class="album-card-art" />
+                <NaiveSkeleton class="skeleton-line skeleton-line--title" />
+                <NaiveSkeleton class="skeleton-line" />
               </div>
             )}
           </For>
@@ -86,15 +87,15 @@ function HomeFeedSkeleton() {
       <section class="card-row ncm-home-feed-skeleton" aria-hidden="true">
         <header class="card-row-head">
           <div class="card-row-copy">
-            <span class="card-row-title ncm-home-feed-skeleton-title skeleton" />
+            <NaiveSkeleton class="card-row-title ncm-home-feed-skeleton-title" />
           </div>
         </header>
         <div class="card-row-grid" role="list">
           <For each={[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]}>
             {() => (
               <div class="album-card album-card--round skeleton-card">
-                <span class="album-card-art skeleton skeleton--circle" />
-                <span class="skeleton skeleton-line skeleton-line--title" />
+                <NaiveSkeleton class="album-card-art" shape="circle" />
+                <NaiveSkeleton class="skeleton-line skeleton-line--title" />
               </div>
             )}
           </For>
@@ -399,7 +400,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                       alt=""
                       class="ncm-home-feed-fm-card-blur"
                       observeVisibility={true}
-                      shape="circle"
+                      shape="rect"
                       aspect="square"
                       ariaHidden="true"
                     />
@@ -408,7 +409,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                       alt=""
                       class="ncm-home-feed-fm-card-cover"
                       observeVisibility={true}
-                      shape="circle"
+                      shape="rect"
                       aspect="square"
                     />
                   </>

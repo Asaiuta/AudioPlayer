@@ -1,6 +1,7 @@
 import { For, Show, createSignal } from "solid-js";
 import type { LibraryRoot } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
+import { NaiveScrollbar } from "../../shared/ui/naive";
 import { Modal } from "../../components/Modal";
 import { IconDelete, IconFolder, IconFolderPlus } from "../../components/icons";
 
@@ -53,7 +54,7 @@ export function ManageRootsModal(props: ManageRootsModalProps) {
         <span class="local-list-tip">
           {t("library.modal.manageRoots.tip")}
         </span>
-        <div class="local-directory-scroll">
+        <NaiveScrollbar class="local-directory-scroll">
           <div class="local-directory-list">
             <Show
               when={props.roots.length > 0}
@@ -87,7 +88,7 @@ export function ManageRootsModal(props: ManageRootsModalProps) {
             </For>
             </Show>
           </div>
-        </div>
+        </NaiveScrollbar>
         <div class="local-directory-footer">
           <button
             class="ghost-button local-directory-add"

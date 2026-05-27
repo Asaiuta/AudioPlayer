@@ -109,7 +109,7 @@ export function NeteasePage(props: NeteasePageProps) {
   const isDiscoverMode = () => props.mode === "discover";
 
   return (
-    <div class={`panel panel-page online-page${isDiscoverMode() ? " is-discover-page" : ""}`}>
+    <div class={`panel panel-page online-page${props.mode === "recommend" ? " is-recommend-page" : ""}${isDiscoverMode() ? " is-discover-page" : ""}`}>
       <Switch>
         <Match when={props.mode === "recommend"}>
           <RecommendMode

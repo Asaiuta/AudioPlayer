@@ -6,6 +6,7 @@ import { PageHeader } from "../../../components/page/PageHeader";
 import { useTranslation } from "../../../shared/i18n";
 import { createApiClient } from "../../../shared/api/client";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { NaiveP } from "../../../shared/ui/naive";
 import {
   type OnlinePlaylistSummary
 } from "../ncmPlaylistSummary";
@@ -215,16 +216,16 @@ export function UserPlaylistsMode(props: UserPlaylistsModeProps) {
           }
         />
       </Show>
-      <Show when={props.loginProfile() !== null} fallback={<div class="panel-note">{t("ncm.empty.loginRequired")}</div>}>
+      <Show when={props.loginProfile() !== null} fallback={<NaiveP class="panel-note">{t("ncm.empty.loginRequired")}</NaiveP>}>
       <Show
         when={detailNav.selectedPlaylist()}
         fallback={
           <Show
             when={userPlaylistsState().length > 0}
             fallback={
-              <div class="panel-note">
+              <NaiveP class="panel-note">
                 {isLoadingUserPlaylists() ? t("ncm.playlist.loading") : playlistEmptyText()}
-              </div>
+              </NaiveP>
             }
           >
             <section class="playlist-grid-section">
