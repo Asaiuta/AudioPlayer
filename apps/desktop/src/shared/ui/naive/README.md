@@ -38,6 +38,12 @@ NaiveUI's shell-level primitives are routed to app CSS and tokens instead of fac
 
 NaiveUI's feedback providers (`NMessageProvider`, `NNotificationProvider`, `NDialogProvider`, `NModalProvider`, and `NLoadingBarProvider`) are routed to `NaiveFeedbackProvider` plus singleton services. The provider owns one portal mount at app root; callers use `message.success(...)`, `notification.info(...)`, `dialog.warning(...)`, `modal.create(...)`, or `loadingBar.start()` instead of importing provider facades per feature.
 
+## Dialog And Sheet Routing
+
+NaiveUI's `NDrawer`, `NDrawerContent`, and standalone `NModal` are routed to existing app dialog and sheet owners instead of package-level facades. Current consumers should use `Modal.tsx`, `LoginModal.tsx`, `QueueDrawer.tsx`, settings overlay structure, or the `dialog` / `modal` feedback services.
+
+Do not export `NaiveDrawer`, `NaiveDrawerContent`, or `NaiveModal` until a consumer-backed consolidation task migrates an existing surface and owns focus trap, focus restore, body scroll lock, Escape/backdrop policy, placement, and NaiveUI class hooks together.
+
 ## Source-Backed Components
 
 - `NaiveTabs` follows SPlayer's `naive-ui@2.43.2` `NTabs` / `NTab` segment branch: `n-tabs`, `n-tabs-nav`, `n-tabs-rail`, `n-tabs-capsule`, `n-tabs-wrapper`, `n-tabs-tab-wrapper`, `n-tabs-tab`, and `n-tabs-tab__label` class hooks are part of the package contract.

@@ -58,6 +58,7 @@ This package is an app-local facade layer for SPlayer/NaiveUI parity. The route 
 | app shell CSS/tokens | `NLayout` / `NLayoutHeader` / `NLayoutSider` | no facade; app shell structure and NaiveUI layout color/border/transition parity are routed to `global.css`, `tokens.css`, and `components/shell.css` | routed |
 | appearance/token system | `NConfigProvider` / `NGlobalStyle` | no facade; provider/global reset responsibilities are routed to existing appearance tokens and `global.css` | routed |
 | `NaiveFeedbackProvider` services | `NMessageProvider` / `NNotificationProvider` / `NDialogProvider` / `NModalProvider` / `NLoadingBarProvider` | app-root provider plus singleton `message`, `notification`, `dialog`, `modal`, and `loadingBar` APIs; no per-provider facades | app service |
+| app dialog and sheet routes | `NDrawer` / `NDrawerContent` / `NModal` | no generic package facade yet; current ownership stays in `Modal.tsx`, `LoginModal.tsx`, `QueueDrawer.tsx`, settings overlay structure, and feedback `dialog` / `modal` services until a consumer-backed Kobalte Dialog consolidation task | routed |
 | `NaiveBackTop` | `NBackTop` | handwritten page utility facade; `BackToTop` consumes it while preserving page placement classes | source-backed |
 | `NaiveFloatButton` / `NaiveFloatButtonGroup` | `NFloatButton` / `NFloatButtonGroup` | handwritten floating action stack; `MediaListFloatTools` consumes it while preserving media-list placement classes | source-backed |
 | `NaiveQrCode` | `NQrCode` | handwritten wrapper that lazy-loads the existing `qrcode/lib/browser.js` generator | source-backed ready |
@@ -155,8 +156,8 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 | `NEllipsis` | 4 | handwritten display facade |
 | `NBadge` | 3 | handwritten display facade |
 | `NConfigProvider` | 3 | routed to appearance/token system; no facade |
-| `NDrawer` | 3 | Kobalte/dialog candidate |
-| `NDrawerContent` | 3 | Kobalte/dialog candidate |
+| `NDrawer` | 3 | routed to existing app sheet/dialog surfaces; generic `NaiveDrawer` deferred until consumer-backed consolidation |
+| `NDrawerContent` | 3 | routed with `NDrawer`; no package-level content shell until a real drawer consumer migrates |
 | `NList` | 3 | `NaiveList` handwritten list container facade |
 | `NListItem` | 3 | `NaiveListItem` handwritten list row facade |
 | `NMenu` | 3 | structured facade; Sidebar is first implementation |
@@ -168,7 +169,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 | `NDynamicTags` | 2 | Kobalte/custom tag input candidate |
 | `NH2` | 3 | `NaiveH2` handwritten typography facade |
 | `NIcon` | 2 | routed to local icon contract; no facade |
-| `NModal` | 2 | existing modal route, Kobalte dialog candidate later |
+| `NModal` | 2 | routed to existing `Modal.tsx` and feedback `modal` service; generic `NaiveModal` deferred until modal consolidation |
 | `NProgress` | 2 | `NaiveProgress` handwritten line progress facade |
 | `NRadio` | 3 occurrences / 2 files | `NaiveRadio` source-backed/Kobalte facade; rich JSX labels and numeric/string values supported |
 | `NRadioGroup` | 3 occurrences / 2 files | `NaiveRadioGroup` source-backed/Kobalte facade; group value coercion preserves original string/number values |
@@ -210,6 +211,7 @@ Current tag-occurrence refresh, counted from `D:\AI\SPlayer\src` with `rg --no-f
 
 ## Migration Log
 
+- 2026-05-26: Reconciled `NDrawer`, `NDrawerContent`, and standalone `NModal` as no-facade dialog/sheet boundaries. AudioPlayer keeps current ownership in `Modal.tsx`, `LoginModal.tsx`, `QueueDrawer.tsx`, the settings overlay, and `NaiveFeedbackProvider`'s `dialog` / `modal` services. A future Kobalte `Dialog` facade must be tied to a real consumer migration and own focus trap, focus restore, body scroll lock, Escape/backdrop policy, placement, and NaiveUI class hooks together.
 - 2026-05-26: Reconciled `NImage` / `NImageGroup` as a no-facade boundary. Existing `SImage` remains the canonical image/media component for placeholder, loading/error, lazy/decode, release-on-hide, artwork, shape/aspect, object-fit, cross-origin, and class/style slot behavior. NaiveUI preview overlays, grouped navigation, toolbar behavior, and generated image-preview styling remain routed to `05-24-ui-splayer-n-simage-preview-lightbox` before any thin `NaiveImage` alias is considered.
 - 2026-05-26: Added `NaiveCollapse`, `NaiveCollapseItem`, and `NaiveCollapseTransition` against SPlayer about/download/wiki disclosure usage plus NaiveUI 2.43.2 `Collapse.mjs` / `CollapseItem.mjs` / `_internal/fade-in-expand-transition`. `collapse.tsx` stays startup-light and lazy-loads Kobalte `Accordion`; `collapse-transition.tsx` is handwritten with no Kobalte import. The facade keeps `.n-collapse*` hooks, active/disabled and left/right arrow-placement modifiers, numeric-name coercion, `expandedNames` union normalization, and derived `onItemHeaderClick` metadata. Inventory counts were corrected from the umbrella rough 4/4/10 to the audited 5/6/12 active footprint.
 - 2026-05-26: Added `NaiveCheckbox` and `NaiveCheckboxGroup` against SPlayer close-confirm and copy-lyrics checkbox usage plus NaiveUI 2.43.2 `Checkbox.mjs` / `CheckboxGroup.mjs`. `checkbox.tsx` stays startup-light; `NaiveCheckboxKobalte.tsx` owns the Kobalte leaf, while the group is handwritten because `@kobalte/core@0.13.11` has no checkbox-group primitive. The facade keeps `.n-checkbox*` / `.n-checkbox-group` hooks, controlled indeterminate, label/children fallback, numeric value round trips, and NaiveUI max/min quota behavior.
