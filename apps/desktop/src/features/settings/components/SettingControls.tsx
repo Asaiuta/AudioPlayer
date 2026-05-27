@@ -1,18 +1,23 @@
 import type { Accessor } from "solid-js";
+import { NaiveSelect, NaiveSwitch, type NaiveSelectOption } from "../../../shared/ui/naive";
 import { SettingItem, RangeInput } from "./SettingItem";
-import { SelectInput, type SelectOption } from "./SelectInput";
+import { WipBadge } from "./WipBadge";
+
+export type SelectOption = NaiveSelectOption<string>;
 
 interface BaseSettingControlProps {
   id: string;
   label: string;
   description?: string;
+  disabled?: boolean;
   highlighted: boolean;
   index: number;
+  wip?: boolean;
 }
 
 interface BooleanSettingItemProps extends BaseSettingControlProps {
   checked: boolean;
-  onChange: () => void;
+  onChange?: () => void;
 }
 
 export function BooleanSettingItem(props: BooleanSettingItemProps) {
@@ -23,19 +28,22 @@ export function BooleanSettingItem(props: BooleanSettingItemProps) {
       description={props.description}
       highlighted={props.highlighted}
       index={props.index}
+      badge={props.wip ? <WipBadge /> : undefined}
     >
-      <label class="toggle-switch">
-        <input type="checkbox" checked={props.checked} onChange={props.onChange} />
-        <span class="toggle-switch-slider" />
-      </label>
+      <NaiveSwitch
+        checked={props.checked}
+        disabled={props.disabled || props.wip}
+        round={false}
+        onChange={props.disabled || props.wip ? undefined : props.onChange}
+        ariaLabel={props.label}
+      />
     </SettingItem>
   );
 }
 
 interface ButtonSettingItemProps extends BaseSettingControlProps {
   buttonLabel: string;
-  onClick: () => void;
-  disabled?: boolean;
+  onClick?: () => void;
 }
 
 export function ButtonSettingItem(props: ButtonSettingItemProps) {
@@ -46,8 +54,14 @@ export function ButtonSettingItem(props: ButtonSettingItemProps) {
       description={props.description}
       highlighted={props.highlighted}
       index={props.index}
+      badge={props.wip ? <WipBadge /> : undefined}
     >
-      <button type="button" class="ghost-button" onClick={props.onClick} disabled={props.disabled}>
+      <button
+        type="button"
+        class="ghost-button"
+        onClick={props.wip ? undefined : props.onClick}
+        disabled={props.disabled || props.wip}
+      >
         {props.buttonLabel}
       </button>
     </SettingItem>
@@ -75,14 +89,12 @@ export function RecordBooleanSettingItem<T extends Record<string, boolean>, K ex
       highlighted={props.highlighted}
       index={props.index}
     >
-      <label class="toggle-switch">
-        <input
-          type="checkbox"
-          checked={currentChecked()}
-          onChange={(event) => props.onChange(event.currentTarget.checked)}
-        />
-        <span class="toggle-switch-slider" />
-      </label>
+      <NaiveSwitch
+        checked={currentChecked()}
+        round={false}
+        onChange={props.onChange}
+        ariaLabel={props.label}
+      />
     </SettingItem>
   );
 }
@@ -90,10 +102,15 @@ export function RecordBooleanSettingItem<T extends Record<string, boolean>, K ex
 interface SelectSettingItemProps extends BaseSettingControlProps {
   value: string;
   options: SelectOption[];
-  onChange: (value: string) => void;
+  onChange?: (value: string) => void;
 }
 
 export function SelectSettingItem(props: SelectSettingItemProps) {
+  const handleChange = (value: string) => {
+    if (props.disabled || props.wip) return;
+    props.onChange?.(value);
+  };
+
   return (
     <SettingItem
       id={props.id}
@@ -101,8 +118,17 @@ export function SelectSettingItem(props: SelectSettingItemProps) {
       description={props.description}
       highlighted={props.highlighted}
       index={props.index}
+      badge={props.wip ? <WipBadge /> : undefined}
     >
-      <SelectInput value={props.value} options={props.options} onChange={props.onChange} />
+      <NaiveSelect
+        value={props.value}
+        options={props.options}
+        onUpdateValue={(value) => {
+          if (value != null) handleChange(value);
+        }}
+        disabled={props.disabled || props.wip}
+        ariaLabel={props.label}
+      />
     </SettingItem>
   );
 }

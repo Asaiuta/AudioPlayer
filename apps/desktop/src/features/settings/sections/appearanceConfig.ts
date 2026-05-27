@@ -71,15 +71,20 @@ export const CONTEXT_MENU_ITEMS: readonly ToggleConfig<keyof ContextMenuOptions>
   { key: "play", itemId: "contextMenuOptions.play", labelKey: "settings.appearance.contextMenu.play" },
   { key: "playNext", itemId: "contextMenuOptions.playNext", labelKey: "settings.appearance.contextMenu.playNext" },
   { key: "addToPlaylist", itemId: "contextMenuOptions.addToPlaylist", labelKey: "settings.appearance.contextMenu.addToPlaylist" },
+  { key: "mv", itemId: "contextMenuOptions.mv", labelKey: "settings.appearance.contextMenu.mv" },
   { key: "dislike", itemId: "contextMenuOptions.dislike", labelKey: "settings.appearance.contextMenu.dislike" },
   { key: "more", itemId: "contextMenuOptions.more", labelKey: "settings.appearance.contextMenu.more" },
+  { key: "cloudImport", itemId: "contextMenuOptions.cloudImport", labelKey: "settings.appearance.contextMenu.cloudImport" },
   { key: "search", itemId: "contextMenuOptions.search", labelKey: "settings.appearance.contextMenu.search" },
   { key: "copyName", itemId: "contextMenuOptions.copyName", labelKey: "settings.appearance.contextMenu.copyName" },
+  { key: "wiki", itemId: "contextMenuOptions.wiki", labelKey: "settings.appearance.contextMenu.wiki" },
+  { key: "download", itemId: "contextMenuOptions.download", labelKey: "settings.appearance.contextMenu.download" },
   { key: "openFolder", itemId: "contextMenuOptions.openFolder", labelKey: "settings.appearance.contextMenu.openFolder" },
   { key: "deleteFromPlaylist", itemId: "contextMenuOptions.deleteFromPlaylist", labelKey: "settings.appearance.contextMenu.deleteFromPlaylist" },
   { key: "deleteFromCloud", itemId: "contextMenuOptions.deleteFromCloud", labelKey: "settings.appearance.contextMenu.deleteFromCloud" },
   { key: "cloudMatch", itemId: "contextMenuOptions.cloudMatch", labelKey: "settings.appearance.contextMenu.cloudMatch" },
-  { key: "deleteFromLibrary", itemId: "contextMenuOptions.deleteFromLibrary", labelKey: "settings.appearance.contextMenu.deleteFromLibrary" }
+  { key: "deleteFromLibrary", itemId: "contextMenuOptions.deleteFromLibrary", labelKey: "settings.appearance.contextMenu.deleteFromLibrary" },
+  { key: "musicTagEditor", itemId: "contextMenuOptions.musicTagEditor", labelKey: "settings.appearance.contextMenu.musicTagEditor" }
 ];
 
 export const COVER_DISPLAY_ITEMS: readonly ToggleConfig<keyof HiddenCovers>[] = [

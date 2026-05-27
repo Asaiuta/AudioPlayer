@@ -102,15 +102,21 @@ export type ContextMenuOptionKey =
   | "play"
   | "playNext"
   | "addToPlaylist"
+  | "mv"
   | "dislike"
   | "more"
+  | "cloudImport"
   | "search"
   | "copyName"
+  | "wiki"
+  | "download"
   | "openFolder"
   | "deleteFromPlaylist"
   | "deleteFromCloud"
   | "cloudMatch"
   | "deleteFromLibrary"
+  | "deleteFromLocal"
+  | "musicTagEditor"
   | "delete";
 
 export type HiddenCovers = Record<CoverHiddenKey, boolean>;
@@ -280,15 +286,21 @@ export const DEFAULT_CONTEXT_MENU_OPTIONS: ContextMenuOptions = {
   play: true,
   playNext: true,
   addToPlaylist: true,
+  mv: true,
   dislike: true,
   more: true,
+  cloudImport: true,
   search: true,
   copyName: true,
+  wiki: true,
+  download: true,
   openFolder: true,
   deleteFromPlaylist: true,
   deleteFromCloud: true,
   cloudMatch: true,
   deleteFromLibrary: true,
+  deleteFromLocal: true,
+  musicTagEditor: true,
   delete: true
 };
 
@@ -635,8 +647,8 @@ const UI_SETTINGS_SCHEMA: UISettingsSchema = {
   countDownShow: createBoolField("ui.player.countDownShow", true),
   showSpectrums: createBoolField("ui.fullPlayer.showSpectrums", false),
   homeSections: createHomeSectionsField("ui.home.sections", DEFAULT_HOME_SECTIONS),
-  showHomeGreeting: createBoolField("ui.home.showGreeting", true),
-  themeMode: createEnumField("ui.theme.mode", "dark", new Set(["dark", "light", "auto"])),
+  showHomeGreeting: createBoolField("ui.home.showGreeting", false),
+  themeMode: createEnumField("ui.theme.mode", "auto", new Set(["dark", "light", "auto"])),
   ncmSongLevel: createEnumField("ncm.song.level", "exhigh", VALID_SONG_LEVELS),
   autoPlay: createBoolField("ui.playback.autoPlay", false),
   volumeFade: createBoolField("ui.playback.volumeFade", true),

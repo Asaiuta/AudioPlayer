@@ -1,4 +1,6 @@
 import { createMemo, createSignal } from "solid-js";
+import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
+import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
 import type {
   CloseAppMethod,
@@ -10,6 +12,7 @@ import {
   commitUISettingField,
   readUISettingsSnapshot
 } from "../../../shared/state/useUISettings";
+import { dialog, message } from "../../../shared/ui/naive";
 import {
   BooleanSettingItem,
   SelectSettingItem
@@ -18,10 +21,81 @@ import { settingsSectionClass } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
 import type { SelectOption } from "../components/SelectInput";
 import { togglePersistedField } from "../storage";
+import {
+  clearBrowserSessionCacheByPrefix,
+  requestOnlineServiceModeChange,
+  setTaskbarProgressPreference,
+  setUpdateChannelPreference
+} from "../generalSettingsRuntime";
 
 interface GeneralSectionProps {
   highlightId: string | null;
 }
+
+const api = createApiClient();
+
+const reloadApp = () => {
+  if (typeof window !== "undefined") {
+    window.location.reload();
+  }
+};
+
+const confirmOnlineServiceChange = (
+  nextEnabled: boolean,
+  copy: {
+    title: string;
+    content: string;
+    positiveText: string;
+    negativeText: string;
+  }
+): Promise<boolean> =>
+  new Promise((resolve) => {
+    let settled = false;
+    let timeoutId: number | undefined;
+    const settle = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== undefined) {
+        window.clearTimeout(timeoutId);
+      }
+      resolve(value);
+    };
+
+    const handle = dialog.warning({
+      closable: false,
+      title: copy.title,
+      content: copy.content,
+      positiveText: copy.positiveText,
+      negativeText: copy.negativeText,
+      onPositiveClick: () => settle(true),
+      onNegativeClick: () => settle(false)
+    });
+
+    timeoutId = window.setTimeout(() => {
+      if (!settled) {
+        handle.destroy();
+        settle(false);
+      }
+    }, 5 * 60 * 1000);
+  });
+
+const resetOnlineRuntimeState = async () => {
+  clearBrowserSessionCacheByPrefix("ncm.");
+  const results = await Promise.allSettled([
+    api.stop(),
+    api.clearPersistentQueue()
+  ]);
+  const rejected = results.find(
+    (result): result is PromiseRejectedResult => result.status === "rejected"
+  );
+  if (rejected) {
+    throw rejected.reason;
+  }
+};
+
+const clearTaskbarProgress = async () => {
+  await getCurrentWindow().setProgressBar({ status: ProgressBarStatus.None });
+};
 
 export function GeneralSection(props: GeneralSectionProps) {
   const { t } = useTranslation();
@@ -66,10 +140,66 @@ export function GeneralSection(props: GeneralSectionProps) {
     { value: "web", label: t("settings.general.shareUrlFormat.web") },
     { value: "mobile", label: t("settings.general.shareUrlFormat.mobile") }
   ]);
+  const onlineSearchControlsDisabled = createMemo(() => !useOnlineService());
 
   const isHi = (id: string) => props.highlightId === id;
   let itemIndex = 0;
   const nextIndex = () => itemIndex++;
+
+  const handleOnlineServiceChange = () => {
+    const nextEnabled = !useOnlineService();
+    void requestOnlineServiceModeChange(nextEnabled, {
+      confirmChange: () =>
+        confirmOnlineServiceChange(nextEnabled, {
+          title: t("settings.general.useOnlineService.confirm.title"),
+          content: t("settings.general.useOnlineService.confirm.content"),
+          positiveText: t("settings.general.useOnlineService.confirm.positive"),
+          negativeText: t("settings.general.useOnlineService.confirm.negative")
+        }),
+      currentValue: useOnlineService,
+      persistValue: (value) =>
+        commitUISettingField("useOnlineService", value, useOnlineService, setUseOnlineService),
+      resetOnlineRuntimeState,
+      reportResetError: (error) => {
+        console.warn("[settings] failed to reset online runtime state", error);
+      },
+      reloadApp
+    }).then((result) => {
+      if (result.status === "failed") {
+        message.error(t("settings.general.persistFailed"));
+      }
+      if (result.resetError) {
+        message.warning(t("settings.general.useOnlineService.resetFailed"));
+      }
+    });
+  };
+
+  const handleTaskbarProgressChange = () => {
+    const nextEnabled = !showTaskbarProgress();
+    setTaskbarProgressPreference(nextEnabled, {
+      persistValue: (value) =>
+        commitUISettingField(
+          "showTaskbarProgress",
+          value,
+          showTaskbarProgress,
+          setShowTaskbarProgress
+        ),
+      clearTaskbarProgress,
+      reportError: (error) => {
+        console.warn("[settings] failed to clear taskbar progress", error);
+      }
+    });
+  };
+
+  const handleUpdateChannelChange = (value: string) => {
+    setUpdateChannelPreference(value as UpdateChannel, {
+      persistValue: (channel) =>
+        commitUISettingField("updateChannel", channel, updateChannel, setUpdateChannel),
+      requestUpdateCheck: () => {
+        message.info(t("settings.general.updateChannel.checkUnavailable"));
+      }
+    });
+  };
 
   return (
     <section class={settingsSectionClass}>
@@ -81,9 +211,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           highlighted={isHi("useOnlineService")}
           index={nextIndex()}
           checked={useOnlineService()}
-          onChange={() =>
-            togglePersistedField("useOnlineService", useOnlineService, setUseOnlineService)
-          }
+          onChange={handleOnlineServiceChange}
         />
         <SelectSettingItem
           id="closeAppMethod"
@@ -93,6 +221,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           index={nextIndex()}
           value={closeAppMethod()}
           options={closeAppOptions()}
+          disabled={showCloseAppTip()}
           onChange={(value) =>
             commitUISettingField(
               "closeAppMethod",
@@ -120,13 +249,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           highlighted={isHi("showTaskbarProgress")}
           index={nextIndex()}
           checked={showTaskbarProgress()}
-          onChange={() =>
-            togglePersistedField(
-              "showTaskbarProgress",
-              showTaskbarProgress,
-              setShowTaskbarProgress
-            )
-          }
+          onChange={handleTaskbarProgressChange}
         />
       </SettingGroup>
 
@@ -150,14 +273,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           index={nextIndex()}
           value={updateChannel()}
           options={updateChannelOptions()}
-          onChange={(value) =>
-            commitUISettingField(
-              "updateChannel",
-              value as UpdateChannel,
-              updateChannel,
-              setUpdateChannel
-            )
-          }
+          onChange={handleUpdateChannelChange}
         />
       </SettingGroup>
 
@@ -180,6 +296,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           highlighted={isHi("showHotSearch")}
           index={nextIndex()}
           checked={showHotSearch()}
+          disabled={onlineSearchControlsDisabled()}
           onChange={() => togglePersistedField("showHotSearch", showHotSearch, setShowHotSearch)}
         />
         <BooleanSettingItem
@@ -189,6 +306,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           highlighted={isHi("enableSearchKeyword")}
           index={nextIndex()}
           checked={enableSearchKeyword()}
+          disabled={onlineSearchControlsDisabled()}
           onChange={() =>
             togglePersistedField(
               "enableSearchKeyword",

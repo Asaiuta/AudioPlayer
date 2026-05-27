@@ -177,7 +177,7 @@ test("readUISettingsSnapshot falls back to defaults when injected storage fails"
 
   assert.equal(settings.bgEnabled, false);
   assert.equal(settings.bgBlur, 32);
-  assert.equal(settings.themeMode, "dark");
+  assert.equal(settings.themeMode, "auto");
   assert.equal(settings.ncmSongLevel, "exhigh");
   assert.equal(reported.length > 0, true);
   assert.equal(reported[0]?.reason, "storage_unavailable");

@@ -9,7 +9,10 @@ import { AppearanceSection } from "./sections/AppearanceSection";
 import { PlaybackSection } from "./sections/PlaybackSection";
 import { LyricsSection } from "./sections/LyricsSection";
 import { AudioEngineSection } from "./sections/AudioEngineSection";
-import { UnavailableSettingsSection } from "./sections/UnavailableSettingsSection";
+import { LocalSection } from "./sections/LocalSection";
+import { KeyboardSection } from "./sections/KeyboardSection";
+import { NetworkSection } from "./sections/NetworkSection";
+import { AboutSection } from "./sections/AboutSection";
 
 interface SettingsPageProps {
   isOpen: boolean;
@@ -170,22 +173,13 @@ export function SettingsPage(props: SettingsPageProps) {
                   <LyricsSection highlightId={highlightId()} />
                 </Match>
                 <Match when={activeCategory() === "local"}>
-                  <UnavailableSettingsSection
-                    titleKey="settings.nav.local"
-                    descriptionKey="settings.local.unavailable.desc"
-                  />
+                  <LocalSection highlightId={highlightId()} />
                 </Match>
                 <Match when={activeCategory() === "keyboard"}>
-                  <UnavailableSettingsSection
-                    titleKey="settings.nav.keyboard"
-                    descriptionKey="settings.keyboard.unavailable.desc"
-                  />
+                  <KeyboardSection highlightId={highlightId()} />
                 </Match>
                 <Match when={activeCategory() === "network"}>
-                  <UnavailableSettingsSection
-                    titleKey="settings.nav.network"
-                    descriptionKey="settings.network.unavailable.desc"
-                  />
+                  <NetworkSection highlightId={highlightId()} />
                 </Match>
                 <Match when={activeCategory() === "audio-engine"}>
                   <AudioEngineSection
@@ -194,10 +188,7 @@ export function SettingsPage(props: SettingsPageProps) {
                   />
                 </Match>
                 <Match when={activeCategory() === "about"}>
-                  <UnavailableSettingsSection
-                    titleKey="settings.nav.about"
-                    descriptionKey="settings.about.unavailable.desc"
-                  />
+                  <AboutSection highlightId={highlightId()} />
                 </Match>
               </Switch>
             </div>

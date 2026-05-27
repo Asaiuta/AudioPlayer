@@ -1,6 +1,8 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
+import { IconSearch } from "../../../components/icons";
 import type { TranslationKey } from "../../../shared/i18n";
 import { useTranslation } from "../../../shared/i18n";
+import { NaiveInput } from "../../../shared/ui/naive";
 import { useDismissibleOverlay } from "../../../shared/ui/useDismissibleOverlay";
 import { SETTINGS_CATALOG, type SettingsCatalogEntry } from "../search/catalog";
 import { SETTINGS_CATEGORIES } from "./SettingsCategoryNav";
@@ -18,28 +20,29 @@ const CATEGORY_LABELS: Record<SettingsCategoryKey, TranslationKey> = SETTINGS_CA
   {} as Record<SettingsCategoryKey, TranslationKey>
 );
 
-const settingsSearchClass = "settings-search relative w-full";
+const settingsSearchClass = "settings-search relative z-[100] mb-3 w-full";
 
-const settingsSearchInputClass =
-  "settings-search-input h-9 w-full rounded-md border border-border-subtle bg-[color-mix(in_oklch,var(--surface-2)_70%,transparent)] px-[14px] text-sm text-text outline-none transition-[border-color,box-shadow] duration-fast ease-standard focus:border-accent focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--accent)_25%,transparent)]";
+const settingsSearchInputClass = "settings-search-input";
 
 const settingsSearchResultsClass =
-  "settings-search-results absolute left-0 right-0 top-[calc(100%+6px)] flex max-h-80 flex-col gap-[2px] overflow-y-auto p-[6px]";
+  "settings-search-results absolute left-0 top-[46px] w-full overflow-y-auto";
 
 const settingsSearchResultBaseClass =
-  "settings-search-result flex items-center justify-between gap-3 rounded-sm border-0 bg-transparent px-3 py-3 text-left text-sm text-text transition-colors duration-fast ease-standard hover:bg-[color-mix(in_oklch,var(--accent)_18%,transparent)]";
+  "settings-search-result block w-full rounded-0 border-0 bg-transparent px-4 py-3 text-left text-text transition-colors duration-fast ease-standard";
 
-const settingsSearchResultActiveClass =
-  "is-active bg-[color-mix(in_oklch,var(--accent)_18%,transparent)]";
+const settingsSearchResultActiveClass = "is-active";
 
 const settingsSearchResultLabelClass =
-  "settings-search-result-label min-w-0 flex-1 font-500";
+  "settings-search-result-label mb-1 block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-sm font-500";
 
 const settingsSearchResultCategoryClass =
-  "settings-search-result-category flex-none text-xs text-muted";
+  "settings-search-result-category mb-[2px] block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted opacity-60";
+
+const settingsSearchResultDescriptionClass =
+  "settings-search-result-desc block min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-muted opacity-70";
 
 const settingsSearchEmptyClass =
-  "settings-search-empty px-3 py-[14px] text-center text-sm text-muted";
+  "settings-search-empty px-4 py-4 text-center text-sm text-muted";
 
 export function SettingsSearchBox(props: SettingsSearchBoxProps) {
   const { t } = useTranslation();
@@ -83,6 +86,12 @@ export function SettingsSearchBox(props: SettingsSearchBoxProps) {
     setActiveIndex(-1);
   };
 
+  const handleQueryChange = (value: string) => {
+    setQuery(value);
+    setOpen(true);
+    setActiveIndex(-1);
+  };
+
   const handleKeyDown = (event: KeyboardEvent) => {
     const list = matches();
     if (event.key === "ArrowDown") {
@@ -104,21 +113,19 @@ export function SettingsSearchBox(props: SettingsSearchBoxProps) {
 
   return (
     <div class={settingsSearchClass} ref={containerRef}>
-      <input
+      <NaiveInput
         type="search"
+        value={query()}
         class={settingsSearchInputClass}
         placeholder={t("settings.search.placeholder")}
-        value={query()}
-        onInput={(event) => {
-          setQuery(event.currentTarget.value);
-          setOpen(true);
-          setActiveIndex(-1);
-        }}
+        clearable
+        onUpdateValue={handleQueryChange}
         onFocus={() => setOpen(true)}
         onKeyDown={handleKeyDown}
-        aria-label={t("settings.search.placeholder")}
-        aria-expanded={open() && query().length > 0}
-        aria-controls="settings-search-results"
+        ariaLabel={t("settings.search.placeholder")}
+        ariaExpanded={open() && query().length > 0}
+        ariaControls="settings-search-results"
+        prefix={<IconSearch />}
       />
       <Show when={open() && query().trim().length > 0}>
         <div class={settingsSearchResultsClass} id="settings-search-results" role="listbox">
@@ -143,10 +150,17 @@ export function SettingsSearchBox(props: SettingsSearchBoxProps) {
                     onMouseEnter={() => setActiveIndex(index())}
                     onClick={() => handleSelect(entry)}
                   >
-                    <span class={settingsSearchResultLabelClass}>{t(entry.labelKey)}</span>
                     <span class={settingsSearchResultCategoryClass}>
                       {t(CATEGORY_LABELS[entry.category])}
                     </span>
+                    <span class={settingsSearchResultLabelClass}>{t(entry.labelKey)}</span>
+                    <Show when={entry.descriptionKey}>
+                      {(descriptionKey) => (
+                        <span class={settingsSearchResultDescriptionClass}>
+                          {t(descriptionKey())}
+                        </span>
+                      )}
+                    </Show>
                   </button>
                 );
               }}
