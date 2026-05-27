@@ -95,6 +95,7 @@ Reusable browser probes already live under `output/playwright/`. Treat these as 
 - Player surfaces: `playerbar_probe.mjs`, `fullplayer_probe.mjs`, `fullplayer_mobile_probe.mjs`.
 - Media/content surfaces: `context_menu_probe.mjs`, `media_list_probe.mjs`, `media_sort_probe.mjs`, `queue_drawer_probe.mjs`.
 - Route/page surfaces: `home_discover_probe.mjs`, `discover_b_probe.mjs`, `recommend_b_probe.mjs`, `radio_b_probe.mjs`, `library_b_probe.mjs`, `settings_search_probe.mjs`, `login_modal_probe.mjs`.
+- Naive facade surfaces: `naive_input_gaps_probe.mjs`, `naive_input_number_probe.mjs`, `naive_select_multi_probe.mjs`, and `naive_switch_pressed_probe.mjs` cover the 05-26 form-control gap pass.
 
 ## Current Guardrails
 
