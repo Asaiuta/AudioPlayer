@@ -1,0 +1,36 @@
+  /* AM-style album grid (replaces side-by-side playlist layout) */
+  .album-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(184px, 1fr));
+    gap: clamp(18px, 1.8vw, 28px) clamp(14px, 1.4vw, 22px);
+    min-width: 0;
+  }
+
+  .album-grid .album-card {
+    width: 100%;
+  }
+
+  .album-grid .album-card-art {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+  }
+
+  .local-playlist-grid.album-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 20px;
+    align-content: start;
+  }
+
+  .local-playlist-grid.album-grid .album-card-art {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+  }
+
+  .playlist-grid-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }

@@ -1,0 +1,133 @@
+@layer components {
+  .player-progress-edge {
+    position: absolute;
+    top: -8px;
+    left: 0;
+    right: 0;
+    height: 16px;
+    border-radius: 0;
+    overflow: visible;
+    background: transparent;
+    border: 0;
+  }
+
+  .player-progress-edge::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 3px;
+    transform: translateY(-50%);
+    background: color-mix(in srgb, var(--player-bar-accent) 20%, transparent);
+    transition: height 0.3s var(--ease-standard);
+    pointer-events: none;
+  }
+
+  .player-progress-edge.is-interactive {
+    cursor: pointer;
+  }
+
+  .player-progress-edge-fill,
+  .player-progress-edge-loading {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    height: 3px;
+    transform: translateY(-50%);
+    border-radius: 0;
+  }
+
+  .player-progress-edge:hover::before,
+  .player-progress-edge:focus-visible::before {
+    height: 4px;
+  }
+
+  .full-player-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: inherit;
+  }
+
+  .player-progress-edge-fill,
+  .full-player-progress-fill {
+    background: var(--player-bar-accent);
+    box-shadow: none;
+    transition: width 0.3s var(--ease-standard);
+  }
+
+  .player-progress-edge-thumb {
+    position: absolute;
+    top: 50%;
+    right: 0;
+    width: 14px;
+    height: 14px;
+    border-radius: var(--radius-pill);
+    background: var(--player-bar-accent);
+    transform: translate(50%, -50%) scale(0.6);
+    opacity: 0;
+    box-shadow: 0 0 0 2px color-mix(in oklch, var(--surface-1) 82%, transparent);
+    transition:
+      opacity 0.3s var(--ease-standard),
+      transform 0.3s var(--ease-standard);
+    pointer-events: none;
+  }
+
+  .player-progress-edge:hover .player-progress-edge-thumb,
+  .player-progress-edge:focus-visible .player-progress-edge-thumb,
+  .player-progress-edge.is-dragging .player-progress-edge-thumb {
+    opacity: 1;
+    transform: translate(50%, -50%) scale(1);
+  }
+
+  .player-progress-edge.is-dragging::before,
+  .player-progress-edge:hover::before {
+    height: 4px;
+  }
+
+  .player-progress-edge.is-dragging .player-progress-edge-fill,
+  .player-progress-edge.is-dragging .full-player-progress-fill {
+    transition: none;
+  }
+
+  .player-progress-tooltip {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    transform: translateX(-50%);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 320px;
+    padding: 4px 10px;
+    border: 1px solid var(--floating-border);
+    border-radius: var(--floating-radius);
+    background: var(--floating-surface);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.4;
+    white-space: nowrap;
+    pointer-events: none;
+    box-shadow: var(--floating-shadow);
+    z-index: var(--z-popover);
+    animation: floating-layer-enter var(--duration-fast) var(--ease-standard);
+  }
+
+  .player-progress-tooltip-time {
+    color: var(--player-bar-accent);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+  }
+
+  .player-progress-tooltip-lyric {
+    color: var(--text-soft);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 240px;
+  }
+
+  .player-progress-edge-loading {
+    background: color-mix(in oklch, var(--text) 18%, transparent);
+    opacity: 0.32;
+  }
+
+}

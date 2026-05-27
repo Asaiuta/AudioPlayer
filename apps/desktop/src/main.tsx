@@ -9,13 +9,14 @@ import "./shared/styles/global.css";
 import "./shared/styles/appearance.css";
 import "./shared/styles/components/naive.css";
 import "./shared/styles/components/shell.css";
+import "./shared/styles/components/pages.css";
 import "./shared/styles/transitions.css";
 import "virtual:uno.css";
 
 // Apply theme before render to prevent flash
 function applyTheme(): void {
   try {
-    const mode = localStorage.getItem("ui.theme.mode") ?? "dark";
+    const mode = localStorage.getItem("ui.theme.mode") ?? "auto";
     const resolved =
       mode === "auto"
         ? window.matchMedia("(prefers-color-scheme: light)").matches
@@ -24,7 +25,9 @@ function applyTheme(): void {
         : mode;
     document.documentElement.dataset.theme = resolved;
   } catch {
-    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.theme = window.matchMedia("(prefers-color-scheme: light)").matches
+      ? "light"
+      : "dark";
   }
 }
 applyTheme();

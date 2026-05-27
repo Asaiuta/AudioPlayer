@@ -1,0 +1,35 @@
+@layer components {
+  .player-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 3;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 0;
+    width: 100%;
+    height: var(--player-bar-height);
+    min-height: var(--player-bar-height);
+    margin: 0;
+    padding: 0 15px;
+    border-radius: 0;
+    border: 0;
+    background: var(--player-bar-surface);
+    box-shadow: none;
+    transform: translateY(100%);
+    transition: transform 0.3s var(--ease-standard);
+  }
+
+  .player-bar.is-visible {
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .player-bar {
+      transition: none;
+    }
+  }
+
+}

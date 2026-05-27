@@ -1,0 +1,131 @@
+  .full-player-background {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .full-player-fluid {
+    position: absolute;
+    inset: var(--full-player-fluid-inset);
+    background-position: center;
+    background-size: cover;
+    filter: blur(var(--full-player-background-blur, 32px)) saturate(1.16) brightness(0.38);
+    opacity: 0;
+    transform: scale(var(--full-player-fluid-scale));
+    animation: full-player-fluid-drift var(--full-player-fluid-duration) steps(var(--full-player-fluid-frames), end) infinite alternate;
+    transition: opacity 560ms var(--ease-standard);
+  }
+
+  .full-player-fluid-media {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none;
+  }
+
+  .full-player-fluid.is-current {
+    opacity: 0.72;
+  }
+
+  .full-player-fluid.is-previous {
+    opacity: 0;
+  }
+
+  .full-player-fluid::before,
+  .full-player-fluid::after {
+    content: "";
+    position: absolute;
+    inset: -6%;
+    mix-blend-mode: screen;
+  }
+
+  .full-player-fluid::before {
+    background:
+      radial-gradient(circle at 22% 34%, oklch(0.66 0.12 58 / 0.18), transparent 34%),
+      radial-gradient(circle at 76% 18%, oklch(0.72 0.08 82 / 0.12), transparent 30%),
+      radial-gradient(circle at 46% 82%, oklch(0.46 0.08 150 / 0.12), transparent 42%);
+    animation: full-player-color-swim 16s steps(var(--full-player-fluid-frames), end) infinite alternate;
+  }
+
+  .full-player-fluid::after {
+    background:
+      linear-gradient(115deg, oklch(0 0 0 / 0.4), transparent 38%, oklch(1 0 0 / 0.03)),
+      radial-gradient(circle at 50% 50%, transparent 0 30%, color-mix(in oklch, var(--full-player-shadow) 100%, transparent) 74%);
+  }
+
+  .full-player.background-mode-blur .full-player-fluid.is-current {
+    filter: blur(var(--full-player-background-blur, 32px)) saturate(1.18) brightness(0.38);
+    opacity: 0.72;
+    animation: none;
+  }
+
+  .full-player.background-mode-blur .full-player-fluid::before {
+    display: none;
+  }
+
+  .full-player.background-mode-color .full-player-background {
+    background: var(--color-primary);
+  }
+
+  .full-player.background-mode-color .full-player-fluid.is-current {
+    filter: blur(var(--full-player-background-color-blur, 43px)) saturate(1.85) brightness(0.5);
+    opacity: 0.28;
+    transform: scale(1.14);
+    animation: none;
+  }
+
+  .full-player.background-mode-color .full-player-fluid::before {
+    display: none;
+  }
+
+  .full-player.background-mode-color .full-player-fluid::after {
+    background:
+      radial-gradient(circle at 32% 48%, transparent 0 22%, oklch(0 0 0 / 0.18) 62%),
+      linear-gradient(115deg, oklch(0 0 0 / 0.36), transparent 46%, oklch(1 0 0 / 0.05));
+  }
+
+  .full-player.background-mode-animation .full-player-fluid.is-current {
+    filter: blur(var(--full-player-background-blur, 32px)) saturate(1.18) brightness(0.44);
+    opacity: 0.68;
+  }
+
+  .full-player.is-background-paused .full-player-fluid,
+  .full-player.is-background-paused .full-player-fluid::before {
+    animation-play-state: paused;
+  }
+
+  .full-player.player-type-fullscreen .full-player-fluid.is-current {
+    inset: 0;
+    filter: saturate(1.04) brightness(0.58);
+    opacity: 0.92;
+    transform: scale(1);
+    animation: none;
+  }
+
+  .full-player-vignette {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(180deg, oklch(0 0 0 / 0.28), transparent 20%, oklch(0 0 0 / 0.5)),
+      radial-gradient(1320px 780px at 42% 48%, transparent 0 46%, oklch(0 0 0 / 0.5) 100%),
+      linear-gradient(90deg, oklch(0 0 0 / 0.16), transparent 30%, oklch(0 0 0 / 0.22)),
+      var(--full-player-scrim);
+  }
+
+  .full-player.player-type-fullscreen .full-player-vignette {
+    background:
+      linear-gradient(
+        90deg,
+        oklch(0 0 0 / 0.06) 0 var(--full-player-fullscreen-gradient),
+        oklch(0.04 0.012 80 / 0.78) calc(var(--full-player-fullscreen-gradient) + 18%),
+        oklch(0.03 0.01 80 / 0.88) 100%
+      ),
+      linear-gradient(180deg, oklch(0 0 0 / 0.26), transparent 24%, oklch(0 0 0 / 0.58)),
+      radial-gradient(980px 620px at 18% 46%, transparent 0 46%, oklch(0 0 0 / 0.4) 100%);
+  }

@@ -27,7 +27,7 @@
   --radius-xs: 4px;     /* tight indicators, accent strips */
   --radius-sm: 8px;     /* compact controls, sidebar items, list covers */
   --radius-md: 12px;    /* default cards, media rows */
-  --radius-lg: 18px;    /* prominent cards, modals, popovers */
+  --radius-lg: 18px;    /* prominent cards, modal shells */
   --radius-xl: 24px;    /* hero blocks, full-player surfaces */
   --radius-pill: 999px; /* circles, pills, search bars, icon buttons */
 
@@ -54,6 +54,10 @@
   --surface-4: var(--surface-4-base);
   --surface-container-default: oklch(0.175 0.005 280 / 0.85);
   --surface-container: var(--surface-container-dynamic, var(--surface-container-default));
+  --player-bar-surface-default: rgb(24 24 28);
+  --player-bar-surface: var(--player-bar-surface-dynamic, var(--player-bar-surface-default));
+  --player-bar-accent-default: rgb(255 218 214);
+  --player-bar-accent: var(--player-bar-accent-dynamic, var(--player-bar-accent-default));
 
   /* alpha companions used for translucent panels / chips. */
   --surface-1-soft: oklch(0.16 0.006 280 / 0.7);
@@ -83,7 +87,7 @@
   --overlay: oklch(0 0 0 / 0.45);
   --floating-surface: var(--surface-2);
   --floating-border: var(--border-overlay);
-  --floating-radius: var(--radius-lg);
+  --floating-radius: var(--radius-sm);
   --floating-shadow: var(--elev-4);
 
   /* ---------- Color: role palette — Material tone roles from cover art ---------- */
@@ -227,13 +231,18 @@
   .top-button-scroll,
   .player-tooltip,
   .player-more-menu,
+  .player-inline-menu-popover,
   .player-volume-popover,
+  .player-quality-popover,
+  .player-controls-popover,
   .player-popover,
   .select-input-dropdown,
   .settings-search-results,
   .player-utility-group,
   .player-error-popover,
-  .sidebar-playlist-source-menu,
+  .top-nav-account-menu,
+  .sidebar-playlist-source-popover,
+  .top-nav-search-mask,
   .top-nav-search-panel,
   .command-error-toast,
   .modal-card
@@ -299,6 +308,10 @@
   --surface-4: var(--surface-4-base);
   --surface-container-default: oklch(0.99 0.002 280 / 0.92);
   --surface-container: var(--surface-container-dynamic, var(--surface-container-default));
+  --player-bar-surface-default: rgb(255 255 255);
+  --player-bar-surface: var(--player-bar-surface-dynamic, var(--player-bar-surface-default));
+  --player-bar-accent-default: rgb(44 21 19);
+  --player-bar-accent: var(--player-bar-accent-dynamic, var(--player-bar-accent-default));
 
   --surface-1-soft: oklch(0.98 0.002 280 / 0.85);
   --surface-2-soft: oklch(0.99 0.002 280 / 0.85);
@@ -379,6 +392,13 @@
 [data-appearance-mode="solid"] {
   --floating-surface: var(--surface-2);
   --surface-container: var(--surface-container-dynamic, var(--surface-container-default));
+  --player-bar-surface: var(--player-bar-surface-dynamic, var(--player-bar-surface-default));
+  --surface-backdrop-filter: none;
+  --surface-backdrop-filter-strong: none;
+  --surface-backdrop-filter-soft: none;
+  --player-bar-backdrop-filter: none;
+  --full-player-vignette-backdrop-filter: none;
+  --full-player-fullscreen-vignette-backdrop-filter: none;
 }
 
 [data-appearance-mode="cover-blur"] {
@@ -386,6 +406,7 @@
   --surface-2: color-mix(in oklch, var(--surface-2-soft) 88%, var(--surface-2-base));
   --surface-3: color-mix(in oklch, var(--surface-3-soft) 88%, var(--surface-3-base));
   --surface-container: color-mix(in oklch, var(--surface-container-dynamic, var(--surface-container-default)) 82%, transparent);
+  --player-bar-surface: var(--surface-container);
   --floating-surface: color-mix(in oklch, var(--surface-2) 88%, transparent);
 }
 
@@ -395,6 +416,7 @@
   --surface-2: var(--surface-2-soft);
   --surface-3: var(--surface-3-soft);
   --surface-container: oklch(0 0 0 / 0.2);
+  --player-bar-surface: var(--surface-container);
   --floating-surface: oklch(0 0 0 / 0.2);
   --floating-border: var(--color-primary-tonal-12);
   --border-overlay: var(--color-primary-tonal-16);
@@ -405,6 +427,7 @@
   --surface-2: color-mix(in oklch, var(--surface-2-soft) 92%, var(--surface-2-base));
   --surface-3: color-mix(in oklch, var(--surface-3-soft) 92%, var(--surface-3-base));
   --surface-container: color-mix(in oklch, var(--surface-container-dynamic, var(--surface-container-default)) 76%, transparent);
+  --player-bar-surface: var(--surface-container);
   --floating-surface: color-mix(in oklch, var(--surface-2) 82%, transparent);
 }
 
@@ -413,5 +436,6 @@
   --surface-2: color-mix(in oklch, var(--surface-2-soft) 86%, var(--surface-2-base));
   --surface-3: color-mix(in oklch, var(--surface-3-soft) 86%, var(--surface-3-base));
   --surface-container: color-mix(in oklch, var(--surface-container-dynamic, var(--surface-container-default)) 80%, transparent);
+  --player-bar-surface: var(--surface-container);
   --floating-surface: color-mix(in oklch, var(--surface-2) 84%, transparent);
 }

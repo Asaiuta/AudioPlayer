@@ -1,0 +1,70 @@
+  .full-player {
+    --full-player-cover-color: var(--color-primary);
+    --full-player-cover-color-08: var(--color-primary-tonal-08);
+    --full-player-cover-color-12: var(--color-primary-tonal-12);
+    --full-player-cover-color-14: color-mix(in oklch, var(--full-player-cover-color) 14%, transparent);
+    --full-player-cover-color-20: var(--color-primary-tonal-20);
+    --full-player-cover-color-28: var(--color-primary-tonal-28);
+    --full-player-cover-color-58: var(--color-primary-tonal-58);
+    --full-player-ink: var(--full-player-cover-color);
+    --full-player-ink-strong: color-mix(in oklch, var(--full-player-cover-color) 82%, white 18%);
+    --full-player-ink-soft: color-mix(in oklch, var(--full-player-cover-color) 52%, transparent);
+    --full-player-ink-muted: color-mix(in oklch, var(--full-player-cover-color) 28%, transparent);
+    --full-player-ink-active: var(--full-player-cover-color);
+    --full-player-glass: var(--full-player-cover-color-08);
+    --full-player-glass-strong: var(--full-player-cover-color-14);
+    --full-player-shadow: oklch(0 0 0 / 0.46);
+    --full-player-scrim: oklch(0.035 0.012 86 / 0.68);
+    --full-player-border: color-mix(in oklch, var(--full-player-cover-color) 10%, transparent);
+    --full-player-border-strong: color-mix(in oklch, var(--full-player-cover-color) 22%, transparent);
+    --full-player-surface: var(--full-player-cover-color-08);
+    --full-player-progress-rail: color-mix(in oklch, var(--full-player-cover-color) 18%, transparent);
+    --full-player-fluid-duration: 20s;
+    --full-player-fluid-frames: 600;
+    --full-player-fluid-scale: 1.04;
+    --full-player-fluid-inset: -14%;
+    --full-player-fluid-render-scale: 0.5;
+    --full-player-fullscreen-gradient: 15%;
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-modal);
+    display: flex;
+    min-height: 0;
+    height: auto;
+    padding: 0;
+    background:
+      radial-gradient(980px 620px at 28% 46%, var(--color-primary-tonal-28), transparent 64%),
+      radial-gradient(880px 560px at 78% 24%, var(--color-primary-tonal-16), transparent 68%),
+      oklch(0.055 0.014 92);
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(28px);
+    transform-origin: 50% 50%;
+    transition:
+      opacity 300ms var(--ease-bounce),
+      transform 300ms var(--ease-bounce);
+    overflow: hidden;
+  }
+
+  .full-player.is-open {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .full-player.is-meta-hidden {
+    cursor: none;
+  }
+
+  .full-player.expand-animation-flow {
+    transform: scale(0.96);
+  }
+
+  .full-player.expand-animation-flow.is-open {
+    transform: scale(1);
+  }
+
+  .full-player:not(.is-open) .full-player-overlay-menu,
+  .full-player:not(.is-open) .full-player-control-shell {
+    pointer-events: none;
+  }

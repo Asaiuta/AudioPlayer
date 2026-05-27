@@ -1,0 +1,187 @@
+  /* ── SPlayer-style settings cards ─────────────────────── */
+
+  .settings-subpage-head {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-overlay);
+  }
+
+  .settings-subpage-back {
+    flex: none;
+  }
+
+  .settings-subpage-copy {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .settings-subpage-copy h2 {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: var(--text-xl);
+    line-height: 1.15;
+  }
+
+  .settings-subpage-copy p {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+  }
+
+  @keyframes settings-highlight-pulse {
+    0% {
+      background: var(--color-primary-tonal-28);
+    }
+    100% {
+      background: color-mix(in oklch, var(--surface-2) 50%, transparent);
+    }
+  }
+
+  /* ── Toggle switch ───────────────────────────────────── */
+
+  .toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+    cursor: pointer;
+  }
+
+  .toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+    position: absolute;
+  }
+
+  .toggle-switch-slider {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-pill);
+    background: var(--surface-3);
+    transition: background var(--duration-fast) var(--ease-standard);
+  }
+
+  .toggle-switch-slider::before {
+    content: "";
+    position: absolute;
+    left: 2px;
+    top: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: var(--radius-pill);
+    background: var(--text);
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  .toggle-switch input:checked + .toggle-switch-slider {
+    background: var(--accent);
+  }
+
+  .toggle-switch input:checked + .toggle-switch-slider::before {
+    transform: translateX(18px);
+    background: white;
+  }
+
+  .toggle-switch input:focus-visible + .toggle-switch-slider {
+    box-shadow: 0 0 0 3px var(--color-primary-tonal-28);
+  }
+
+  /* ── Range with value ────────────────────────────────── */
+
+  .range-with-value input[type="range"] {
+    --range-pct: 50%;
+  }
+
+  .range-with-value input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: var(--radius-track);
+    background: linear-gradient(
+      to right,
+      var(--color-primary-tonal-85) 0%,
+      var(--color-primary-tonal-85) var(--range-pct),
+      var(--surface-3) var(--range-pct),
+      var(--surface-3) 100%
+    );
+  }
+
+  .range-with-value input[type="range"]::-moz-range-track {
+    height: 4px;
+    border-radius: var(--radius-track);
+    background: var(--surface-3);
+  }
+
+  .range-with-value input[type="range"]::-moz-range-progress {
+    height: 4px;
+    border-radius: var(--radius-track);
+    background: var(--color-primary-tonal-85);
+  }
+
+  .range-with-value input[type="range"]::-webkit-slider-thumb {
+    appearance: none;
+    margin-top: -6px;
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--surface-1);
+    box-shadow: 0 1px 4px oklch(0 0 0 / 0.2);
+  }
+
+  .range-with-value input[type="range"]::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--surface-1);
+    box-shadow: 0 1px 4px oklch(0 0 0 / 0.2);
+  }
+
+  .volume-value,
+
+
+  .library-root-stats,
+
+
+  .queue-item-status,
+
+
+  .media-row-credits {
+    font-size: var(--text-xs);
+  }
+
+  .empty-tab {
+    display: grid;
+    place-items: center;
+    gap: var(--space-3);
+    min-height: 280px;
+    padding: var(--space-6);
+    border-radius: var(--radius-xl);
+    border: 1px dashed var(--border-subtle);
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .empty-tab-icon {
+    display: grid;
+    place-items: center;
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in oklch, var(--surface-2) 82%, transparent);
+    color: var(--accent);
+  }
+
+  .panel-library {
+    gap: 0;
+    height: 100%;
+    min-height: 0;
+  }

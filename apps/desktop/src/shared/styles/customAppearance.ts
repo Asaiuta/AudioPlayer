@@ -33,8 +33,15 @@ function applyAccentColor(settings: UISettings): void {
       "--surface-container-dynamic",
       "var(--color-neutral-container)"
     );
+    root.style.setProperty(
+      "--player-bar-surface-dynamic",
+      "var(--color-neutral-container)"
+    );
+    root.style.setProperty("--player-bar-accent-dynamic", "var(--color-primary)");
   } else {
     root.style.setProperty("--surface-container-dynamic", "var(--surface-container-default)");
+    root.style.setProperty("--player-bar-surface-dynamic", "var(--player-bar-surface-default)");
+    root.style.setProperty("--player-bar-accent-dynamic", "var(--player-bar-accent-default)");
   }
 }
 

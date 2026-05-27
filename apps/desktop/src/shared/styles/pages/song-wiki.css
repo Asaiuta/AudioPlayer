@@ -1,0 +1,537 @@
+  .song-wiki-page {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .song-wiki-scroll,
+  .song-wiki-skeleton {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: auto;
+    padding: 12px 4px 24px 0;
+  }
+
+  .song-wiki-head,
+  .song-wiki-skeleton-head {
+    display: flex;
+    flex: none;
+    min-height: 240px;
+    padding: 12px 0 24px;
+  }
+
+  .song-wiki-cover,
+  .song-wiki-skeleton-cover {
+    position: relative;
+    display: grid;
+    place-items: center;
+    flex: none;
+    height: 204px;
+    aspect-ratio: 1 / 1;
+    margin-right: 20px;
+    overflow: visible;
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    background: color-mix(in oklch, var(--surface-3) 82%, transparent);
+    font-family: var(--font-display);
+    font-size: 52px;
+  }
+
+  .song-wiki-cover-img,
+  .song-wiki-cover-shadow {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+  }
+
+  .song-wiki-cover-img {
+    z-index: 1;
+    overflow: hidden;
+    transition:
+      opacity 0.35s ease-in-out,
+      filter 0.3s var(--ease-standard),
+      transform 0.3s var(--ease-standard);
+  }
+
+  .song-wiki-cover-shadow {
+    top: 6px;
+    z-index: 0;
+    filter: blur(12px) opacity(0.6);
+    transform: scale(0.92, 0.96);
+  }
+
+  .song-wiki-copy,
+  .song-wiki-skeleton-copy {
+    position: relative;
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  .song-wiki-copy h2 {
+    margin: 0 0 12px;
+    overflow: hidden;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1.16;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .song-wiki-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: min(100%, 820px);
+    color: var(--text-soft);
+    font-size: 14px;
+  }
+
+  .song-wiki-meta span {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .song-wiki-meta svg {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    color: var(--muted);
+  }
+
+  .song-wiki-meta button {
+    min-width: 0;
+    color: inherit;
+    text-align: left;
+    transition: color var(--duration-fast) var(--ease-standard);
+  }
+
+  .song-wiki-meta button:hover {
+    color: var(--accent);
+  }
+
+  .song-wiki-actions {
+    display: flex;
+    align-items: flex-end;
+    gap: 8px;
+    margin-top: auto;
+  }
+
+  .song-wiki-play,
+  .song-wiki-back,
+  .song-wiki-more {
+    height: 40px;
+    min-height: 40px;
+    border-radius: var(--radius-pill);
+  }
+
+  .song-wiki-play,
+  .song-wiki-back {
+    padding-inline: 18px;
+  }
+
+  .song-wiki-more {
+    width: 40px;
+    padding: 0;
+  }
+
+  .song-wiki-play svg,
+  .song-wiki-back svg,
+  .song-wiki-more svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .song-wiki-content {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 40px;
+  }
+
+  .song-wiki-section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .song-wiki-section-title {
+    display: flex;
+    align-items: center;
+    min-height: 28px;
+  }
+
+  .song-wiki-section-title h3 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .song-wiki-card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+
+  .song-wiki-card-grid.is-story {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+
+  .song-wiki-info-card {
+    display: flex;
+    min-width: 0;
+    min-height: 92px;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--border-overlay);
+    border-radius: var(--radius-card);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .song-wiki-info-card:hover {
+    border-color: var(--color-primary-tonal-20);
+    background: color-mix(in oklch, var(--surface-3) 84%, transparent);
+  }
+
+  .song-wiki-info-card span,
+  .song-wiki-info-card small {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
+  .song-wiki-info-card strong {
+    min-width: 0;
+    color: var(--text);
+    font-size: 17px;
+    font-weight: 700;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+
+  .song-wiki-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+  }
+
+  .song-wiki-tags em {
+    min-height: 24px;
+    padding: 4px 9px;
+    border-radius: var(--radius-pill);
+    color: var(--accent);
+    background: var(--color-primary-tonal-12);
+    font-size: 12px;
+    font-style: normal;
+    line-height: 16px;
+  }
+
+  .song-wiki-sheets,
+  .song-wiki-achievements {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .song-wiki-sheet {
+    overflow: hidden;
+    border: 1px solid var(--border-overlay);
+    border-radius: var(--radius-card);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+    transition:
+      border-color var(--duration-fast) var(--ease-standard),
+      background-color var(--duration-fast) var(--ease-standard);
+  }
+
+  .song-wiki-sheet.is-expanded,
+  .song-wiki-sheet:hover {
+    border-color: var(--color-primary-tonal-20);
+    background: color-mix(in oklch, var(--surface-3) 86%, transparent);
+  }
+
+  .song-wiki-sheet-head {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr) 24px;
+    gap: 12px;
+    align-items: center;
+    width: 100%;
+    min-height: 76px;
+    padding: 10px 12px;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .song-wiki-sheet-cover {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-sm);
+  }
+
+  .song-wiki-sheet-head > span {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .song-wiki-sheet-head strong,
+  .song-wiki-sheet-head small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .song-wiki-sheet-head strong {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .song-wiki-sheet-head small {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .song-wiki-sheet-head svg {
+    width: 20px;
+    height: 20px;
+    color: var(--muted);
+    transition: transform var(--duration-fast) var(--ease-standard);
+  }
+
+  .song-wiki-sheet.is-expanded .song-wiki-sheet-head svg {
+    transform: rotate(180deg);
+  }
+
+  .song-wiki-sheet-body {
+    padding: 0 12px 12px;
+  }
+
+  .song-wiki-sheet-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 74px;
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    background: var(--border-faint);
+    font-size: 13px;
+  }
+
+  .song-wiki-sheet-state svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .song-wiki-sheet-images {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 10px;
+  }
+
+  .song-wiki-sheet-image {
+    width: 100%;
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+    box-shadow: none;
+  }
+
+  .song-wiki-achievement {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    gap: 12px;
+    align-items: center;
+    min-height: 76px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-overlay);
+    border-radius: var(--radius-card);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+  }
+
+  .song-wiki-achievement-image,
+  .song-wiki-achievement-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--radius-sm);
+  }
+
+  .song-wiki-achievement-icon {
+    display: grid;
+    place-items: center;
+    color: var(--accent);
+    background: var(--color-primary-tonal-12);
+  }
+
+  .song-wiki-achievement-icon svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .song-wiki-achievement span {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .song-wiki-achievement strong,
+  .song-wiki-achievement small {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .song-wiki-achievement strong {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .song-wiki-achievement small {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .song-wiki-similar .media-list-table {
+    border-radius: var(--radius-card);
+  }
+
+  .song-wiki-similar .media-row {
+    min-height: 72px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-overlay);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+  }
+
+  .song-wiki-similar .media-row:hover {
+    border-color: var(--color-primary-tonal-58);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+  }
+
+  .song-wiki-similar .media-row.is-current {
+    border-color: var(--color-primary-tonal-58);
+    background: color-mix(in oklch, var(--color-primary-container) 50%, var(--surface-2));
+  }
+
+  .song-wiki-empty {
+    display: flex;
+    flex: 1;
+    min-height: 220px;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 24px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .song-wiki-empty strong {
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 20px;
+  }
+
+  .song-wiki-empty .song-wiki-back {
+    align-self: center;
+    margin-bottom: 8px;
+  }
+
+  .song-wiki-feedback {
+    margin-top: 14px;
+  }
+
+  .song-wiki-skeleton {
+    gap: 20px;
+  }
+
+  .song-wiki-skeleton-cover {
+    overflow: hidden;
+  }
+
+  .song-wiki-skeleton-copy {
+    justify-content: center;
+    gap: 12px;
+    padding-right: min(12vw, 120px);
+  }
+
+  .song-wiki-skeleton-button {
+    width: 132px;
+    height: 40px;
+    border-radius: var(--radius-pill);
+  }
+
+  .song-wiki-skeleton-card {
+    width: 100%;
+    height: 92px;
+    border-radius: var(--radius-card);
+  }
+
+  @media (max-width: 760px) {
+    .song-wiki-scroll,
+    .song-wiki-skeleton {
+      padding-right: 0;
+    }
+
+    .song-wiki-head,
+    .song-wiki-skeleton-head {
+      flex-direction: column;
+      min-height: 0;
+      gap: 16px;
+    }
+
+    .song-wiki-cover,
+    .song-wiki-skeleton-cover {
+      width: min(58vw, 204px);
+      height: auto;
+      margin-right: 0;
+    }
+
+    .song-wiki-copy h2 {
+      white-space: normal;
+    }
+
+    .song-wiki-actions {
+      flex-wrap: wrap;
+      margin-top: 18px;
+    }
+
+    .song-wiki-card-grid,
+    .song-wiki-card-grid.is-story {
+      grid-template-columns: 1fr;
+    }
+
+    .song-wiki-sheet-head {
+      grid-template-columns: 48px minmax(0, 1fr) 20px;
+    }
+
+    .song-wiki-sheet-cover,
+    .song-wiki-achievement-image,
+    .song-wiki-achievement-icon {
+      width: 48px;
+      height: 48px;
+    }
+  }

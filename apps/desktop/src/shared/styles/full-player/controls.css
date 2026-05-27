@@ -1,0 +1,178 @@
+  .full-player-control-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    height: 100%;
+  }
+
+  .full-player-progress-wrap {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 480px;
+  }
+
+  .full-player-time {
+    min-width: 40px;
+    color: var(--full-player-ink-soft);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    text-align: center;
+    opacity: 0.6;
+  }
+
+  .full-player-progress {
+    position: relative;
+    height: 4px;
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    background: var(--full-player-progress-rail);
+    box-shadow: inset 0 1px 2px oklch(0 0 0 / 0.18);
+  }
+
+  .full-player-progress.is-interactive {
+    cursor: pointer;
+  }
+
+  .full-player-progress-fill {
+    background: var(--full-player-ink-active);
+    box-shadow: 0 0 18px var(--full-player-cover-color-28);
+  }
+
+  .full-player-transport {
+    display: inline-flex;
+    align-items: center;
+    gap: 0;
+    padding: 0;
+    border-radius: 0;
+    background: transparent;
+    border: 0;
+  }
+
+  .full-player-transport .transport-button {
+    width: 38px;
+    height: 38px;
+    background: transparent;
+    border-color: transparent;
+    color: var(--full-player-ink-strong);
+    box-shadow: none;
+    margin: 0 4px;
+    transition:
+      background-color 0.3s var(--ease-standard),
+      color 0.3s var(--ease-standard),
+      transform 0.3s var(--ease-standard);
+  }
+
+  .full-player-transport .transport-button.mode-button:not(.is-active) {
+    color: var(--full-player-ink-strong);
+  }
+
+  .full-player-transport .transport-button:hover:not(:disabled),
+  .full-player-transport .transport-button.is-active {
+    color: var(--full-player-ink-active);
+    background: var(--full-player-cover-color-14);
+    border-color: transparent;
+  }
+
+  .full-player-transport .transport-button:hover:not(:disabled) {
+    transform: scale(1.1);
+  }
+
+  .full-player-transport .transport-button:active:not(:disabled) {
+    transform: scale(1);
+  }
+
+  .full-player-transport .transport-primary {
+    width: 44px;
+    height: 44px;
+    margin: 0 12px;
+    color: var(--full-player-ink-active);
+    background: var(--full-player-cover-color-14);
+    border-color: var(--full-player-border);
+    box-shadow:
+      0 10px 24px oklch(0 0 0 / 0.18),
+      0 0 0 6px var(--full-player-cover-color-08);
+  }
+
+  .full-player-transport .transport-primary:hover:not(:disabled) {
+    color: var(--full-player-ink-active);
+    background: var(--full-player-cover-color-20);
+  }
+
+  .full-player-quality-tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 26px;
+    padding: 0 8px;
+    border: 1px solid var(--full-player-border);
+    border-radius: var(--radius-sm);
+    color: var(--full-player-ink-soft);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .full-player-volume {
+    position: relative;
+  }
+
+  .full-player-volume-popover {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 10px);
+    display: flex;
+    width: 58px;
+    height: 180px;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    border-radius: var(--floating-radius);
+    color: var(--full-player-ink);
+    background: var(--floating-surface);
+    border: 1px solid var(--floating-border);
+    box-shadow: var(--floating-shadow);
+    animation: floating-layer-enter var(--duration-fast) var(--ease-standard);
+  }
+
+  .full-player-volume-popover .volume-slider {
+    width: 100%;
+    height: 120px;
+    accent-color: var(--full-player-ink-active);
+    writing-mode: vertical-lr;
+    direction: rtl;
+  }
+
+  .full-player-volume-popover span {
+    color: var(--full-player-ink-soft);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .full-player-spectrum {
+    position: fixed;
+    left: 0;
+    bottom: 0;
+    z-index: 0;
+    display: flex;
+    width: 100%;
+    height: 60px;
+    justify-content: center;
+    opacity: 0.1;
+    pointer-events: none;
+    transition: opacity var(--duration-base) var(--ease-standard);
+    mask-image: linear-gradient(90deg, transparent, black 15%, black 85%, transparent);
+  }
+
+  .full-player-spectrum.is-visible {
+    opacity: 0.6;
+  }
+
+  .full-player-spectrum .spectrum-canvas {
+    width: min(1600px, 100vw);
+    height: 60px;
+    mask-image: linear-gradient(90deg, transparent, black 10%, black 90%, transparent);
+  }

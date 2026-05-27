@@ -1,0 +1,609 @@
+  .ncm-home-feed-main-rec {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    align-items: stretch;
+  }
+
+  .ncm-home-feed-main-rec-list {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .daily-songs-card {
+    position: relative;
+    display: flex;
+    align-items: stretch;
+    gap: 20px;
+    width: 100%;
+    height: 90px;
+    min-height: 90px;
+    padding: 16px;
+    background: var(--border-faint);
+    border: 1px solid var(--color-primary-tonal-12);
+    border-radius: var(--radius-card);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition:
+      transform var(--duration-fast) var(--ease-standard),
+      border-color var(--duration-fast) var(--ease-standard),
+      background var(--duration-fast) var(--ease-standard);
+  }
+  .daily-songs-card:hover {
+    transform: none;
+    border-color: var(--color-primary-tonal-58);
+    background: var(--border-faint);
+  }
+  .daily-songs-card:hover .daily-songs-card-play {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+
+  .daily-songs-card:hover .daily-songs-card-stack img {
+    filter: brightness(0.4);
+  }
+
+  .daily-songs-card.is-active {
+    border-color: var(--color-primary-tonal-58);
+    background: var(--border-faint);
+  }
+
+  .daily-songs-card.is-cover-hidden {
+    gap: 0;
+  }
+
+  .daily-songs-card.is-cover-hidden .daily-songs-card-copy {
+    align-items: center;
+    text-align: center;
+  }
+
+  .daily-songs-card-art {
+    position: relative;
+    flex: 0 0 auto;
+    aspect-ratio: 1 / 1;
+    width: 58px;
+    height: 58px;
+    align-self: center;
+  }
+  .daily-songs-card-stack {
+    position: absolute;
+    inset: 0;
+  }
+
+  .daily-songs-card-stack-slot {
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    transform-origin: right bottom;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.14);
+    transition: filter var(--duration-fast) var(--ease-standard);
+  }
+
+  .daily-songs-card-stack-slot.stack-slot-0 {
+    z-index: 3;
+  }
+
+  .daily-songs-card-stack-slot.stack-slot-1 {
+    z-index: 2;
+    transform: scale(0.9) rotate(6deg);
+    opacity: 0.9;
+  }
+
+  .daily-songs-card-stack-slot.stack-slot-2 {
+    z-index: 1;
+    transform: scale(0.8) rotate(12deg);
+    opacity: 0.8;
+  }
+
+  .daily-songs-card-stack-slot img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .daily-songs-card-stack-slot > div {
+    width: 100%;
+    height: 100%;
+  }
+
+  .daily-songs-card-fallback {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    background: var(--surface-3, var(--state-hover-on-surface));
+    border-radius: var(--radius-sm);
+    font-size: 32px;
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  .daily-songs-card-play {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    color: #fff;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.85);
+    transition:
+      opacity var(--duration-fast) var(--ease-standard),
+      transform var(--duration-fast) var(--ease-standard);
+  }
+
+  .daily-songs-card-play svg {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+  }
+
+  .daily-songs-card-copy {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .daily-songs-card-title {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary, currentColor);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .daily-songs-card-date-title {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+  }
+
+  .daily-songs-card-date-icon {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    margin-right: 4px;
+    color: var(--accent);
+  }
+
+  .daily-songs-card-date-ring {
+    position: absolute;
+    inset: 3px 4px 4px;
+    border: 3px solid currentColor;
+    border-top-width: 5px;
+    border-radius: var(--radius-sm);
+  }
+
+  .daily-songs-card-date-ring::before,
+  .daily-songs-card-date-ring::after {
+    content: "";
+    position: absolute;
+    top: -7px;
+    width: 3px;
+    height: 6px;
+    border-radius: var(--radius-pill);
+    background: currentColor;
+  }
+
+  .daily-songs-card-date-ring::before {
+    left: 4px;
+  }
+
+  .daily-songs-card-date-ring::after {
+    right: 4px;
+  }
+
+  .daily-songs-card-date-number {
+    position: relative;
+    margin-top: 3px;
+    color: currentColor;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1;
+    transform: scale(0.8);
+  }
+
+  .daily-songs-card-description {
+    font-size: 14px;
+    color: var(--text-muted, var(--text-placeholder));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ncm-home-feed-fm-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    height: 200px;
+    min-height: 200px;
+    padding: 20px;
+    overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid var(--color-primary-tonal-12);
+    background: var(--border-faint);
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+    isolation: isolate;
+  }
+
+  .ncm-home-feed-fm-card:hover {
+    border-color: var(--color-primary-tonal-58);
+  }
+
+  .ncm-home-feed-fm-card-blur {
+    display: none;
+  }
+
+  .ncm-home-feed-fm-card-cover {
+    position: relative;
+    width: 160px;
+    height: 160px;
+    flex: 0 0 160px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    box-shadow: 0 0 10px 6px rgba(0, 0, 0, 0.03);
+  }
+
+  .ncm-home-feed-fm-card-cover.s-image.is-loaded {
+    box-shadow: 0 0 10px 6px rgba(0, 0, 0, 0.03);
+  }
+
+  .ncm-home-feed-fm-card-copy {
+    display: flex;
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 160px;
+    margin-left: 20px;
+    flex-direction: column;
+  }
+
+  .ncm-home-feed-fm-card.is-cover-hidden .ncm-home-feed-fm-card-copy {
+    min-height: 132px;
+    margin-left: 0;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .ncm-home-feed-fm-card-title {
+    overflow: hidden;
+    max-width: 100%;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--text);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ncm-home-feed-fm-card-meta {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 2px;
+    color: var(--text-secondary);
+    font-size: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .ncm-home-feed-fm-card-meta svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    opacity: 0.88;
+  }
+
+  .ncm-home-feed-fm-card-controls {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: auto;
+  }
+
+  .ncm-home-feed-fm-card.is-cover-hidden .ncm-home-feed-fm-card-controls {
+    margin-top: 28px;
+  }
+
+  .ncm-home-feed-fm-card-control {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-pill);
+    color: var(--accent);
+    background: transparent;
+    cursor: pointer;
+    transition:
+      background-color 0.3s var(--ease-standard),
+      transform 0.3s var(--ease-standard);
+  }
+
+  .ncm-home-feed-fm-card-control:hover {
+    background: var(--color-primary-tonal-08);
+    transform: scale(1.1);
+  }
+
+  .ncm-home-feed-fm-card-control:active {
+    transform: scale(1);
+  }
+
+  .ncm-home-feed-fm-card-control svg {
+    width: 26px;
+    height: 26px;
+  }
+
+  .ncm-home-feed-fm-card-control--primary {
+    width: 46px;
+    height: 46px;
+    background: var(--color-primary-tonal-12);
+  }
+
+  .ncm-home-feed-fm-card-control--primary:hover {
+    background: var(--color-primary-tonal-20);
+  }
+
+  .ncm-home-feed-fm-card-badge {
+    position: absolute;
+    right: 20px;
+    bottom: 14px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 0;
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .ncm-home-feed-fm-card-badge svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .ncm-home-feed .card-row {
+    gap: 20px;
+    margin-top: 28px;
+  }
+
+  .ncm-home-feed .card-row-head {
+    justify-content: flex-start;
+    width: max-content;
+    padding: 0 4px;
+  }
+
+  .ncm-home-feed .card-row-copy {
+    position: relative;
+    padding-left: 18px;
+    gap: 0;
+  }
+
+  .ncm-home-feed .card-row-copy::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 4px;
+    width: 4px;
+    height: 28px;
+    border-radius: var(--radius-pill);
+    background: var(--accent);
+  }
+
+  .ncm-home-feed .card-row-title {
+    font-family: inherit;
+    font-size: 22px;
+    font-weight: 700;
+    line-height: 1.55;
+    letter-spacing: 0;
+  }
+
+  .ncm-home-feed .card-row-subtitle {
+    display: none;
+  }
+
+  .ncm-home-feed .card-row-copy--clickable {
+    cursor: pointer;
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    transition: opacity 0.3s var(--ease-standard);
+    width: auto;
+  }
+
+  .ncm-home-feed .card-row-copy--clickable:hover {
+    opacity: 0.8;
+  }
+
+  .ncm-home-feed .card-row-title-arrow {
+    width: 20px;
+    height: 20px;
+    opacity: 0;
+    transform: translateX(4px);
+    transition:
+      opacity 0.3s var(--ease-standard),
+      transform 0.3s var(--ease-standard);
+    flex-shrink: 0;
+  }
+
+  .ncm-home-feed .card-row-copy--clickable:hover .card-row-title-arrow {
+    opacity: 0.7;
+    transform: translateX(0);
+  }
+
+  .ncm-home-feed .card-row-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 20px;
+    padding: 0 4px 6px;
+  }
+
+  .ncm-home-feed .card-row-videos .card-row-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  .ncm-home-feed .card-row-videos .album-card-art {
+    aspect-ratio: 16 / 9;
+  }
+
+  .card-row.card-row-artists .card-row-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+
+  .ncm-home-feed-skeleton .card-row-title::before,
+  .ncm-home-feed-skeleton-cover,
+  .ncm-home-feed-skeleton-line {
+    display: block;
+    border-radius: var(--radius-sm);
+    background:
+      linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent),
+      var(--border-overlay);
+    background-size: 220% 100%;
+    animation: ncm-home-feed-skeleton-pulse 1.4s ease-in-out infinite;
+  }
+
+  .ncm-home-feed-skeleton-title {
+    width: 132px;
+    height: 28px;
+  }
+
+  .ncm-home-feed-skeleton-title::before {
+    content: "";
+    width: 100%;
+    height: 100%;
+  }
+
+  .ncm-home-feed-skeleton-card {
+    pointer-events: none;
+  }
+
+  .ncm-home-feed-skeleton-line {
+    width: calc(100% - 24px);
+    height: 16px;
+    margin: 0 12px;
+  }
+
+  .ncm-home-feed-skeleton-line--title {
+    width: calc(78% - 24px);
+    height: 18px;
+    margin-top: 2px;
+  }
+
+  @keyframes ncm-home-feed-skeleton-pulse {
+    from {
+      background-position: 180% 0;
+    }
+    to {
+      background-position: -80% 0;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .ncm-home-feed-main-rec {
+      grid-template-columns: 1fr;
+    }
+
+    .ncm-home-feed-main-rec-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .daily-songs-card {
+      min-height: 120px;
+      height: auto;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 12px;
+      text-align: center;
+    }
+
+    .daily-songs-card-art {
+      width: 58px;
+      height: 58px;
+    }
+
+    .daily-songs-card-date-title {
+      justify-content: center;
+    }
+
+    .daily-songs-card-date-icon {
+      width: 30px;
+      height: 30px;
+      margin-right: 4px;
+    }
+
+    .daily-songs-card-title {
+      font-size: 16px;
+    }
+
+    .ncm-home-feed-fm-card {
+      height: 120px;
+      min-height: 120px;
+      padding: 20px;
+    }
+
+    .ncm-home-feed-fm-card-cover {
+      width: 80px;
+      height: 80px;
+      flex-basis: 80px;
+    }
+
+    .ncm-home-feed-fm-card-copy {
+      min-height: 80px;
+    }
+
+    .ncm-home-feed-fm-card-title {
+      font-size: 16px;
+    }
+
+    .ncm-home-feed-fm-card-meta {
+      font-size: 13px;
+    }
+
+    .ncm-home-feed-fm-card-badge {
+      display: none;
+    }
+
+    .ncm-home-feed-fm-card-control {
+      width: 30px;
+      height: 30px;
+    }
+
+    .ncm-home-feed-fm-card-control--primary {
+      width: 38px;
+      height: 38px;
+    }
+
+    .ncm-home-feed .card-row-grid,
+    .ncm-home-feed .card-row-videos .card-row-grid,
+    .card-row.card-row-artists .card-row-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .ncm-home-feed .card-row-title {
+      font-size: 20px;
+    }
+  }

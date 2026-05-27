@@ -1,0 +1,284 @@
+  .login-modal-body,
+  .login-modal-form,
+  .login-modal-section {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .login-modal-body {
+    align-items: center;
+  }
+
+  .login-modal-section,
+  .login-modal-form {
+    width: 100%;
+  }
+
+  .login-modal-section[hidden] {
+    display: none;
+  }
+
+  .login-modal-logo {
+    display: grid;
+    place-items: center;
+    width: 60px;
+    height: 60px;
+    margin: 20px auto 30px;
+    border-radius: 50%;
+    color: var(--accent-foreground);
+    background: var(--accent);
+  }
+
+  .login-modal-logo svg {
+    width: 34px;
+    height: 34px;
+  }
+
+  .login-modal-feedback {
+    width: 100%;
+    margin-top: 12px;
+    padding: 10px 12px;
+    border-radius: var(--radius-lg);
+    font-size: var(--text-sm);
+    text-align: center;
+    border: 1px solid var(--border-overlay);
+  }
+
+  .login-modal-feedback-success {
+    color: var(--accent);
+    background: color-mix(in oklch, var(--accent) 10%, transparent);
+  }
+
+  .login-modal-feedback-error {
+    color: color-mix(in oklch, var(--danger) 86%, white 14%);
+    background: color-mix(in oklch, var(--danger) 10%, transparent);
+  }
+
+  .login-modal-feedback-neutral {
+    color: var(--text-soft);
+    background: color-mix(in oklch, var(--surface-2) 76%, transparent);
+  }
+
+  .login-modal-qr {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .login-modal-qr-frame,
+  .login-modal-qr-placeholder {
+    width: 180px;
+    aspect-ratio: 1 / 1;
+    margin: 20px 0;
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .login-modal-qr-frame {
+    position: relative;
+    display: grid;
+    place-items: center;
+    background: white;
+  }
+
+  .login-modal-qr-image {
+    width: 180px;
+    height: 180px;
+    min-width: 180px;
+    min-height: 180px;
+    padding: 0;
+    object-fit: contain;
+    transition:
+      opacity var(--duration-base) var(--ease-standard),
+      filter var(--duration-base) var(--ease-standard);
+  }
+
+  .login-modal-qr-frame.is-scanned .login-modal-qr-image {
+    opacity: 0.5;
+    filter: blur(4px);
+  }
+
+  .login-modal-qr-placeholder {
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    text-align: center;
+    color: var(--muted);
+    background: color-mix(in oklch, var(--surface-3) 82%, transparent);
+  }
+
+  .login-modal-scan-user {
+    position: absolute;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    max-width: 150px;
+    color: #111827;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .login-modal-scan-avatar {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    color: var(--accent-foreground);
+    background: var(--accent);
+    object-fit: cover;
+    overflow: hidden;
+  }
+
+  .login-modal-qr-status {
+    margin-bottom: 12px;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    min-height: 20px;
+    text-align: center;
+  }
+
+  .login-modal-regenerate {
+    margin-bottom: 0;
+    min-height: 26px;
+    padding: 0 10px;
+    border-radius: var(--radius-pill);
+    color: var(--text-soft);
+    background: transparent;
+  }
+
+  .login-modal-regenerate:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--border-faint);
+  }
+
+  .login-modal-field {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .login-modal-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+  }
+
+  .login-modal-submit {
+    width: 100%;
+    margin-top: 8px;
+  }
+
+  .login-modal-help {
+    padding: 12px;
+    border-radius: var(--radius-lg);
+    color: var(--text-soft);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    background: var(--border-faint);
+    border: 1px solid var(--border-overlay);
+  }
+
+  .login-modal-special-form .text-input,
+  .login-modal-special-form .login-modal-cookie-input {
+    margin-top: 20px;
+  }
+
+  .login-modal-special-submit {
+    margin-top: 20px;
+  }
+
+  .login-modal-other {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    margin: 20px 0;
+  }
+
+  .login-modal-link-button {
+    min-width: 140px;
+    min-height: 30px;
+    padding: 0 12px;
+    border-radius: var(--radius-pill);
+    color: var(--text-soft);
+    background: transparent;
+  }
+
+  .login-modal-link-button:hover,
+  .login-modal-link-button.is-active {
+    color: var(--text);
+    background: var(--border-faint);
+  }
+
+  .login-modal-divider {
+    width: 1px;
+    height: 18px;
+    background: var(--border-overlay);
+  }
+
+  .login-modal-cancel {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    min-height: 34px;
+    margin-bottom: 8px;
+    padding: 0 16px;
+    border-radius: var(--radius-pill);
+    color: var(--text-soft);
+    background: var(--border-faint);
+    border: 1px solid var(--border-overlay);
+  }
+
+  .login-modal-cancel:hover {
+    color: var(--text);
+    background: var(--state-hover-on-surface);
+  }
+
+  .login-modal-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px;
+    width: fit-content;
+    border-radius: var(--radius-pill);
+    background: color-mix(in oklch, var(--surface-2) 78%, transparent);
+    border: 1px solid var(--border-overlay);
+  }
+
+  .login-modal-toggle label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 34px;
+    padding: 0 10px;
+    border-radius: var(--radius-pill);
+    color: var(--text-soft);
+  }
+
+  .status-error {
+    color: color-mix(in oklch, var(--danger) 86%, white 14%);
+  }
+
+  .media-list-empty {
+    padding: 18px 22px;
+    color: var(--muted);
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }

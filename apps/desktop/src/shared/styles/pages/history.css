@@ -1,0 +1,164 @@
+  .queue-list,
+
+
+  .library-roots {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .library-root,
+  .queue-item,
+  .history-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    min-width: 0;
+    min-height: 78px;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    border-radius: var(--radius-card);
+    border: 2px solid var(--color-primary-tonal-12);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+    transition:
+      background-color 0.3s var(--ease-standard),
+      border-color 0.3s var(--ease-standard);
+  }
+
+  .queue-item:hover,
+  .history-item:hover {
+    border-color: var(--color-primary-tonal-58);
+    background: color-mix(in oklch, var(--surface-3) 84%, transparent);
+  }
+
+  .queue-item.is-current {
+    border-color: var(--color-primary-tonal-58);
+    background: color-mix(in oklch, var(--color-primary-container) 50%, var(--surface-2));
+  }
+
+  .library-root-meta,
+
+
+  .queue-item-meta {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .library-root-name {
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .library-root-path,
+
+
+  .queue-item-status {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .queue-item-path {
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 500;
+  }
+
+  .queue-item-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .history-item {
+    gap: var(--space-4);
+  }
+  .panel-history {
+    gap: 0;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .history-page-head {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .history-page-title {
+    display: flex;
+    align-items: flex-end;
+    height: 40px;
+    margin-top: 12px;
+    margin-bottom: 20px;
+    line-height: normal;
+  }
+
+  .history-page-title h1 {
+    margin: 0 8px 0 0;
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0;
+    color: var(--text);
+  }
+
+  .history-page-size {
+    font-size: 15px;
+    font-weight: 400;
+    line-height: 30px;
+    color: color-mix(in oklch, var(--text) 62%, transparent);
+  }
+
+  .history-page-menu {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    margin-bottom: 12px;
+  }
+
+  .history-page-menu .page-action {
+    height: 40px;
+    min-height: 40px;
+  }
+
+  .history-page-play,
+  .history-page-clear {
+    padding-inline: 18px;
+  }
+
+  .history-page-play svg,
+  .history-page-clear svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .history-page-list {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .history-page-empty {
+    display: grid;
+    place-items: center;
+    height: auto;
+    min-height: 160px;
+    margin-top: 60px;
+  }
+
+  .history-page-feedback {
+    flex: none;
+    min-height: 22px;
+    margin-top: 8px;
+    font-size: 12px;
+  }

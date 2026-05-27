@@ -1,0 +1,54 @@
+@layer components {
+  .cover-art {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  .cover-art,
+  .cover-art-layer,
+  .cover-art-image,
+  .cover-placeholder {
+    border-radius: inherit;
+  }
+
+  .cover-art-layer,
+  .cover-art-image,
+  .cover-placeholder {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .cover-art-layer {
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .cover-art-image {
+    opacity: 0;
+    transition:
+      opacity 0.35s var(--ease-standard),
+      transform var(--duration-base) var(--ease-standard),
+      filter var(--duration-base) var(--ease-standard);
+  }
+
+  .cover-art-image.is-loaded {
+    opacity: 1;
+  }
+
+  .cover-placeholder {
+    display: block;
+    background: var(--surface-2);
+    box-shadow: inset 0 0 0 1px var(--border-faint);
+  }
+
+  .cover-placeholder-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+}

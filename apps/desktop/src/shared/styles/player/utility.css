@@ -1,0 +1,185 @@
+@layer components {
+  .player-utility-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .player-utility-button {
+    width: 38px;
+    height: 38px;
+    color: var(--player-bar-accent);
+    border-radius: var(--radius-sm);
+  }
+
+  .player-utility-button:hover {
+    color: var(--player-bar-accent);
+    transform: scale(1.1);
+    background: color-mix(in srgb, var(--player-bar-accent) 28%, transparent);
+  }
+
+  .player-utility-button:active {
+    transform: scale(1);
+  }
+
+  .player-utility-button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+
+  .player-utility-button:disabled:hover {
+    transform: none;
+    background: transparent;
+  }
+
+  .player-queue-button {
+    position: relative;
+    overflow: visible;
+  }
+
+  @keyframes player-floating-layer-enter {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  }
+
+  @keyframes player-floating-layer-enter-right {
+    from {
+      opacity: 0;
+      transform: translateX(50%) translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(50%) translateY(0);
+    }
+  }
+
+  .player-queue-button.is-open {
+    color: var(--player-bar-accent);
+    background: color-mix(in srgb, var(--player-bar-accent) 28%, transparent);
+  }
+
+  .player-utility-button.is-active {
+    color: var(--player-bar-accent);
+    background: color-mix(in srgb, var(--player-bar-accent) 28%, transparent);
+  }
+
+  .player-autoclose-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 2px;
+    min-height: 22px;
+    padding: 0 8px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
+    line-height: 1;
+    color: var(--player-bar-accent);
+    background: color-mix(in srgb, var(--player-bar-accent) 12%, transparent);
+    cursor: pointer;
+  }
+
+  .player-autoclose-tag svg {
+    width: 12px;
+    height: 12px;
+  }
+
+  .player-autoclose-time {
+    font-variant-numeric: tabular-nums;
+  }
+
+  .player-time-stack {
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+
+  .player-queue-button:has(.player-queue-badge) {
+    margin-right: 12px;
+  }
+
+  .player-queue-badge {
+    position: absolute;
+    top: -4px;
+    right: -10px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: var(--radius-pill);
+    background: color-mix(in srgb, var(--player-bar-accent) 28%, transparent);
+    color: var(--player-bar-accent);
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 18px;
+    text-align: center;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--player-bar-accent) 20%, transparent);
+    pointer-events: none;
+  }
+
+  .player-utility-button svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  @media (max-width: 1024px) {
+    .player-time-stack {
+      display: none;
+    }
+  }
+
+  @media (max-width: 810px) {
+    .player-bar {
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 8px;
+    }
+
+    .player-bar-center {
+      width: auto;
+    }
+
+    .player-bar-transport {
+      width: auto;
+      margin: 0 0 0 12px;
+    }
+
+    .player-bar-transport .transport-button:not(.transport-primary) {
+      display: none;
+    }
+
+    .player-utility-group {
+      gap: 2px;
+    }
+
+    .player-utility-hidden {
+      display: none;
+    }
+
+    .player-queue-button:has(.player-queue-badge) {
+      margin-right: 8px;
+    }
+  }
+
+  .command-error-toast {
+    position: fixed;
+    right: var(--space-4);
+    bottom: var(--toast-bottom);
+    z-index: var(--z-toast);
+    max-width: min(360px, calc(100vw - 32px));
+    padding: 12px 14px;
+    border: 1px solid var(--floating-border);
+    border-radius: var(--floating-radius);
+    color: color-mix(in oklch, var(--danger) 86%, white 14%);
+    background:
+      linear-gradient(0deg, color-mix(in oklch, var(--danger) 12%, transparent), color-mix(in oklch, var(--danger) 12%, transparent)),
+      var(--floating-surface);
+    box-shadow: var(--floating-shadow);
+    animation: floating-layer-enter var(--duration-fast) var(--ease-standard);
+  }
+
+}

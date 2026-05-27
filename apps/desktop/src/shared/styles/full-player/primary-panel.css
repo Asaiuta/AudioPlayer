@@ -1,0 +1,172 @@
+  .full-player-primary {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+  }
+
+  .full-player-cover {
+    position: relative;
+    width: min(70%, 50vh);
+    height: auto;
+    aspect-ratio: 1 / 1;
+    border-radius: 32px;
+    overflow: hidden;
+    box-shadow: 0 0 20px 10px rgb(0 0 0 / 0.1);
+    transition:
+      transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+      width 0.3s;
+  }
+
+  .full-player-cover .cover-art,
+  .full-player-cover .cover-art-layer,
+  .full-player-cover .cover-art-image {
+    border-radius: inherit;
+  }
+
+  .full-player-cover .cover-art-image:hover,
+  .full-player-cover:hover .cover-art-image {
+    transform: none;
+    filter: none;
+  }
+
+  .full-player.cover-mode-normal .full-player-cover {
+    transform: scale(0.9);
+  }
+
+  .full-player.cover-mode-normal .full-player-cover.is-playing {
+    transform: scale(1);
+  }
+
+  /* ---------- Vinyl record cover mode ---------- */
+  .full-player.cover-mode-record .full-player-cover {
+    border-radius: var(--radius-pill);
+    overflow: visible;
+    max-width: 46vh;
+    margin-bottom: 4%;
+    box-shadow:
+      0 30px 80px oklch(0 0 0 / 0.5),
+      0 0 0 1px oklch(0 0 0 / 0.55);
+  }
+
+  .full-player.cover-mode-record .full-player-cover .cover-art {
+    position: relative;
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+    background:
+      radial-gradient(circle at 50% 50%, transparent 0 16%, oklch(0 0 0 / 0.65) 17% 18.5%, transparent 19% 100%),
+      repeating-radial-gradient(
+        circle at 50% 50%,
+        oklch(0.05 0 0) 0,
+        oklch(0.05 0 0) 1.4px,
+        oklch(0.32 0 0) 1.4px,
+        oklch(0.32 0 0) 2.2px
+      );
+    border: 1vh solid rgb(255 255 255 / 0.18);
+    animation: full-player-vinyl-spin 30s linear infinite;
+    animation-play-state: paused;
+  }
+
+  .full-player.cover-mode-record .full-player-cover.is-playing .cover-art {
+    animation-play-state: running;
+  }
+
+  .full-player.cover-mode-record .full-player-cover .cover-art::after {
+    content: "";
+    position: absolute;
+    inset: 47%;
+    border-radius: var(--radius-pill);
+    background: oklch(0.18 0.04 30);
+    box-shadow:
+      0 0 0 2px oklch(0 0 0 / 0.6),
+      inset 0 0 0 1px oklch(1 0 0 / 0.18);
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .full-player.cover-mode-record .full-player-cover .cover-art-image,
+  .full-player.cover-mode-record .full-player-cover .cover-art-layer,
+  .full-player.cover-mode-record .full-player-cover .cover-placeholder {
+    inset: 15%;
+    width: 70%;
+    height: 70%;
+    border-radius: var(--radius-pill);
+    border: 1vh solid rgb(255 255 255 / 0.25);
+    box-shadow: 0 0 0 1px oklch(0 0 0 / 0.5);
+  }
+
+  .full-player.cover-mode-record .full-player-cover .cover-art-image:hover,
+  .full-player.cover-mode-record .full-player-cover:hover .cover-art-image {
+    transform: none;
+    filter: none;
+  }
+
+  .full-player-vinyl-needle {
+    position: absolute;
+    width: 30%;
+    aspect-ratio: 1 / 1;
+    left: 46%;
+    top: -22%;
+    transform: rotate(-20deg);
+    transform-origin: 10% 10%;
+    z-index: 3;
+    pointer-events: none;
+    transition: transform 0.3s;
+    filter: drop-shadow(0 6px 14px oklch(0 0 0 / 0.45));
+  }
+
+  .full-player.cover-mode-record .full-player-cover.is-playing .full-player-vinyl-needle {
+    transform: rotate(-8deg);
+  }
+
+  @keyframes full-player-vinyl-spin {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .full-player-meta {
+    min-width: 0;
+    width: min(70%, 50vh);
+    margin-top: 24px;
+    padding: 0 2px;
+    text-align: left;
+  }
+
+  .full-player-title {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    font-family: var(--font-display);
+    font-size: 26px;
+    font-weight: 700;
+    line-height: normal;
+    color: var(--full-player-ink);
+    overflow-wrap: anywhere;
+    text-wrap: pretty;
+    text-shadow: 0 12px 32px oklch(0 0 0 / 0.22);
+  }
+
+  .full-player-subtitle {
+    margin-top: 8px;
+    font-size: 16px;
+    font-weight: 560;
+    color: var(--full-player-ink-soft);
+  }
+
+  .full-player-detail {
+    margin-top: 6px;
+    font-size: 16px;
+    color: var(--full-player-ink-muted);
+  }
+
+  .full-player.cover-mode-record .full-player-title {
+    font-size: 30px;
+  }

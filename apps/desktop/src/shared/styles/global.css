@@ -5,7 +5,7 @@
    component-specific selectors.
    ============================================================ */
 
-@layer reset, tokens, base;
+@layer reset, tokens, base, components;
 
 @import "./tokens.css" layer(tokens);
 

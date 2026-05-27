@@ -1,0 +1,146 @@
+  /* ── Skeleton primitives (shared) ── */
+  .skeleton {
+    display: inline-block;
+    background:
+      linear-gradient(
+        90deg,
+        color-mix(in oklch, var(--surface-3) 60%, transparent),
+        color-mix(in oklch, var(--surface-3) 85%, transparent),
+        color-mix(in oklch, var(--surface-3) 60%, transparent)
+      );
+    background-size: 200% 100%;
+    border-radius: 6px;
+    animation: skeleton-pulse 1.4s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .skeleton--circle {
+    border-radius: 50%;
+  }
+
+  .skeleton--text {
+    height: 14px;
+    border-radius: 4px;
+  }
+
+  @keyframes skeleton-pulse {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  .skeleton-grid {
+    padding: 20px 4px;
+  }
+
+  .skeleton-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    text-align: left;
+  }
+
+  .skeleton-card .album-card-art {
+    aspect-ratio: 1 / 1;
+    border-radius: 16px;
+  }
+
+  .skeleton-card.album-card--round .album-card-art {
+    border-radius: 50%;
+  }
+
+  .skeleton-line {
+    width: 100%;
+    height: 14px;
+  }
+
+  .skeleton-line--title {
+    width: 70%;
+    height: 16px;
+    margin-top: 4px;
+  }
+
+  .skeleton-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 20px;
+    width: 100%;
+  }
+
+  .skeleton-row {
+    width: 100%;
+    border-radius: 12px;
+  }
+
+  /* ── Content fade-in (skeleton → loaded) ── */
+  .content-fade-in {
+    animation: content-fade-in var(--duration-base) var(--ease-standard) both;
+  }
+
+  @keyframes content-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* ── Empty state (matches SPlayer n-empty illustration + caption) ── */
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 40px 20px;
+    color: var(--muted);
+    text-align: center;
+    animation: content-fade-in var(--duration-base) var(--ease-standard) both;
+  }
+
+  .empty-state--sm {
+    padding: 20px 16px;
+    gap: 8px;
+  }
+
+  .empty-state--lg {
+    padding: 60px 24px;
+    gap: 16px;
+  }
+
+  .empty-state-illustration {
+    width: 96px;
+    height: 96px;
+    color: var(--text-placeholder);
+    opacity: 0.75;
+  }
+
+  .empty-state--sm .empty-state-illustration {
+    width: 64px;
+    height: 64px;
+  }
+
+  .empty-state--lg .empty-state-illustration {
+    width: 128px;
+    height: 128px;
+  }
+
+  .empty-state-illustration-wrap {
+    display: inline-flex;
+    color: var(--text-placeholder);
+    opacity: 0.75;
+  }
+
+  .empty-state-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+
+  .empty-state--lg .empty-state-text {
+    font-size: 15px;
+  }

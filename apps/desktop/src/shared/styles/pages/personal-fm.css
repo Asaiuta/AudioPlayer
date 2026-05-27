@@ -1,0 +1,359 @@
+  .personal-fm-page {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .personal-fm-shell {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    gap: 18px;
+    overflow: auto;
+    padding: 12px 4px 24px 0;
+  }
+
+  .personal-fm-hero {
+    position: relative;
+    display: grid;
+    grid-template-columns: 160px minmax(0, 1fr);
+    gap: 20px;
+    align-items: center;
+    height: 200px;
+    min-height: 200px;
+    padding: 20px;
+    border: 1px solid var(--border-overlay);
+    border-radius: 16px;
+    background: color-mix(in oklch, var(--surface-2) 86%, transparent);
+    cursor: pointer;
+    overflow: hidden;
+    transition: border-color 0.3s var(--ease-standard);
+  }
+
+  .personal-fm-hero:hover {
+    border-color: var(--color-primary-tonal-58);
+  }
+
+  .personal-fm-hero.is-cover-hidden {
+    grid-template-columns: minmax(0, 1fr);
+    place-items: center;
+  }
+
+  .personal-fm-cover-stack {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 160px;
+    min-width: 160px;
+    height: 160px;
+    aspect-ratio: 1 / 1;
+  }
+
+  .personal-fm-cover-main,
+  .personal-fm-cover-blur {
+    position: absolute;
+    width: 160px;
+    height: 160px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+  }
+
+  .personal-fm-cover-main {
+    z-index: 3;
+    inset: 0;
+    box-shadow: 0 0 10px 6px rgba(0, 0, 0, 0.03);
+  }
+
+  .personal-fm-cover-blur {
+    z-index: 0;
+    inset: 0;
+    filter: blur(10px) opacity(0.32);
+    transform: scale(0.94);
+  }
+
+  .personal-fm-cover-stack > span {
+    display: grid;
+    place-items: center;
+    width: 160px;
+    height: 160px;
+    border-radius: var(--radius-sm);
+    color: var(--accent);
+    background: color-mix(in oklch, var(--surface-3) 82%, transparent);
+  }
+
+  .personal-fm-cover-stack > span svg {
+    width: 46px;
+    height: 46px;
+  }
+
+  .personal-fm-copy {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    height: 160px;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .personal-fm-eyebrow {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .personal-fm-eyebrow svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .personal-fm-copy h2 {
+    margin: 0;
+    overflow: hidden;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    line-height: normal;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .personal-fm-meta {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0;
+    color: var(--text-soft);
+    font-size: 14px;
+  }
+
+  .personal-fm-meta > span {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    gap: 4px;
+    opacity: 0.72;
+  }
+
+  .personal-fm-meta > span > span {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .personal-fm-meta svg {
+    width: 18px;
+    height: 18px;
+    flex: none;
+    transform: translateY(1px);
+  }
+
+  .personal-fm-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+    margin-top: auto;
+  }
+
+  .personal-fm-play,
+  .personal-fm-icon-button {
+    display: inline-grid;
+    place-items: center;
+    color: var(--accent);
+    border-color: transparent;
+    border-radius: var(--radius-pill);
+    box-shadow: none;
+    transition:
+      background-color 0.3s var(--ease-standard),
+      transform 0.3s var(--ease-standard);
+  }
+
+  .personal-fm-play {
+    width: 46px;
+    height: 46px;
+    min-height: 46px;
+    padding: 0;
+    background: var(--color-primary-tonal-08);
+  }
+
+  .personal-fm-play span {
+    display: none;
+  }
+
+  .personal-fm-icon-button {
+    width: 38px;
+    height: 38px;
+    min-height: 38px;
+    padding: 0;
+    background: transparent;
+  }
+
+  .personal-fm-icon-button svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .personal-fm-play svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .personal-fm-play:hover:not(:disabled),
+  .personal-fm-icon-button:hover:not(:disabled) {
+    transform: scale(1.1);
+    background: var(--color-primary-tonal-12);
+    color: var(--accent);
+  }
+
+  .personal-fm-play:active:not(:disabled),
+  .personal-fm-icon-button:active:not(:disabled) {
+    transform: scale(1);
+  }
+
+  .personal-fm-hero.is-cover-hidden .personal-fm-copy {
+    width: 100%;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+  }
+
+  .personal-fm-hero.is-cover-hidden .personal-fm-copy h2 {
+    margin-bottom: 6px;
+    font-size: 24px;
+  }
+
+  .personal-fm-hero.is-cover-hidden .personal-fm-meta {
+    align-items: center;
+    font-size: 15px;
+  }
+
+  .personal-fm-hero.is-cover-hidden .personal-fm-actions {
+    margin-top: 28px;
+    justify-content: center;
+  }
+
+  .personal-fm-hero.is-cover-hidden .personal-fm-icon-button {
+    width: 42px;
+    height: 42px;
+    min-height: 42px;
+    background: var(--color-primary-tonal-08);
+  }
+
+  .personal-fm-hero.is-cover-hidden .personal-fm-play {
+    width: 52px;
+    height: 52px;
+    min-height: 52px;
+  }
+
+  .personal-fm-hero.is-cover-hidden .personal-fm-eyebrow {
+    display: none;
+  }
+
+  .personal-fm-list {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .personal-fm-list .media-list-table {
+    border-radius: var(--radius-card);
+  }
+
+  .personal-fm-list .media-row {
+    min-height: 74px;
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border-radius: var(--radius-card);
+    border: 1px solid var(--border-overlay);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+  }
+
+  .personal-fm-list .media-row:hover {
+    border-color: var(--color-primary-tonal-58);
+    background: color-mix(in oklch, var(--surface-2) 92%, transparent);
+  }
+
+  .personal-fm-list .media-row.is-current {
+    border-color: var(--color-primary-tonal-58);
+    background: color-mix(in oklch, var(--color-primary-container) 50%, var(--surface-2));
+  }
+
+  .personal-fm-feedback {
+    flex: none;
+  }
+
+  @media (max-width: 760px) {
+    .personal-fm-shell {
+      padding-right: 0;
+    }
+
+    .personal-fm-hero {
+      grid-template-columns: 1fr;
+      gap: 18px;
+      height: auto;
+      min-height: 120px;
+    }
+
+    .personal-fm-cover-stack {
+      width: 80px;
+      min-width: 80px;
+      height: 80px;
+      justify-self: center;
+    }
+
+    .personal-fm-cover-main,
+    .personal-fm-cover-blur,
+    .personal-fm-cover-stack > span {
+      width: 80px;
+      height: 80px;
+    }
+
+    .personal-fm-copy {
+      height: auto;
+      min-height: 0;
+    }
+
+    .personal-fm-copy h2 {
+      font-size: 16px;
+      white-space: normal;
+    }
+
+    .personal-fm-meta span:nth-child(2),
+    .personal-fm-eyebrow {
+      display: none;
+    }
+
+    .personal-fm-actions {
+      margin-top: 8px;
+    }
+
+    .personal-fm-play {
+      width: 36px;
+      height: 36px;
+      min-height: 36px;
+    }
+
+    .personal-fm-play svg {
+      width: 28px;
+      height: 28px;
+    }
+
+    .personal-fm-icon-button {
+      width: 26px;
+      height: 26px;
+      min-height: 26px;
+    }
+  }
