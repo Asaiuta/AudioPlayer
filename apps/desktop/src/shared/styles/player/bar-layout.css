@@ -132,11 +132,19 @@
   }
 
   .player-bar-title {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 100%;
     min-width: 0;
     overflow: hidden;
     font-size: 16px;
     font-weight: 700;
     color: var(--text);
+  }
+
+  .player-bar-title-row .player-inline-icon {
+    width: 20px;
+    height: 20px;
   }
 
   .player-info-secondary {
@@ -215,6 +223,12 @@
     white-space: nowrap;
     width: 100%;
     min-width: 0;
+  }
+
+  .player-bar-title-row > .player-bar-title {
+    flex: 0 1 auto;
+    width: auto;
+    max-width: 100%;
   }
 
   .marquee-content {
