@@ -2034,6 +2034,7 @@
   }
 
   .naive-switch .n-switch__button-icon,
+  .naive-switch .n-base-loading,
   .naive-switch .naive-switch-loading-indicator {
     position: absolute;
     inset: 0;
@@ -2046,6 +2047,11 @@
     transition: color 0.3s var(--n-bezier);
   }
 
+  .naive-switch .n-base-loading {
+    color: var(--n-loading-color);
+  }
+
+  .naive-switch .n-base-loading::before,
   .naive-switch .naive-switch-loading-indicator::before {
     content: "";
     width: 1em;
