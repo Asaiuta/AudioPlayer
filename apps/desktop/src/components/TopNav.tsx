@@ -19,6 +19,14 @@ import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import { isSearchEnabledPage, type ActivePage } from "../shared/ui/navigation";
 import { SImage } from "./SImage";
 import {
+  searchFallbackKeyword,
+  shouldLoadDefaultKeyword,
+  shouldLoadHotSearches,
+  shouldLoadSearchSuggestions,
+  shouldShowSearchEntryPanel,
+  visibleHotSearchItems
+} from "./topNavSearchPolicy";
+import {
   IconArtist,
   IconAlbum,
   IconChevronLeft,
@@ -147,19 +155,41 @@ export function TopNav(props: TopNavProps) {
   const searchClassName = () => `top-nav-search${searchEnabled() ? "" : " is-disabled"}`;
   const searchTitle = () =>
     searchEnabled() ? undefined : t("nav.search.disabledHint", { scope: searchScopeLabel() });
-  const ncmSearchEntryEnabled = () => searchEnabled() && isNcmSearchEntryPage(searchPage());
+  const ncmSearchEntryEnabled = () =>
+    uiSettings.useOnlineService && searchEnabled() && isNcmSearchEntryPage(searchPage());
   const trimmedSearchQuery = createMemo(() => query().trim());
-  const defaultSearchLabel = createMemo(() => defaultKeyword()?.showKeyword ?? null);
+  const defaultSearchLabel = createMemo(() =>
+    uiSettings.useOnlineService && uiSettings.enableSearchKeyword
+      ? defaultKeyword()?.showKeyword ?? null
+      : null
+  );
   const historyItems = createMemo(() =>
     uiSettings.showSearchHistory && trimmedSearchQuery().length === 0 ? history() : []
   );
-  const visibleHotSearches = createMemo(() => hotSearches().slice(0, TOP_NAV_HOT_LIMIT));
+  const visibleHotSearches = createMemo(() =>
+    visibleHotSearchItems(hotSearches(), {
+      limit: TOP_NAV_HOT_LIMIT,
+      showHotSearch: uiSettings.useOnlineService && uiSettings.showHotSearch
+    })
+  );
   const showSearchPanel = () =>
     searchPanelOpen() &&
     searchEnabled() &&
-    (ncmSearchEntryEnabled() || historyItems().length > 0);
-  const showSearchEntryPanel = () => ncmSearchEntryEnabled() && trimmedSearchQuery().length === 0;
-  const showSuggestionPanel = () => ncmSearchEntryEnabled() && trimmedSearchQuery().length > 0;
+    (showSearchEntryPanel() || showSuggestionPanel() || historyItems().length > 0);
+  const showSearchEntryPanel = () =>
+    shouldShowSearchEntryPanel({
+      enableSearchKeyword: uiSettings.useOnlineService && uiSettings.enableSearchKeyword,
+      ncmSearchEntryEnabled: ncmSearchEntryEnabled(),
+      query: trimmedSearchQuery(),
+      showHotSearch: uiSettings.useOnlineService && uiSettings.showHotSearch
+    });
+  const showSuggestionPanel = () =>
+    shouldLoadSearchSuggestions({
+      enableSearchKeyword: uiSettings.useOnlineService && uiSettings.enableSearchKeyword,
+      ncmSearchEntryEnabled: ncmSearchEntryEnabled(),
+      panelOpen: searchPanelOpen(),
+      query: trimmedSearchQuery()
+    });
 
   const accountOtherAccounts = createMemo(() => {
     const currentId = account()?.userId ?? null;
@@ -205,7 +235,12 @@ export function TopNav(props: TopNavProps) {
     if (!searchEnabled()) {
       return;
     }
-    const targetKeyword = query().trim() || fallbackKeyword?.trim() || null;
+    const targetKeyword =
+      query().trim() ||
+      searchFallbackKeyword(
+        fallbackKeyword,
+        uiSettings.useOnlineService && uiSettings.enableSearchKeyword
+      );
     if (targetKeyword) {
       setQuery(targetKeyword);
     }
@@ -394,26 +429,52 @@ export function TopNav(props: TopNavProps) {
   });
 
   createEffect(() => {
-    if (!ncmSearchEntryEnabled() || !searchPanelOpen() || trimmedSearchQuery().length > 0) return;
-    if (untrack(isSearchEntryLoading) || untrack(() => defaultKeyword() !== null && hotSearches().length > 0)) return;
+    const loadDefaultKeyword = shouldLoadDefaultKeyword({
+      defaultKeywordLoaded: untrack(() => defaultKeyword() !== null),
+      enableSearchKeyword: uiSettings.useOnlineService && uiSettings.enableSearchKeyword,
+      hotSearchLoaded: untrack(() => hotSearches().length > 0),
+      isLoading: untrack(isSearchEntryLoading),
+      ncmSearchEntryEnabled: ncmSearchEntryEnabled(),
+      panelOpen: searchPanelOpen(),
+      query: trimmedSearchQuery(),
+      showHotSearch: uiSettings.useOnlineService && uiSettings.showHotSearch
+    });
+    const loadHotSearches = shouldLoadHotSearches({
+      defaultKeywordLoaded: untrack(() => defaultKeyword() !== null),
+      enableSearchKeyword: uiSettings.useOnlineService && uiSettings.enableSearchKeyword,
+      hotSearchLoaded: untrack(() => hotSearches().length > 0),
+      isLoading: untrack(isSearchEntryLoading),
+      ncmSearchEntryEnabled: ncmSearchEntryEnabled(),
+      panelOpen: searchPanelOpen(),
+      query: trimmedSearchQuery(),
+      showHotSearch: uiSettings.useOnlineService && uiSettings.showHotSearch
+    });
+
+    if (!loadDefaultKeyword && !loadHotSearches) return;
 
     let cancelled = false;
     const abortController = new AbortController();
     setIsSearchEntryLoading(true);
-    void Promise.allSettled([
-      searchDefault({ signal: abortController.signal }),
-      searchHotDetail({ signal: abortController.signal })
-    ]).then((results) => {
+    const requests = [
+      loadDefaultKeyword
+        ? searchDefault({ signal: abortController.signal })
+        : Promise.resolve(null),
+      loadHotSearches
+        ? searchHotDetail({ signal: abortController.signal })
+        : Promise.resolve(null)
+    ] as const;
+
+    void Promise.allSettled(requests).then((results) => {
       if (cancelled) return;
       const [defaultResult, hotResult] = results;
-      if (defaultResult.status === "fulfilled") {
+      if (loadDefaultKeyword && defaultResult.status === "fulfilled" && defaultResult.value) {
         setDefaultKeyword(parseNcmSearchDefaultKeyword(defaultResult.value));
-      } else {
+      } else if (loadDefaultKeyword && defaultResult.status === "rejected") {
         console.warn("[TopNav] failed to load NCM default search keyword", defaultResult.reason);
       }
-      if (hotResult.status === "fulfilled") {
+      if (loadHotSearches && hotResult.status === "fulfilled" && hotResult.value) {
         setHotSearches(parseNcmSearchHotDetail(hotResult.value));
-      } else {
+      } else if (loadHotSearches && hotResult.status === "rejected") {
         console.warn("[TopNav] failed to load NCM hot searches", hotResult.reason);
       }
       setIsSearchEntryLoading(false);
@@ -427,7 +488,14 @@ export function TopNav(props: TopNavProps) {
 
   createEffect(() => {
     const keyword = trimmedSearchQuery();
-    if (!ncmSearchEntryEnabled() || !searchPanelOpen() || keyword.length === 0) {
+    if (
+      !shouldLoadSearchSuggestions({
+        enableSearchKeyword: uiSettings.useOnlineService && uiSettings.enableSearchKeyword,
+        ncmSearchEntryEnabled: ncmSearchEntryEnabled(),
+        panelOpen: searchPanelOpen(),
+        query: keyword
+      })
+    ) {
       setSuggestions([]);
       setIsSuggestionLoading(false);
       return;

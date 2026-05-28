@@ -3,10 +3,10 @@ import { Show, createEffect, type JSX } from "solid-js";
 export const settingsSectionClass = "settings-section flex flex-col gap-[30px]";
 
 export const settingItemClass =
-  "set-item flex flex-row items-center justify-between gap-4 w-full min-h-14 p-4 rounded-sm bg-[color-mix(in_oklch,var(--surface-2)_50%,transparent)] border border-[color-mix(in_oklch,var(--border-subtle)_80%,transparent)] transition-colors duration-fast ease-standard";
+  "set-item flex flex-row items-center justify-between gap-4 w-full min-h-14 p-4 rounded-sm bg-[color-mix(in_oklch,var(--surface-2)_62%,transparent)] border border-[color-mix(in_oklch,var(--border-overlay)_70%,transparent)] transition-colors duration-fast ease-standard";
 
 export const settingItemSlideInClass =
-  "opacity-0 animate-[settings-slide-up-fade-in_0.25s_cubic-bezier(0.25,0.46,0.45,0.94)_both]";
+  "opacity-0 animate-[settings-slide-up-fade-in_0.26s_cubic-bezier(0.4,0,0.2,1)_both]";
 
 export const settingItemHighlightedClass =
   "is-highlighted outline outline-2 outline-accent outline-offset-2 animate-[settings-highlight-pulse_2.5s_ease-out]";

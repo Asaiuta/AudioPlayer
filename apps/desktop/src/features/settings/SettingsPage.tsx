@@ -1,8 +1,12 @@
 import { Match, Show, Switch, createEffect, createSignal, onCleanup } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
 import { usePresenceTransition } from "../../shared/ui/usePresenceTransition";
-import { IconClose } from "../../components/icons";
-import { SettingsCategoryNav, type SettingsCategoryKey } from "./components/SettingsCategoryNav";
+import { IconClose, IconSPlayerMenu } from "../../components/icons";
+import {
+  SETTINGS_CATEGORIES,
+  SettingsCategoryNav,
+  type SettingsCategoryKey
+} from "./components/SettingsCategoryNav";
 import { SettingsSearchBox } from "./components/SettingsSearchBox";
 import { GeneralSection } from "./sections/GeneralSection";
 import { AppearanceSection } from "./sections/AppearanceSection";
@@ -27,13 +31,24 @@ const settingsModalClass =
   "settings-modal fixed inset-0 z-modal flex items-center justify-center p-5";
 
 const settingsModalCardClass =
-  "settings-modal-card relative grid grid-cols-[280px_minmax(0,1fr)] w-full max-w-[1024px] h-[75vh] min-h-[75vh] overflow-hidden text-text scale-100 transition-transform duration-base ease-standard";
+  "settings-modal-card relative grid grid-cols-[240px_minmax(0,1fr)] w-full max-w-[900px] h-[80vh] min-h-[520px] overflow-hidden text-text scale-100 transition-transform duration-base ease-standard";
 
 const settingsModalCloseClass =
   "settings-modal-close absolute right-[14px] top-[14px] z-2 inline-flex h-9 w-9 items-center justify-center rounded-full border-0 bg-[color-mix(in_oklch,var(--surface-2)_60%,transparent)] text-text-soft transition-colors duration-fast ease-standard hover:bg-[color-mix(in_oklch,var(--surface-2)_90%,transparent)] hover:text-text";
 
 const settingsModalAsideClass =
   "settings-modal-aside flex min-h-0 flex-col gap-4 border-r border-border-subtle bg-surface-2 py-5 pl-5 pr-4 pt-6";
+
+const settingsModalMobileHeaderClass =
+  "settings-modal-mobile-header hidden items-center gap-3 border-b border-border-subtle bg-surface-2 px-4 py-3";
+
+const settingsModalMobileMenuClass =
+  "settings-modal-mobile-menu inline-flex h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent text-text-soft";
+
+const settingsModalMobileTitleClass = "settings-modal-mobile-title min-w-0 flex-1 text-center text-base font-700 text-text";
+
+const settingsModalMobileCloseClass =
+  "settings-modal-mobile-close hidden h-9 w-9 items-center justify-center rounded-full border-0 bg-transparent text-text-soft";
 
 const settingsModalAsideHeaderClass =
   "settings-modal-aside-header flex flex-col gap-1 px-[6px] pt-1";
@@ -62,6 +77,7 @@ export function SettingsPage(props: SettingsPageProps) {
   const { t } = useTranslation();
   const [activeCategory, setActiveCategory] = createSignal<SettingsCategoryKey>("general");
   const [highlightId, setHighlightId] = createSignal<string | null>(null);
+  const [mobileNavOpen, setMobileNavOpen] = createSignal(false);
   const presence = usePresenceTransition(() => props.isOpen);
   let contentRef: HTMLDivElement | undefined;
   let highlightTimer: number | undefined;
@@ -95,10 +111,18 @@ export function SettingsPage(props: SettingsPageProps) {
     onCleanup(() => window.removeEventListener("keydown", onKey));
   });
 
+  createEffect(() => {
+    if (!props.isOpen) setMobileNavOpen(false);
+  });
+
   const handleSelect = (key: SettingsCategoryKey) => {
-    if (activeCategory() === key) return;
+    if (activeCategory() === key) {
+      setMobileNavOpen(false);
+      return;
+    }
     clearHighlight();
     setActiveCategory(key);
+    setMobileNavOpen(false);
     contentRef?.scrollTo({ top: 0 });
   };
 
@@ -106,6 +130,7 @@ export function SettingsPage(props: SettingsPageProps) {
     if (activeCategory() !== category) {
       setActiveCategory(category);
     }
+    setMobileNavOpen(false);
     setHighlightId(itemId);
     window.requestAnimationFrame(() => {
       const el = document.getElementById(`setting-${itemId}`);
@@ -122,6 +147,11 @@ export function SettingsPage(props: SettingsPageProps) {
 
   const handleBackdropClick = (event: MouseEvent) => {
     if (props.isOpen && event.target === event.currentTarget) props.onClose();
+  };
+
+  const activeCategoryLabel = () => {
+    const category = SETTINGS_CATEGORIES.find((cat) => cat.key === activeCategory());
+    return category ? t(category.labelKey) : t("settings.nav.title");
   };
 
   return (
@@ -143,7 +173,39 @@ export function SettingsPage(props: SettingsPageProps) {
           >
             <IconClose />
           </button>
-          <aside class={settingsModalAsideClass} aria-label={t("settings.nav.title")}>
+          <header class={settingsModalMobileHeaderClass}>
+            <button
+              type="button"
+              class={settingsModalMobileMenuClass}
+              onClick={() => setMobileNavOpen(true)}
+              aria-label={t("settings.nav.title")}
+              aria-expanded={mobileNavOpen()}
+            >
+              <IconSPlayerMenu />
+            </button>
+            <div class={settingsModalMobileTitleClass}>{activeCategoryLabel()}</div>
+            <span aria-hidden="true" class="h-9 w-9" />
+          </header>
+          <Show when={mobileNavOpen()}>
+            <div
+              class="settings-modal-mobile-scrim"
+              onClick={() => setMobileNavOpen(false)}
+              aria-hidden="true"
+            />
+          </Show>
+          <aside
+            class={`${settingsModalAsideClass}${mobileNavOpen() ? " is-mobile-open" : ""}`}
+            aria-label={t("settings.nav.title")}
+          >
+            <button
+              type="button"
+              class={settingsModalMobileCloseClass}
+              onClick={() => setMobileNavOpen(false)}
+              aria-label={t("fullPlayer.aria.close")}
+              title={t("fullPlayer.aria.close")}
+            >
+              <IconClose />
+            </button>
             <header class={settingsModalAsideHeaderClass}>
               <h1 class={settingsModalAsideTitleClass}>{t("settings.nav.title")}</h1>
               <span class={settingsModalAsideSubtitleClass}>{t("settings.nav.subtitle")}</span>

@@ -5,6 +5,7 @@ import { I18nProvider } from "./shared/i18n";
 import { NcmAccountProvider } from "./shared/state/NcmAccountContext";
 import { readUISettingsSnapshot } from "./shared/state/useUISettings";
 import { applyUserAppearanceSettings } from "./shared/styles/customAppearance";
+import { installNativeBrowserBehaviorGuards } from "./shared/ui/nativeBrowserBehavior";
 import "./shared/styles/global.css";
 import "./shared/styles/appearance.css";
 import "./shared/styles/components/naive.css";
@@ -32,6 +33,7 @@ function applyTheme(): void {
 }
 applyTheme();
 applyUserAppearanceSettings(readUISettingsSnapshot(), { executeJs: true });
+installNativeBrowserBehaviorGuards();
 
 const root = document.getElementById("root");
 if (!root) {

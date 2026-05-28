@@ -75,7 +75,7 @@ test("turning off taskbar progress clears the native progress state after persis
   });
 
   assert.equal(persisted, true);
-  assert.deepEqual(calls, ["persist:false"]);
+  assert.deepEqual(calls, ["persist:false", "clear"]);
 });
 
 test("changing update channel triggers an update check only after persistence", () => {

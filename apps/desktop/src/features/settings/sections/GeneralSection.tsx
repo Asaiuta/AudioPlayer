@@ -41,7 +41,6 @@ const reloadApp = () => {
 };
 
 const confirmOnlineServiceChange = (
-  nextEnabled: boolean,
   copy: {
     title: string;
     content: string;
@@ -150,7 +149,7 @@ export function GeneralSection(props: GeneralSectionProps) {
     const nextEnabled = !useOnlineService();
     void requestOnlineServiceModeChange(nextEnabled, {
       confirmChange: () =>
-        confirmOnlineServiceChange(nextEnabled, {
+        confirmOnlineServiceChange({
           title: t("settings.general.useOnlineService.confirm.title"),
           content: t("settings.general.useOnlineService.confirm.content"),
           positiveText: t("settings.general.useOnlineService.confirm.positive"),
