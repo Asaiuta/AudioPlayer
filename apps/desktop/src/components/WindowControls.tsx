@@ -1,7 +1,16 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "../shared/i18n";
+import {
+  persistUISettingField,
+  useUISettings
+} from "../shared/state/useUISettings";
+import { dialog, message } from "../shared/ui/naive/feedback-services";
 import { IconClose, IconMaximize, IconMinimize, IconRestore } from "./icons";
+import {
+  requestWindowClose,
+  type WindowCloseDecision
+} from "./windowClosePolicy";
 
 interface WindowControlsProps {
   visible: boolean;
@@ -13,6 +22,7 @@ interface WindowControlsProps {
  */
 export function WindowControls(props: WindowControlsProps) {
   const { t } = useTranslation();
+  const uiSettings = useUISettings();
   const [appWindow, setAppWindow] = createSignal<ReturnType<typeof getCurrentWindow> | null>(null);
   const [maximized, setMaximized] = createSignal(false);
   let unlisten: (() => void) | undefined;
@@ -46,8 +56,76 @@ export function WindowControls(props: WindowControlsProps) {
     void appWindow()?.toggleMaximize();
   };
 
+  const persistCloseChoice = (decision: WindowCloseDecision): boolean => {
+    const closeMethodSaved = persistUISettingField("closeAppMethod", decision.action);
+    const closeTipSaved = closeMethodSaved
+      ? persistUISettingField("showCloseAppTip", false)
+      : false;
+    if (!closeMethodSaved || !closeTipSaved) {
+      message.error(t("settings.general.persistFailed"));
+      return false;
+    }
+    return true;
+  };
+
+  const promptForCloseChoice = (): Promise<WindowCloseDecision | null> =>
+    new Promise((resolve) => {
+      let remembered = false;
+      let settled = false;
+      const settle = (decision: WindowCloseDecision | null) => {
+        if (settled) return;
+        settled = true;
+        resolve(decision);
+      };
+
+      dialog.warning({
+        closable: false,
+        title: t("window.closeConfirm.title"),
+        content: (
+          <div class="window-close-confirm">
+            <p>{t("window.closeConfirm.content")}</p>
+            <label class="window-close-confirm-remember">
+              <input
+                type="checkbox"
+                checked={remembered}
+                onChange={(event) => {
+                  remembered = event.currentTarget.checked;
+                }}
+              />
+              <span>{t("window.closeConfirm.remember")}</span>
+            </label>
+          </div>
+        ),
+        negativeText: t("window.closeConfirm.exit"),
+        positiveText: t("window.closeConfirm.hide"),
+        onNegativeClick: () => {
+          settle({ action: "exit", remember: remembered });
+        },
+        onPositiveClick: () => {
+          settle({ action: "hide", remember: remembered });
+        }
+      });
+    });
+
+  const applyClose = async () => {
+    const currentWindow = appWindow();
+    if (!currentWindow) return;
+    await requestWindowClose(
+      {
+        closeAppMethod: uiSettings.closeAppMethod,
+        showCloseAppTip: uiSettings.showCloseAppTip
+      },
+      {
+        exitApp: () => currentWindow.close(),
+        hideApp: () => currentWindow.hide(),
+        persistCloseChoice,
+        promptForCloseChoice
+      }
+    );
+  };
+
   const handleClose = () => {
-    void appWindow()?.close();
+    void applyClose();
   };
 
   return (

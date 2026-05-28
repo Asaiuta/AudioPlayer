@@ -44,3 +44,29 @@ test("requestWindowClose persists remembered prompt decisions before applying th
   assert.equal(applied, true);
   assert.deepEqual(calls, ["persist:exit:true", "exit"]);
 });
+
+test("requestWindowClose applies the configured hide action without prompting", async () => {
+  const calls: string[] = [];
+  const applied = await requestWindowClose(
+    { closeAppMethod: "hide", showCloseAppTip: false },
+    {
+      promptForCloseChoice: async () => {
+        calls.push("prompt");
+        return null;
+      },
+      persistCloseChoice: (decision) => {
+        calls.push(`persist:${decision.action}:${decision.remember}`);
+        return true;
+      },
+      hideApp: async () => {
+        calls.push("hide");
+      },
+      exitApp: async () => {
+        calls.push("exit");
+      }
+    }
+  );
+
+  assert.equal(applied, true);
+  assert.deepEqual(calls, ["hide"]);
+});

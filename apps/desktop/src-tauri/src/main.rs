@@ -14,7 +14,13 @@ use audio_runtime_paths::{
   ENV_AUDIO_SETTINGS_PATH,
 };
 use rand::RngCore;
-use tauri::{path::BaseDirectory, Manager, RunEvent};
+use tauri::{
+  path::BaseDirectory,
+  tray::{MouseButton, TrayIconBuilder, TrayIconEvent},
+  Manager,
+  RunEvent,
+  Runtime,
+};
 
 struct SidecarState {
   child: Mutex<Option<Child>>,
@@ -492,6 +498,46 @@ fn stop_sidecar(state: &SidecarState, token: &str) {
   }
 }
 
+fn restore_main_window<R: Runtime>(app: &tauri::AppHandle<R>) {
+  let Some(window) = app.get_webview_window("main") else {
+    return;
+  };
+
+  if let Err(error) = window.show() {
+    eprintln!("[audio-desktop] failed to show main window from tray: {error}");
+  }
+  if let Err(error) = window.unminimize() {
+    eprintln!("[audio-desktop] failed to unminimize main window from tray: {error}");
+  }
+  if let Err(error) = window.set_focus() {
+    eprintln!("[audio-desktop] failed to focus main window from tray: {error}");
+  }
+}
+
+fn setup_tray<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<()> {
+  let mut tray = TrayIconBuilder::new()
+    .tooltip("Lyne")
+    .show_menu_on_left_click(false)
+    .on_tray_icon_event(|tray, event| match event {
+      TrayIconEvent::Click {
+        button: MouseButton::Left,
+        ..
+      }
+      | TrayIconEvent::DoubleClick {
+        button: MouseButton::Left,
+        ..
+      } => restore_main_window(tray.app_handle()),
+      _ => {}
+    });
+
+  if let Some(icon) = app.default_window_icon().cloned() {
+    tray = tray.icon(icon);
+  }
+
+  tray.build(app)?;
+  Ok(())
+}
+
 fn main() {
   let token_value = generate_api_token();
 
@@ -520,6 +566,8 @@ fn main() {
         let _ = child.wait();
         return Err("Failed to access sidecar application state during setup.".to_string().into());
       }
+
+      setup_tray(&app_handle)?;
 
       // Open devtools in debug builds to diagnose console errors
       #[cfg(debug_assertions)]
