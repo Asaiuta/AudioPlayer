@@ -1,4 +1,4 @@
-import { Show } from "solid-js";
+import { Show, createEffect, createSignal } from "solid-js";
 import type { JSX } from "solid-js";
 import type { PlayerState, RepeatMode, RequestState, ShuffleMode } from "../shared/api/types";
 import { ncmSongShareUrl } from "../shared/api/ncm/urls";
@@ -52,6 +52,7 @@ interface PlayerBarProps {
   onPlay: () => void;
   onPause: () => void;
   onSeek: (position: number) => void;
+  onVolumePreview?: (volume: number) => void;
   onVolumeChange: (volume: number) => void;
   onSkipPrev: () => void;
   onSkipNext: () => void;
@@ -83,17 +84,12 @@ export function PlayerBar(props: PlayerBarProps) {
     moreOpen,
     qualityOpen,
     controlsOpen,
-    toggleVolumePopover,
-    toggleMore,
-    toggleQuality,
-    toggleControls,
+    setVolumePopoverOpen,
+    setMoreOpen,
+    setQualityOpen,
+    setControlsOpen,
     closeMore,
-    closeQuality,
-    closeControls,
-    setVolumeRef,
-    setMoreRef,
-    setQualityRef,
-    setControlsRef
+    closeQuality
   } = usePlayerBarOverlays();
 
   const {
@@ -180,7 +176,32 @@ export function PlayerBar(props: PlayerBarProps) {
   });
   const isOnlineNcmTrack = () => currentNcmSongId() !== null;
 
-  const VolumeIcon = () => (sliderVolume() <= 0.001 ? IconVolumeMute : IconVolumeHigh);
+  const [lastAudibleVolume, setLastAudibleVolume] = createSignal(0.7);
+  const [uiVolume, setUiVolume] = createSignal(0);
+  createEffect(() => {
+    setUiVolume(sliderVolume());
+  });
+  const previewVolume = (volume: number) => {
+    const next = Math.max(0, Math.min(1, volume));
+    setUiVolume(next);
+    props.onVolumePreview?.(next);
+  };
+  const commitVolume = (volume: number) => {
+    const next = Math.max(0, Math.min(1, volume));
+    setUiVolume(next);
+    props.onVolumeChange(next);
+  };
+  const VolumeIcon = () => (uiVolume() <= 0.001 ? IconVolumeMute : IconVolumeHigh);
+  const handleToggleMute = ((event: MouseEvent) => {
+    event.stopPropagation();
+    const currentVolume = uiVolume();
+    if (currentVolume <= 0.001) {
+      commitVolume(lastAudibleVolume());
+      return;
+    }
+    setLastAudibleVolume(currentVolume);
+    commitVolume(0);
+  }) as JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
   const metadataText = () => {
     const artists = artistList();
     if (artists.length > 0) {
@@ -241,13 +262,6 @@ export function PlayerBar(props: PlayerBarProps) {
     }
     props.onSelectArtist?.(artist);
   };
-  const handleToggleQuality = () => {
-    const wasOpen = qualityOpen();
-    toggleQuality();
-    if (!wasOpen && isOnlineNcmTrack()) {
-      void ncmQuality.ensureLoaded();
-    }
-  };
   const handleSelectQuality = (level: string) => {
     closeQuality();
     if (level === uiSettings.ncmSongLevel) {
@@ -278,9 +292,13 @@ export function PlayerBar(props: PlayerBarProps) {
     loudnessLabel: t("player.quality.loudness"),
     loudnessValue: qualityLoudnessValue(),
     hintLabel: t("player.quality.hint"),
-    onToggle: handleToggleQuality,
-    onSelectLevel: handleSelectQuality,
-    ref: setQualityRef
+    onOpenChange: (open: boolean) => {
+      setQualityOpen(open);
+      if (open && isOnlineNcmTrack()) {
+        void ncmQuality.ensureLoaded();
+      }
+    },
+    onSelectLevel: handleSelectQuality
   });
   const utilityControls = () => ({
     open: controlsOpen(),
@@ -292,27 +310,27 @@ export function PlayerBar(props: PlayerBarProps) {
     playbackRateLabel: t("player.controls.playbackRate"),
     unavailableDetail: t("player.controls.unavailable"),
     unavailableSuffix: t("player.controls.unavailableSuffix"),
-    onToggle: toggleControls,
-    onClose: closeControls,
-    ref: setControlsRef
+    onOpenChange: setControlsOpen
   });
   const utilityVolume = () => ({
     open: volumePopoverOpen(),
-    value: sliderVolume(),
+    value: uiVolume(),
     icon: VolumeIcon(),
     buttonLabel: t("player.aria.volumePopover"),
     dialogLabel: t("player.aria.volume"),
     sliderDisabled: props.request.status !== "success",
-    sliderStyle: { "--volume-fill": sliderVolume().toString() },
-    onToggle: toggleVolumePopover,
-    onChange: props.onVolumeChange,
+    sliderStyle: { "--volume-fill": uiVolume().toString() },
+    onOpenChange: setVolumePopoverOpen,
+    onPreview: previewVolume,
+    onChange: commitVolume,
+    onButtonClick: handleToggleMute,
     onWheel: ((event: WheelEvent) => {
       event.preventDefault();
+      event.stopPropagation();
       const delta = event.deltaY > 0 ? -0.05 : 0.05;
-      const next = Math.max(0, Math.min(1, sliderVolume() + delta));
-      props.onVolumeChange(next);
-    }) as JSX.EventHandlerUnion<HTMLButtonElement, WheelEvent>,
-    ref: setVolumeRef
+      const next = Math.max(0, Math.min(1, uiVolume() + delta));
+      commitVolume(next);
+    }) as JSX.EventHandlerUnion<HTMLButtonElement, WheelEvent>
   });
   const utilityQueue = () => ({
     label: t("sidebar.nav.queue.label"),
@@ -351,12 +369,11 @@ export function PlayerBar(props: PlayerBarProps) {
     copyArtistLabel: t("player.menu.copyArtist"),
     searchLabel: t("player.menu.searchTitle"),
     shareLabel: t("player.menu.share"),
-    onToggle: toggleMore,
+    onOpenChange: setMoreOpen,
     onCopyTitle: handleCopyTitle,
     onCopyArtist: handleCopyArtist,
     onSearch: handleSearch,
-    onShare: handleShare,
-    ref: setMoreRef
+    onShare: handleShare
   });
 
   return (

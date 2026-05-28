@@ -63,7 +63,7 @@ type FallbackPopoverPosition = {
   readonly top: number;
 };
 
-const POPSELECT_LEAVE_PRESENCE_MS = 220;
+const POPSELECT_LEAVE_PRESENCE_MS = 180;
 
 let loadedNaivePopselect: NaivePopselectComponent | null = null;
 let naivePopselectImport: Promise<NaivePopselectComponent> | null = null;
@@ -94,6 +94,8 @@ export function NaivePopselect<TValue extends string>(
   let fallbackPopover: HTMLDivElement | undefined;
   const [LoadedPopselect, setLoadedPopselect] =
     createSignal<NaivePopselectComponent | null>(loadedNaivePopselect);
+  const [loadedWasRendered, setLoadedWasRendered] =
+    createSignal<boolean>(loadedNaivePopselect != null);
   const [fallbackPosition, setFallbackPosition] = createSignal<FallbackPopoverPosition | null>(
     null
   );
@@ -105,7 +107,7 @@ export function NaivePopselect<TValue extends string>(
   const renderedLoadedPopselect = (): NaivePopselectComponent | null => {
     const Loaded = LoadedPopselect();
     if (!Loaded) return null;
-    if (!props.open && fallbackPresent()) return null;
+    if (!loadedWasRendered() && !props.open && fallbackPresent()) return null;
     return Loaded;
   };
   const rootClass = () => fallbackClass(props.class, "naive-popselect");
@@ -117,13 +119,18 @@ export function NaivePopselect<TValue extends string>(
   const popoverClass = () => fallbackClass(props.popoverClass, "naive-popselect-popover");
   const popoverPresenceClass = () =>
     joinClassNames(
+      "n-popselect-menu",
+      "n-base-select-menu",
       popoverClass(),
       props.open ? "is-open" : "is-closing",
       "is-naive-popselect-transition"
     );
   const optionClass = (active: boolean) =>
     joinClassNames(
+      "n-base-select-option",
+      "n-base-select-option--show-checkmark",
       fallbackClass(props.optionClass, "naive-popselect-option"),
+      activeClass(active, "n-base-select-option--selected"),
       activeClass(active, props.optionActiveClass)
     );
   const optionContentClass = () =>
@@ -157,6 +164,10 @@ export function NaivePopselect<TValue extends string>(
 
   createEffect(() => {
     if (props.open) ensureLoaded();
+  });
+
+  createEffect(() => {
+    if (props.open && LoadedPopselect()) setLoadedWasRendered(true);
   });
 
   createEffect(() => {
@@ -287,9 +298,22 @@ export function NaivePopselect<TValue extends string>(
                             props.onOpenChange(false);
                           }}
                         >
-                          <span class={optionContentClass()}>{option.label}</span>
+                          <span
+                            class={joinClassNames(
+                              "n-base-select-option__content",
+                              optionContentClass()
+                            )}
+                          >
+                            {option.label}
+                          </span>
                           <Show when={active() && props.renderCheck}>
-                            <span class={optionCheckClass()} aria-hidden="true">
+                            <span
+                              class={joinClassNames(
+                                "n-base-select-option__check",
+                                optionCheckClass()
+                              )}
+                              aria-hidden="true"
+                            >
                               {props.renderCheck?.(option)}
                             </span>
                           </Show>

@@ -30,6 +30,15 @@ export function NaiveSliderKobalte(props: NaiveSliderProps): JSX.Element {
   const marks = () => createNaiveSliderMarkModels(props);
   const currentValue = () => values().value;
   const showIndicator = () => props.tooltip !== false && (props.showTooltip || hovered() || dragging());
+  const rootClass = () =>
+    joinClassNames(naiveSliderClass(props, values(), hasMarks()), dragging() ? "is-dragging" : false);
+  const thumbStyle = (): JSX.CSSProperties | undefined =>
+    values().orientation === "vertical"
+      ? {
+          left: "50%",
+          transform: "translate(-50%, 50%)"
+        }
+      : undefined;
 
   const handleChange = (nextValues: number[]): void => {
     props.onUpdateValue?.(firstSliderValue(nextValues, currentValue()));
@@ -81,7 +90,7 @@ export function NaiveSliderKobalte(props: NaiveSliderProps): JSX.Element {
         getValueLabel={({ values: nextValues }) =>
           formatNaiveSliderTooltip(firstSliderValue(nextValues, currentValue()), props.formatTooltip)
         }
-        class={naiveSliderClass(props, values(), hasMarks())}
+        class={rootClass()}
         style={{ ...naiveSliderPercentStyle(currentValue(), values()), ...props.style }}
         aria-label={props.ariaLabel}
         aria-labelledby={props.ariaLabelledBy}
@@ -113,6 +122,7 @@ export function NaiveSliderKobalte(props: NaiveSliderProps): JSX.Element {
           <div class="n-slider-handles">
             <KobalteSlider.Thumb
               class="n-slider-handle-wrapper"
+              style={thumbStyle()}
               tabIndex={props.keyboard === false ? -1 : undefined}
               onPointerEnter={() => setHovered(true)}
               onPointerLeave={() => setHovered(false)}

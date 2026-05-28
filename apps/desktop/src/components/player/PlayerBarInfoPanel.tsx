@@ -1,7 +1,13 @@
 import { For, Show } from "solid-js";
 import { CoverArt } from "../CoverArt";
 import { MarqueeText } from "../MarqueeText";
-import { IconExpand, IconHeart, IconHeartFilled, IconList } from "../icons";
+import {
+  IconExpand,
+  IconSPlayerFavorite,
+  IconSPlayerFavoriteBorder,
+  IconSPlayerFormatList
+} from "../icons";
+import { NaiveDropdown, type NaiveDropdownOption } from "../../shared/ui/naive";
 
 interface PlayerBarInfoCoverProps {
   coverHidden: boolean;
@@ -19,12 +25,11 @@ interface PlayerBarInfoMenuProps {
   copyArtistLabel: string;
   searchLabel: string;
   shareLabel: string;
-  onToggle: () => void;
+  onOpenChange: (open: boolean) => void;
   onCopyTitle: () => void;
   onCopyArtist: () => void;
   onSearch: () => void;
   onShare: () => void;
-  ref?: (element: HTMLDivElement) => void;
 }
 
 interface PlayerBarInfoMetaProps {
@@ -50,6 +55,29 @@ interface PlayerBarInfoPanelProps {
 }
 
 export function PlayerBarInfoPanel(props: PlayerBarInfoPanelProps) {
+  const menuOptions = (): readonly NaiveDropdownOption[] => [
+    {
+      key: "copy-title",
+      label: props.menu.copyTitleLabel,
+      onSelect: props.menu.onCopyTitle
+    },
+    {
+      key: "copy-artist",
+      label: props.menu.copyArtistLabel,
+      onSelect: props.menu.onCopyArtist
+    },
+    {
+      key: "search",
+      label: props.menu.searchLabel,
+      onSelect: props.menu.onSearch
+    },
+    {
+      key: "share",
+      label: props.menu.shareLabel,
+      onSelect: props.menu.onShare
+    }
+  ];
+
   return (
     <div
       class={`player-bar-left${props.cover.coverHidden ? " is-cover-hidden" : ""}`}
@@ -72,83 +100,52 @@ export function PlayerBarInfoPanel(props: PlayerBarInfoPanelProps) {
         </button>
       </Show>
 
-      <div class="player-bar-info player-bar-info-enter flex flex-col min-w-0">
-        <div class="player-bar-title-row flex items-center gap-2 min-w-0">
+      <div class="player-bar-info player-bar-info-enter">
+        <div class="player-bar-title-row">
           <MarqueeText
             text={props.meta.title}
             class="player-bar-title"
+            sizing="content"
           />
           <Show when={props.meta.playbackRateLabel}>
             {(label) => (
-              <span class="player-inline-tag player-inline-tag-accent inline-flex items-center min-h-22px text-11px font-semibold whitespace-nowrap">
+              <span class="player-inline-tag player-inline-tag-accent">
                 {label()}
               </span>
             )}
           </Show>
           <button
             type="button"
-            class={`player-inline-icon player-like-icon grid place-items-center w-28px h-28px flex-none${props.meta.isLiked ? " is-liked" : ""}`}
+            class={`player-inline-icon player-like-icon${props.meta.isLiked ? " is-liked" : ""}`}
             aria-label={props.meta.favoriteLabel}
             title={props.meta.favoriteLabel}
             onClick={() => props.meta.onToggleLike?.()}
           >
-            <Show when={props.meta.isLiked} fallback={<IconHeart />}>
-              <IconHeartFilled />
+            <Show when={props.meta.isLiked} fallback={<IconSPlayerFavoriteBorder />}>
+              <IconSPlayerFavorite />
             </Show>
           </button>
-          <div class="player-inline-menu relative inline-flex items-center" ref={props.menu.ref}>
+          <NaiveDropdown
+            options={menuOptions()}
+            triggerMode="click"
+            placement="top-start"
+            gutter={10}
+            open={props.menu.open}
+            onOpenChange={props.menu.onOpenChange}
+            class="player-inline-menu-popover"
+            triggerClass="player-inline-menu"
+            triggerStyle={{ width: "20px", height: "20px" }}
+            ariaLabel={props.menu.label}
+          >
             <button
               type="button"
-              class="player-inline-icon grid place-items-center w-28px h-28px flex-none"
+              class="player-inline-icon player-more-icon"
               aria-label={props.menu.label}
               title={props.menu.label}
-              aria-expanded={props.menu.open}
-              aria-haspopup="menu"
-              onClick={props.menu.onToggle}
             >
-              <IconList />
+              <IconSPlayerFormatList />
             </button>
-            <Show when={props.menu.open}>
-              <div
-                class="player-inline-menu-popover absolute flex min-w-168px flex-col gap-1"
-                role="menu"
-                aria-label={props.menu.label}
-              >
-                <button
-                  type="button"
-                  class="player-menu-item flex items-center min-h-34px text-left"
-                  role="menuitem"
-                  onClick={props.menu.onCopyTitle}
-                >
-                  {props.menu.copyTitleLabel}
-                </button>
-                <button
-                  type="button"
-                  class="player-menu-item flex items-center min-h-34px text-left"
-                  role="menuitem"
-                  onClick={props.menu.onCopyArtist}
-                >
-                  {props.menu.copyArtistLabel}
-                </button>
-                <button
-                  type="button"
-                  class="player-menu-item flex items-center min-h-34px text-left"
-                  role="menuitem"
-                  onClick={props.menu.onSearch}
-                >
-                  {props.menu.searchLabel}
-                </button>
-                <button
-                  type="button"
-                  class="player-menu-item flex items-center min-h-34px text-left"
-                  role="menuitem"
-                  onClick={props.menu.onShare}
-                >
-                  {props.menu.shareLabel}
-                </button>
-              </div>
-            </Show>
-          </div>
+          </NaiveDropdown>
         </div>
 
         <Show when={props.meta.showSecondaryMeta}>
@@ -212,7 +209,7 @@ function ArtistList(props: ArtistListProps) {
             return (
               <button
                 type="button"
-                class={`player-artist-item inline-flex items-center whitespace-nowrap border-0 bg-transparent p-0${
+                class={`player-artist-item${
                   linkedArtist() ? "" : " is-static"
                 }`}
                 disabled={!linkedArtist()}

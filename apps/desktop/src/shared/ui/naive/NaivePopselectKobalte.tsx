@@ -13,7 +13,7 @@ import { joinClassNames } from "./utils";
 const fallbackClass = (className: string | undefined, fallback: string): string =>
   className ?? fallback;
 
-const POPSELECT_LEAVE_PRESENCE_MS = 220;
+const POPSELECT_LEAVE_PRESENCE_MS = 180;
 
 const activeClass = (active: boolean, className: string | undefined): string | false =>
   active ? className ?? "is-active" : false;
@@ -33,7 +33,10 @@ function NaivePopselectRadioOption<TValue extends string>(
 ): JSX.Element {
   const optionClass = () =>
     joinClassNames(
+      "n-base-select-option",
+      "n-base-select-option--show-checkmark",
       fallbackClass(props.optionClass, "naive-popselect-option"),
+      activeClass(props.active, "n-base-select-option--selected"),
       activeClass(props.active, props.optionActiveClass)
     );
   const optionContentClass = () =>
@@ -48,9 +51,14 @@ function NaivePopselectRadioOption<TValue extends string>(
       textValue={props.option.label}
       class={optionClass()}
     >
-      <span class={optionContentClass()}>{props.option.label}</span>
+      <span class={joinClassNames("n-base-select-option__content", optionContentClass())}>
+        {props.option.label}
+      </span>
       <Show when={props.active && props.renderCheck}>
-        <span class={optionCheckClass()} aria-hidden="true">
+        <span
+          class={joinClassNames("n-base-select-option__check", optionCheckClass())}
+          aria-hidden="true"
+        >
           {props.renderCheck?.(props.option)}
         </span>
       </Show>
@@ -72,6 +80,8 @@ export function NaivePopselectKobalte<TValue extends string>(
     );
   const popoverClass = () =>
     joinClassNames(
+      "n-popselect-menu",
+      "n-base-select-menu",
       fallbackClass(props.popoverClass, "naive-popselect-popover"),
       props.open ? "is-open" : "is-closing",
       "is-naive-popselect-transition"
@@ -124,7 +134,7 @@ export function NaivePopselectKobalte<TValue extends string>(
           {props.triggerContent}
         </DropdownMenu.Trigger>
       </div>
-      <Show when={contentPresent() && typeof document !== "undefined"}>
+      <Show when={typeof document !== "undefined"}>
         <DropdownMenu.Portal mount={document.body}>
           <DropdownMenu.Content
             class={popoverClass()}

@@ -29,7 +29,7 @@ export interface NaivePopoverProps {
   children: JSX.Element;
   /** Trigger element rendered inline. May be omitted when `getAnchorRect` is provided. */
   trigger?: JSX.Element;
-  /** Interaction model. Defaults to `"click"`. */
+  /** Interaction model. Defaults to `"hover"` (Naive default). */
   triggerMode?: NaivePopoverTrigger;
   /** Initial placement. Defaults to `"top"` (Naive default). */
   placement?: NaivePopoverPlacement;
@@ -61,6 +61,8 @@ export interface NaivePopoverProps {
   class?: string;
   /** Optional class slot on the popover root (anchor) element. */
   rootClass?: string;
+  /** Optional style slot on the popover root (anchor) element. */
+  rootStyle?: JSX.CSSProperties;
   /** Optional class slot on the rendered arrow. */
   arrowClass?: string;
   /** Accessible label forwarded to the content surface. */

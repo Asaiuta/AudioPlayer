@@ -1,16 +1,9 @@
 @layer components {
-  .player-volume {
-    position: relative;
-  }
   .volume-slider {
-    width: 110px;
     accent-color: var(--player-bar-accent);
   }
 
   .player-volume-popover {
-    position: absolute;
-    left: 50%;
-    bottom: calc(100% + 10px);
     z-index: var(--z-popover);
     display: flex;
     flex-direction: column;
@@ -19,130 +12,83 @@
     width: 58px;
     height: 180px;
     padding: 12px;
-    border: 1px solid var(--floating-border);
-    border-radius: var(--floating-radius);
-    background: var(--floating-surface);
-    box-shadow: var(--floating-shadow);
-    transform: translateX(-50%);
-    animation: player-floating-layer-enter var(--duration-fast) var(--ease-standard);
+    border-radius: var(--n-border-radius);
+    color: var(--n-text-color);
+    background: var(--n-color);
   }
 
-  .player-volume-popover .volume-slider {
+  .player-volume-popover .naive-slider.n-slider.volume-slider {
+    --n-fill-color: var(--player-bar-accent);
+    --n-fill-color-hover: var(--player-bar-accent);
+    --n-handle-color: var(--player-bar-accent);
+    --n-handle-size: 18px;
+    --n-rail-width-vertical: 4px;
+    --n-rail-color: color-mix(in srgb, var(--player-bar-accent) 20%, transparent);
+    --n-rail-color-hover: color-mix(in srgb, var(--player-bar-accent) 30%, transparent);
+    --n-handle-box-shadow:
+      0 1px 4px 0 rgb(0 0 0 / 0.3),
+      inset 0 0 1px 0 rgb(0 0 0 / 0.05);
+    --n-handle-box-shadow-hover: var(--n-handle-box-shadow);
     flex: 1;
-    width: 14px;
-    height: auto;
+    width: var(--n-handle-size);
+    height: 100%;
     min-height: 0;
     margin: 0;
-    padding: 0;
-    background: transparent;
-    writing-mode: vertical-lr;
-    direction: rtl;
-    -webkit-appearance: none;
-    appearance: none;
-    cursor: pointer;
-  }
-
-  .player-volume-popover .volume-slider::-webkit-slider-runnable-track {
-    width: 3px;
-    height: 100%;
-    border-radius: var(--radius-pill);
-    background: linear-gradient(
-      to top,
-      var(--player-bar-accent) 0%,
-      var(--player-bar-accent) calc(var(--volume-fill, 0) * 100%),
-      color-mix(in oklch, var(--surface-3) 70%, transparent) calc(var(--volume-fill, 0) * 100%),
-      color-mix(in oklch, var(--surface-3) 70%, transparent) 100%
-    );
-  }
-
-  .player-volume-popover .volume-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 14px;
-    height: 14px;
-    border-radius: var(--radius-pill);
-    background: var(--player-bar-accent);
-    box-shadow:
-      0 0 0 2px color-mix(in oklch, var(--surface-1) 90%, transparent),
-      0 1px 4px oklch(0 0 0 / 0.3);
-    border: 0;
-    margin-left: -5.5px;
-    transform: scale(0.6);
-    opacity: 0;
-    transition:
-      transform 0.2s var(--ease-standard),
-      opacity 0.2s var(--ease-standard);
-    cursor: grab;
-  }
-
-  .player-volume-popover .volume-slider:hover::-webkit-slider-thumb,
-  .player-volume-popover .volume-slider:active::-webkit-slider-thumb,
-  .player-volume-popover .volume-slider:focus-visible::-webkit-slider-thumb {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  .player-volume-popover .volume-slider:active::-webkit-slider-thumb {
-    cursor: grabbing;
   }
 
   .player-volume-popover .volume-value {
+    margin-top: 0;
     font-size: 13px;
-    color: var(--muted);
+    color: var(--n-suffix-color, var(--n-text-color));
     white-space: nowrap;
-  }
-
-  .player-quality-wrap,
-  .player-controls-wrap {
-    position: relative;
-    display: inline-flex;
   }
 
   .player-quality-tag {
     height: 26px;
     cursor: pointer;
-    background: transparent;
-    border: 0;
     padding: 0 8px;
-    color: var(--muted);
+    color: var(--player-bar-accent);
     font-size: 12px;
     line-height: 1;
+    border: 1px solid color-mix(in srgb, var(--player-bar-accent) 18%, var(--border-overlay));
+    background: color-mix(in srgb, var(--player-bar-accent) 8%, transparent);
     transition:
       color 0.2s var(--ease-standard),
-      background-color 0.2s var(--ease-standard);
+      background-color 0.2s var(--ease-standard),
+      border-color 0.2s var(--ease-standard);
     border-radius: 8px;
   }
 
   .player-quality-tag:hover,
   .player-quality-tag.is-open {
     color: var(--player-bar-accent);
-    background: color-mix(in srgb, var(--player-bar-accent) 12%, transparent);
+    border-color: color-mix(in srgb, var(--player-bar-accent) 26%, var(--border-overlay));
+    background: color-mix(in srgb, var(--player-bar-accent) 14%, transparent);
   }
 
   .player-quality-popover,
   .player-controls-popover {
-    position: absolute;
-    right: 50%;
-    bottom: calc(100% + 10px);
+    --n-padding: 4px 0;
     min-width: 220px;
-    padding: 12px 14px;
-    border: 1px solid var(--floating-border);
-    border-radius: var(--floating-radius);
-    background: var(--floating-surface);
-    color: var(--text);
-    box-shadow: var(--floating-shadow);
+    padding: var(--n-padding);
+    border-radius: var(--n-border-radius);
+    color: var(--n-text-color);
+    background: var(--n-color);
     z-index: var(--z-popover);
     display: flex;
     flex-direction: column;
     gap: 8px;
-    transform: translateX(50%);
-    animation: player-floating-layer-enter-right var(--duration-fast) var(--ease-standard);
+  }
+
+  .player-inline-menu-popover {
+    --n-padding: 4px 0;
+    --n-min-width: 168px;
   }
 
   .player-popover-title {
     font-size: 13px;
     font-weight: 600;
-    color: var(--text);
+    color: var(--n-text-color);
     margin-bottom: 2px;
   }
 
@@ -156,7 +102,7 @@
     padding: 7px 9px;
     border: 0;
     border-radius: var(--radius-sm);
-    color: var(--text-secondary);
+    color: var(--n-option-text-color);
     background: transparent;
     cursor: pointer;
     font-size: 12px;
@@ -168,7 +114,7 @@
   .player-quality-option:hover,
   .player-quality-option.is-active {
     color: var(--player-bar-accent);
-    background: color-mix(in srgb, var(--player-bar-accent) 12%, transparent);
+    background: var(--n-option-color-hover);
   }
 
   .player-quality-option.is-active {
@@ -176,7 +122,7 @@
   }
 
   .player-quality-option-meta {
-    color: var(--muted);
+    color: var(--n-suffix-color);
     font-size: 11px;
     white-space: nowrap;
   }
@@ -192,13 +138,13 @@
   }
 
   .player-popover-grid dt {
-    color: var(--muted);
+    color: var(--n-suffix-color);
     font-weight: 400;
   }
 
   .player-popover-grid dd {
     margin: 0;
-    color: var(--text-soft);
+    color: var(--n-text-color);
     font-variant-numeric: tabular-nums;
     text-align: right;
   }
@@ -206,37 +152,13 @@
   .player-popover-hint {
     margin-top: 4px;
     padding-top: 8px;
-    border-top: 1px solid color-mix(in oklch, var(--surface-3) 60%, transparent);
-    color: var(--muted);
+    border-top: 1px solid var(--n-divider-color);
+    color: var(--n-suffix-color);
     font-size: 11px;
   }
 
-  .player-controls-popover .player-menu-item {
-    text-align: left;
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: var(--radius-sm);
-    color: var(--text-soft);
-    background: transparent;
-    border: 0;
-    cursor: pointer;
-    transition:
-      background-color 0.18s var(--ease-standard),
-      color 0.18s var(--ease-standard);
-  }
-
-  .player-controls-popover .player-menu-item:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--player-bar-accent) 12%, transparent);
-    color: var(--player-bar-accent);
-  }
-
-  .player-controls-popover .player-menu-item:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
   .player-controls-popover .player-menu-item-meta {
-    color: var(--muted);
+    color: var(--n-suffix-color);
     font-size: 11px;
     white-space: nowrap;
   }
@@ -267,6 +189,13 @@
     .cat-modal,
     .settings-modal-card,
     .modal-card {
+      animation: none;
+    }
+
+    .n-popover.n-popover-shared,
+    .n-dropdown.n-dropdown-menu,
+    .sidebar-playlist-source-popover.is-naive-popselect-transition.is-open,
+    .sidebar-playlist-source-popover.is-naive-popselect-transition.is-closing {
       animation: none;
     }
   }

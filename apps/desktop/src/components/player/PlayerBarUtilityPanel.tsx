@@ -31,9 +31,8 @@ interface PlayerBarUtilityQualityProps {
   loudnessLabel: string;
   loudnessValue: string;
   hintLabel: string;
-  onToggle: () => void;
+  onOpenChange: (open: boolean) => void;
   onSelectLevel?: (level: string) => void;
-  ref?: (element: HTMLDivElement) => void;
 }
 
 interface PlayerBarUtilityControlsProps {
@@ -46,9 +45,7 @@ interface PlayerBarUtilityControlsProps {
   playbackRateLabel: string;
   unavailableDetail: string;
   unavailableSuffix: string;
-  onToggle: () => void;
-  onClose: () => void;
-  ref?: (element: HTMLDivElement) => void;
+  onOpenChange: (open: boolean) => void;
 }
 
 interface PlayerBarUtilityVolumeProps {
@@ -59,10 +56,11 @@ interface PlayerBarUtilityVolumeProps {
   dialogLabel: string;
   sliderDisabled: boolean;
   sliderStyle: JSX.CSSProperties;
-  onToggle: () => void;
+  onOpenChange: (open: boolean) => void;
+  onPreview?: (value: number) => void;
   onChange: (value: number) => void;
+  onButtonClick: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
   onWheel: JSX.EventHandlerUnion<HTMLButtonElement, WheelEvent>;
-  ref?: (element: HTMLDivElement) => void;
 }
 
 interface PlayerBarUtilityQueueProps {
@@ -124,7 +122,6 @@ export function PlayerBarUtilityPanel(props: PlayerBarUtilityPanelProps) {
 
       <div class="player-utility-group" role="group" aria-label={props.utilitiesLabel}>
         <Show when={props.showPlayerQuality}>
-          <div class="player-quality-wrap relative inline-flex" ref={props.quality.ref}>
             <PlayerQualityPopover
               open={props.quality.open}
               buttonValue={props.quality.buttonValue}
@@ -148,10 +145,9 @@ export function PlayerBarUtilityPanel(props: PlayerBarUtilityPanelProps) {
               loudnessLabel={props.quality.loudnessLabel}
               loudnessValue={props.quality.loudnessValue}
               hintLabel={props.quality.hintLabel}
-              onToggle={props.quality.onToggle}
+              onOpenChange={props.quality.onOpenChange}
               onSelectLevel={props.quality.onSelectLevel}
             />
-          </div>
         </Show>
         <Show when={props.showDesktopLyric}>
           <button
@@ -165,7 +161,6 @@ export function PlayerBarUtilityPanel(props: PlayerBarUtilityPanelProps) {
             <IconDesktopLyric />
           </button>
         </Show>
-        <div class="player-controls-wrap relative inline-flex" ref={props.controls.ref}>
           <PlayerControlsPopover
             open={props.controls.open}
             buttonLabel={props.controls.buttonLabel}
@@ -176,27 +171,25 @@ export function PlayerBarUtilityPanel(props: PlayerBarUtilityPanelProps) {
             playbackRateLabel={props.controls.playbackRateLabel}
             unavailableDetail={props.controls.unavailableDetail}
             unavailableSuffix={props.controls.unavailableSuffix}
-            onToggle={props.controls.onToggle}
-            onClose={props.controls.onClose}
+            onOpenChange={props.controls.onOpenChange}
           />
-        </div>
-        <div class="player-volume relative" ref={props.volume.ref}>
           <PlayerVolumePopover
             open={props.volume.open}
             value={props.volume.value}
             icon={props.volume.icon}
             buttonClass="player-inline-icon player-utility-button volume-toggle player-utility-hidden w-38px h-38px"
-            popoverClass="player-volume-popover absolute flex flex-col items-center gap-2 w-58px h-180px"
+            popoverClass="player-volume-popover"
             buttonLabel={props.volume.buttonLabel}
             dialogLabel={props.volume.dialogLabel}
             sliderDisabled={props.volume.sliderDisabled}
             sliderStyle={props.volume.sliderStyle}
             valueClass="volume-value text-13px whitespace-nowrap"
-            onToggle={props.volume.onToggle}
+            onOpenChange={props.volume.onOpenChange}
+            onValuePreview={props.volume.onPreview}
             onValueChange={props.volume.onChange}
+            onButtonClick={props.volume.onButtonClick}
             onButtonWheel={props.volume.onWheel}
           />
-        </div>
         <button
           type="button"
           class={`player-inline-icon player-utility-button player-queue-button w-38px h-38px relative overflow-visible${props.queue.active ? " is-open" : ""}`}

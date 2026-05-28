@@ -8,3 +8,13 @@
 .sidebar .sidebar-section-action-icon.is-open {
   background: rgba(46, 51, 56, 0.09);
 }
+
+/* Menus are NaiveUI surfaces rendered through portals. Keep this unlayered so
+   the app-wide focus rule cannot change their radius during close animation. */
+.n-popover.n-popover-shared:focus-visible,
+.n-dropdown.n-dropdown-menu:focus-visible,
+.n-popselect-menu.n-base-select-menu:focus-visible,
+.sidebar-playlist-source-popover:focus-visible {
+  border-radius: var(--n-border-radius, 8px);
+  outline: none;
+}

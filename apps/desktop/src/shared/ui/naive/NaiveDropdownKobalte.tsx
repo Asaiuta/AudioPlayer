@@ -1,5 +1,5 @@
 import { DropdownMenu } from "@kobalte/core/dropdown-menu";
-import { For, Show, createEffect, onCleanup, type JSX } from "solid-js";
+import { For, Show, createEffect, createSignal, onCleanup, type JSX } from "solid-js";
 import type {
   NaiveDropdownOption,
   NaiveDropdownProps,
@@ -17,6 +17,7 @@ import { joinClassNames } from "./utils";
 
 const HOVER_OPEN_DELAY = 100;
 const HOVER_CLOSE_DELAY = 200;
+const DROPDOWN_LEAVE_PRESENCE_MS = 180;
 
 let cascadeWarnLogged = false;
 let virtualVsTriggerWarnLogged = false;
@@ -55,10 +56,13 @@ function DropdownOptionRow(props: DropdownOptionRowProps): JSX.Element {
 
   return (
     <DropdownMenu.Item
-      class={naiveDropdownOptionClass({ disabled: disabled() })}
       disabled={disabled()}
       textValue={props.option.label}
       data-key={props.option.key}
+      class={naiveDropdownOptionClass({
+        disabled: disabled(),
+        className: props.option.class
+      })}
       onSelect={() => {
         if (disabled()) return;
         props.onSelect(props.option);
@@ -80,8 +84,13 @@ function DropdownOptionRow(props: DropdownOptionRowProps): JSX.Element {
 }
 
 export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
-  const triggerMode = (): NaiveDropdownTriggerMode => props.triggerMode ?? "click";
+  const triggerMode = (): NaiveDropdownTriggerMode => props.triggerMode ?? "hover";
   const isManual = (): boolean => triggerMode() === "manual";
+  const usesPassiveTrigger = (): boolean => triggerMode() !== "click";
+  const [contentPresent, setContentPresent] = createSignal<boolean>(
+    props.show ?? props.open ?? props.defaultOpen ?? false
+  );
+  const [hoverOpen, setHoverOpen] = createSignal<boolean>(props.defaultOpen ?? false);
 
   // Virtual mode is active when both x and y coords are defined.
   const isVirtual = (): boolean =>
@@ -96,6 +105,7 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
 
   let openTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  let presenceTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearTimers = (): void => {
     if (openTimer !== undefined) {
@@ -107,15 +117,39 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
       closeTimer = undefined;
     }
   };
+  const clearPresenceTimer = (): void => {
+    if (presenceTimer === undefined) return;
+    clearTimeout(presenceTimer);
+    presenceTimer = undefined;
+  };
+  const updateContentPresence = (nextOpen: boolean): void => {
+    clearPresenceTimer();
+    if (nextOpen) {
+      setContentPresent(true);
+      return;
+    }
+    if (!contentPresent()) return;
+    presenceTimer = setTimeout(() => {
+      presenceTimer = undefined;
+      setContentPresent(false);
+    }, DROPDOWN_LEAVE_PRESENCE_MS);
+  };
 
-  onCleanup(clearTimers);
+  onCleanup(() => {
+    clearTimers();
+    clearPresenceTimer();
+  });
 
   const handleOpenChange = (nextOpen: boolean): void => {
     clearTimers();
     if (isVirtual()) {
       props.onShowChange?.(nextOpen);
     }
+    if (props.open === undefined && props.show === undefined && triggerMode() === "hover") {
+      setHoverOpen(nextOpen);
+    }
     props.onOpenChange?.(nextOpen);
+    if (rootOpen() === undefined) updateContentPresence(nextOpen);
   };
 
   const handleSelect = (option: NaiveDropdownOption): void => {
@@ -133,7 +167,7 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
     if (props.open === true) return;
     openTimer = setTimeout(() => {
       openTimer = undefined;
-      props.onOpenChange?.(true);
+      handleOpenChange(true);
     }, HOVER_OPEN_DELAY);
   };
 
@@ -146,7 +180,7 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
     if (props.open === false) return;
     closeTimer = setTimeout(() => {
       closeTimer = undefined;
-      props.onOpenChange?.(false);
+      handleOpenChange(false);
     }, HOVER_CLOSE_DELAY);
   };
 
@@ -154,6 +188,21 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
   const triggerClass = () =>
     joinClassNames("naive-dropdown-trigger", props.triggerClass);
   const menuClass = () => naiveDropdownMenuClass({ class: props.class });
+  const passiveTriggerStyle = (): JSX.CSSProperties => ({
+    ...props.triggerStyle,
+    position: props.triggerStyle?.position ?? "relative"
+  });
+  const passiveAnchorStyle = (): JSX.CSSProperties => ({
+    position: "absolute",
+    top: "0",
+    right: "0",
+    bottom: "0",
+    left: "0",
+    width: "100%",
+    height: "100%",
+    opacity: 0,
+    "pointer-events": "none"
+  });
 
   // Determine the open prop pass-through. In virtual mode, `show` wins over
   // `open`. Otherwise pass `open` if caller wired it (else Kobalte uncontrolled).
@@ -163,9 +212,17 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
       if (props.open !== undefined) return props.open;
       return undefined;
     }
+    if (isManual()) return props.open ?? props.show ?? false;
+    if (triggerMode() === "hover") return props.open ?? props.show ?? hoverOpen();
     if (props.open !== undefined) return props.open;
     return undefined;
   };
+
+  createEffect(() => {
+    const controlledOpen = rootOpen();
+    if (controlledOpen === undefined) return;
+    updateContentPresence(controlledOpen);
+  });
 
   // Reactive style for the invisible virtual trigger. SolidJS updates only the
   // changed style fields per prop change, so the Trigger element is never
@@ -178,6 +235,40 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
     height: "0px",
     "pointer-events": "none"
   });
+  const renderInlineTrigger = (): JSX.Element => {
+    if (usesPassiveTrigger()) {
+      return (
+        <span
+          class={triggerClass()}
+          style={passiveTriggerStyle()}
+          data-naive-dropdown-trigger
+          onPointerEnter={
+            triggerMode() === "hover" && !isManual() ? scheduleHoverOpen : undefined
+          }
+          onPointerLeave={
+            triggerMode() === "hover" && !isManual() ? scheduleHoverClose : undefined
+          }
+        >
+          <DropdownMenu.Trigger
+            as="span"
+            tabindex={-1}
+            style={passiveAnchorStyle()}
+          />
+          {props.children}
+        </span>
+      );
+    }
+    return (
+      <DropdownMenu.Trigger
+        as="span"
+        class={triggerClass()}
+        style={props.triggerStyle}
+        data-naive-dropdown-trigger
+      >
+        {props.children}
+      </DropdownMenu.Trigger>
+    );
+  };
 
   return (
     <DropdownMenu
@@ -185,36 +276,19 @@ export function NaiveDropdownKobalte(props: NaiveDropdownProps): JSX.Element {
       defaultOpen={props.defaultOpen}
       onOpenChange={handleOpenChange}
       placement={props.placement ?? "bottom-start"}
-      gutter={props.gutter}
+      gutter={props.gutter ?? 6}
       modal={false}
       preventScroll={false}
+      forceMount={contentPresent()}
     >
       <Show
         when={isVirtual()}
-        fallback={
-          <DropdownMenu.Trigger
-            as="span"
-            class={triggerClass()}
-            data-naive-dropdown-trigger
-            // Hover semantics on the trigger. Kobalte click-toggle stays for "click"
-            // mode; for hover we keep click-toggle as well so keyboard activation
-            // remains a working fallback.
-            onPointerEnter={
-              triggerMode() === "hover" && !isManual() ? scheduleHoverOpen : undefined
-            }
-            onPointerLeave={
-              triggerMode() === "hover" && !isManual() ? scheduleHoverClose : undefined
-            }
-          >
-            {props.children}
-          </DropdownMenu.Trigger>
-        }
+        fallback={renderInlineTrigger()}
       >
         <DropdownMenu.Trigger
           as="span"
           class={triggerClass()}
           data-naive-dropdown-virtual-trigger
-          aria-hidden="true"
           tabindex={-1}
           style={virtualTriggerStyle()}
         />

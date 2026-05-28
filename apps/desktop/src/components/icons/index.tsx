@@ -92,6 +92,17 @@ export function IconList(props: IconProps) {
   );
 }
 
+export function IconSPlayerFormatList(props: IconProps) {
+  return (
+    <svg width={32} height={32} viewBox="0 0 24 24" aria-hidden={true} {...props}>
+      <path
+        fill="currentColor"
+        d="M4 10.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5s1.5-.67 1.5-1.5s-.67-1.5-1.5-1.5m0-6c-.83 0-1.5.67-1.5 1.5S3.17 7.5 4 7.5S5.5 6.83 5.5 6S4.83 4.5 4 4.5m0 12c-.83 0-1.5.68-1.5 1.5s.68 1.5 1.5 1.5s1.5-.68 1.5-1.5s-.67-1.5-1.5-1.5M8 19h12c.55 0 1-.45 1-1s-.45-1-1-1H8c-.55 0-1 .45-1 1s.45 1 1 1m0-6h12c.55 0 1-.45 1-1s-.45-1-1-1H8c-.55 0-1 .45-1 1s.45 1 1 1M7 6c0 .55.45 1 1 1h12c.55 0 1-.45 1-1s-.45-1-1-1H8c-.55 0-1 .45-1 1"
+      />
+    </svg>
+  );
+}
+
 export function IconSPlayerMenu(props: IconProps) {
   return (
     <svg width={32} height={32} viewBox="0 0 24 24" aria-hidden={true} {...props}>
@@ -394,6 +405,29 @@ export function IconClock(props: IconProps) {
   );
 }
 
+export function IconSpeed(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M4 13.5a6.5 6.5 0 1 1 12 0" />
+      <path d="M10 13l3-4" />
+      <path d="M7 15h6" />
+    </svg>
+  );
+}
+
+export function IconTune(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M4.5 5.5h11" />
+      <path d="M4.5 10h11" />
+      <path d="M4.5 14.5h11" />
+      <circle cx="8" cy="5.5" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="10" r="1.5" fill="currentColor" stroke="none" />
+      <circle cx="7" cy="14.5" r="1.5" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function IconPlayCircle(props: IconProps) {
   return (
     <svg {...baseProps} {...props}>
@@ -539,17 +573,6 @@ export function IconSPlayerRecord(props: IconProps) {
   );
 }
 
-export function IconSPlayerFavorite(props: IconProps) {
-  return (
-    <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden={true} {...props}>
-      <path
-        fill="currentColor"
-        d="M13.35 20.13c-.76.69-1.93.69-2.69-.01l-.11-.1C5.3 15.27 1.87 12.16 2 8.28c.06-1.7.93-3.33 2.34-4.29c2.64-1.8 5.9-.96 7.66 1.1c1.76-2.06 5.02-2.91 7.66-1.1c1.41.96 2.28 2.59 2.34 4.29c.14 3.88-3.3 6.99-8.55 11.76z"
-      />
-    </svg>
-  );
-}
-
 export function IconSPlayerStar(props: IconProps) {
   return (
     <svg width={20} height={20} viewBox="0 0 24 24" aria-hidden={true} {...props}>
@@ -602,6 +625,28 @@ export function IconHeartFilled(props: IconProps) {
   return (
     <svg {...baseProps} {...props}>
       <path d="M10 16.5s-6.5-4.5-6.5-8A3.5 3.5 0 0 1 10 5.5a3.5 3.5 0 0 1 6.5 3c0 3.5-6.5 8-6.5 8z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function IconSPlayerFavoriteBorder(props: IconProps) {
+  return (
+    <svg width={32} height={32} viewBox="0 0 24 24" aria-hidden={true} {...props}>
+      <path
+        fill="currentColor"
+        d="M19.66 3.99c-2.64-1.8-5.9-.96-7.66 1.1c-1.76-2.06-5.02-2.91-7.66-1.1c-1.4.96-2.28 2.58-2.34 4.29c-.14 3.88 3.3 6.99 8.55 11.76l.1.09c.76.69 1.93.69 2.69-.01l.11-.1c5.25-4.76 8.68-7.87 8.55-11.75c-.06-1.7-.94-3.32-2.34-4.28M12.1 18.55l-.1.1l-.1-.1C7.14 14.24 4 11.39 4 8.5C4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5c0 2.89-3.14 5.74-7.9 10.05"
+      />
+    </svg>
+  );
+}
+
+export function IconSPlayerFavorite(props: IconProps) {
+  return (
+    <svg width={32} height={32} viewBox="0 0 24 24" aria-hidden={true} {...props}>
+      <path
+        fill="currentColor"
+        d="M13.35 20.13c-.76.69-1.93.69-2.69-.01l-.11-.1C5.3 15.27 1.87 12.16 2 8.28c.06-1.7.93-3.33 2.34-4.29c2.64-1.8 5.9-.96 7.66 1.1c1.76-2.06 5.02-2.91 7.66-1.1c1.41.96 2.28 2.59 2.34 4.29c.14 3.88-3.3 6.99-8.55 11.76z"
+      />
     </svg>
   );
 }

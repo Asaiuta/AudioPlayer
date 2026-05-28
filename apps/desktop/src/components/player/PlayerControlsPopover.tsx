@@ -1,5 +1,5 @@
-import { Show } from "solid-js";
-import { IconControls } from "../icons";
+import { IconClock, IconControls, IconRepeat, IconSpeed, IconTune } from "../icons";
+import { NaiveDropdown, type NaiveDropdownOption } from "../../shared/ui/naive";
 
 interface PlayerControlsPopoverProps {
   open: boolean;
@@ -11,53 +11,60 @@ interface PlayerControlsPopoverProps {
   playbackRateLabel: string;
   unavailableDetail: string;
   unavailableSuffix: string;
-  onToggle: () => void;
-  onClose: () => void;
+  onOpenChange: (open: boolean) => void;
 }
 
 export function PlayerControlsPopover(props: PlayerControlsPopoverProps) {
-  const items = [
-    { key: "equalizer", label: props.equalizerLabel },
-    { key: "autoClose", label: props.autoCloseLabel },
-    { key: "abLoop", label: props.abLoopLabel },
-    { key: "playbackRate", label: props.playbackRateLabel }
-  ] as const;
+  const items = (): readonly NaiveDropdownOption[] => [
+    {
+      key: "equalizer",
+      label: props.equalizerLabel,
+      icon: <IconTune />,
+      suffix: <span class="player-menu-item-meta">{props.unavailableDetail}</span>,
+      disabled: true
+    },
+    {
+      key: "autoClose",
+      label: props.autoCloseLabel,
+      icon: <IconClock />,
+      suffix: <span class="player-menu-item-meta">{props.unavailableDetail}</span>,
+      disabled: true
+    },
+    {
+      key: "abLoop",
+      label: props.abLoopLabel,
+      icon: <IconRepeat />,
+      suffix: <span class="player-menu-item-meta">{props.unavailableDetail}</span>,
+      disabled: true
+    },
+    {
+      key: "playbackRate",
+      label: props.playbackRateLabel,
+      icon: <IconSpeed />,
+      suffix: <span class="player-menu-item-meta">{props.unavailableDetail}</span>,
+      disabled: true
+    }
+  ];
 
   return (
-    <>
+    <NaiveDropdown
+      options={items()}
+      triggerMode="hover"
+      placement="top"
+      open={props.open}
+      onOpenChange={props.onOpenChange}
+      class="player-controls-popover"
+      triggerStyle={{ width: "38px", height: "38px" }}
+      ariaLabel={props.menuLabel}
+    >
       <button
         type="button"
-        class={`player-inline-icon player-utility-button player-utility-hidden w-38px h-38px${props.open ? " is-open" : ""}`}
+        class={`player-inline-icon player-utility-button player-controls-trigger player-utility-hidden w-38px h-38px${props.open ? " is-open" : ""}`}
         aria-label={props.buttonLabel}
         title={props.buttonLabel}
-        aria-haspopup="menu"
-        aria-expanded={props.open}
-        onClick={props.onToggle}
       >
         <IconControls />
       </button>
-      <Show when={props.open}>
-        <div
-          class="player-controls-popover absolute min-w-220px flex flex-col gap-2"
-          role="menu"
-          aria-label={props.menuLabel}
-        >
-          <div class="player-popover-title text-13px font-semibold">{props.menuLabel}</div>
-          {items.map((item) => (
-            <button
-              type="button"
-              class="player-menu-item flex items-center justify-between gap-3 min-h-34px text-left"
-              role="menuitem"
-              disabled
-              title={`${item.label}${props.unavailableSuffix}`}
-              onClick={props.onClose}
-            >
-              <span>{item.label}</span>
-              <span class="player-menu-item-meta">{props.unavailableDetail}</span>
-            </button>
-          ))}
-        </div>
-      </Show>
-    </>
+    </NaiveDropdown>
   );
 }

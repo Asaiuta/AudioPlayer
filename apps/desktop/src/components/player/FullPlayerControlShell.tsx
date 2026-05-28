@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import type { Component } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { PlayerVolumePopover } from "./PlayerVolumePopover";
 import {
   IconChevronDown,
@@ -101,10 +101,12 @@ interface FullPlayerShellUtilitySection {
   volumeOpen: boolean;
   volumeValue: number;
   volumeIcon: Component;
-  onToggleVolume: () => void;
+  onVolumeOpenChange: (open: boolean) => void;
+  onToggleMute: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
+  onVolumePreview?: (value: number) => void;
   onVolumeChange: (value: number) => void;
+  onVolumeWheel: JSX.EventHandlerUnion<HTMLButtonElement, WheelEvent>;
   onOpenQueue: () => void;
-  volumeContainerRef?: (element: HTMLDivElement) => void;
 }
 
 interface FullPlayerControlShellProps {
@@ -355,7 +357,7 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
             <IconControls />
           </button>
         </Show>
-        <div class="full-player-volume" ref={props.utility.volumeContainerRef}>
+        <div class="full-player-volume">
           <PlayerVolumePopover
             open={props.utility.volumeOpen}
             value={props.utility.volumeValue}
@@ -365,8 +367,11 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
             buttonLabel={props.labels.volumeButton}
             dialogLabel={props.labels.volumeDialog}
             buttonTitle={props.labels.volumeButton}
-            onToggle={props.utility.onToggleVolume}
+            onOpenChange={props.utility.onVolumeOpenChange}
+            onValuePreview={props.utility.onVolumePreview}
             onValueChange={props.utility.onVolumeChange}
+            onButtonClick={props.utility.onToggleMute}
+            onButtonWheel={props.utility.onVolumeWheel}
           />
         </div>
         <button

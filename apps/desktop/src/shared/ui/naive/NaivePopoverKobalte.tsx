@@ -1,5 +1,5 @@
 import { Popover as KobaltePopover } from "@kobalte/core/popover";
-import { Show, createSignal, onCleanup, type JSX } from "solid-js";
+import { Show, createEffect, createSignal, onCleanup, type JSX } from "solid-js";
 import type {
   NaivePopoverAnchorRect,
   NaivePopoverProps,
@@ -13,6 +13,7 @@ import { joinClassNames } from "./utils";
 
 const HOVER_OPEN_DELAY = 100;
 const HOVER_CLOSE_DELAY = 100;
+const POPOVER_LEAVE_PRESENCE_MS = 180;
 
 const resolveAnchorRect = (
   rect: NaivePopoverAnchorRect
@@ -24,7 +25,7 @@ const resolveAnchorRect = (
 });
 
 export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
-  const triggerMode = (): NaivePopoverTrigger => props.triggerMode ?? "click";
+  const triggerMode = (): NaivePopoverTrigger => props.triggerMode ?? "hover";
   const isManual = (): boolean => triggerMode() === "manual";
   const showArrow = (): boolean => props.showArrow ?? true;
   const useTriggerElement = (): boolean =>
@@ -32,6 +33,9 @@ export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
 
   const [uncontrolledOpen, setUncontrolledOpen] = createSignal<boolean>(
     props.defaultOpen ?? false
+  );
+  const [contentPresent, setContentPresent] = createSignal<boolean>(
+    props.open ?? props.defaultOpen ?? false
   );
 
   const open = (): boolean => {
@@ -46,6 +50,8 @@ export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
 
   let openTimer: ReturnType<typeof setTimeout> | undefined;
   let closeTimer: ReturnType<typeof setTimeout> | undefined;
+  let presenceTimer: ReturnType<typeof setTimeout> | undefined;
+  let triggerRef: HTMLElement | undefined;
 
   const clearTimers = (): void => {
     if (openTimer !== undefined) {
@@ -57,8 +63,30 @@ export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
       closeTimer = undefined;
     }
   };
+  const clearPresenceTimer = (): void => {
+    if (presenceTimer === undefined) return;
+    clearTimeout(presenceTimer);
+    presenceTimer = undefined;
+  };
+  const updateContentPresence = (nextOpen: boolean): void => {
+    clearPresenceTimer();
+    if (nextOpen) {
+      setContentPresent(true);
+      return;
+    }
+    if (!contentPresent()) return;
+    presenceTimer = setTimeout(() => {
+      presenceTimer = undefined;
+      setContentPresent(false);
+    }, POPOVER_LEAVE_PRESENCE_MS);
+  };
 
-  onCleanup(clearTimers);
+  createEffect(() => updateContentPresence(open()));
+
+  onCleanup(() => {
+    clearTimers();
+    clearPresenceTimer();
+  });
 
   const scheduleHoverOpen = (): void => {
     if (props.disabled || isManual()) return;
@@ -116,6 +144,9 @@ export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
   const anchorClass = () =>
     joinClassNames("naive-popover-trigger", props.rootClass);
 
+  const isTriggerEventTarget = (target: EventTarget | null): boolean =>
+    target instanceof Element && Boolean(triggerRef?.contains(target));
+
   const renderTrigger = (): JSX.Element => {
     // Click mode: Kobalte's PopoverTrigger handles toggle + aria semantics
     // automatically. Hover/focus/manual modes use Anchor with custom handlers
@@ -124,7 +155,11 @@ export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
       return (
         <KobaltePopover.Trigger
           as="span"
+          ref={(element: HTMLElement) => {
+            triggerRef = element;
+          }}
           class={anchorClass()}
+          style={props.rootStyle}
           data-naive-popover-trigger
         >
           {props.trigger}
@@ -134,7 +169,11 @@ export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
     return (
       <KobaltePopover.Anchor
         as="span"
+        ref={(element: HTMLElement) => {
+          triggerRef = element;
+        }}
         class={anchorClass()}
+        style={props.rootStyle}
         data-naive-popover-trigger
         onPointerEnter={triggerMode() === "hover" ? scheduleHoverOpen : undefined}
         onPointerLeave={
@@ -153,38 +192,43 @@ export function NaivePopoverKobalte(props: NaivePopoverProps): JSX.Element {
       open={open()}
       onOpenChange={(nextOpen) => {
         clearTimers();
+        if (props.disabled && nextOpen) return;
         setOpen(nextOpen);
       }}
       placement={props.placement ?? "top"}
       gutter={props.gutter}
       modal={false}
+      forceMount={contentPresent()}
       getAnchorRect={props.getAnchorRect ? getAnchorRectImpl : undefined}
     >
       <Show when={props.trigger !== undefined || !props.getAnchorRect}>
         {renderTrigger()}
       </Show>
-      <Show when={open()}>
-        <KobaltePopover.Portal mount={mountTarget()}>
-          <KobaltePopover.Content
-            class={contentClass()}
-            aria-label={props.ariaLabel}
-            role={props.role as JSX.HTMLAttributes<HTMLElement>["role"]}
-            onPointerEnter={
-              triggerMode() === "hover" ? scheduleHoverOpen : undefined
+      <KobaltePopover.Portal mount={mountTarget()}>
+        <KobaltePopover.Content
+          class={contentClass()}
+          aria-label={props.ariaLabel}
+          role={props.role as JSX.HTMLAttributes<HTMLElement>["role"]}
+          onPointerEnter={
+            triggerMode() === "hover" ? scheduleHoverOpen : undefined
+          }
+          onPointerLeave={
+            triggerMode() === "hover" ? scheduleHoverClose : undefined
+          }
+          onPointerDownOutside={(event) => {
+            if (isTriggerEventTarget(event.target)) {
+              event.preventDefault();
             }
-            onPointerLeave={
-              triggerMode() === "hover" ? scheduleHoverClose : undefined
-            }
-          >
-            <Show when={showArrow()}>
-              <KobaltePopover.Arrow
-                class={naivePopoverArrowClass({ arrowClass: props.arrowClass })}
-              />
-            </Show>
-            {props.children}
-          </KobaltePopover.Content>
-        </KobaltePopover.Portal>
-      </Show>
+          }}
+        >
+          <Show when={showArrow()}>
+            <KobaltePopover.Arrow
+              class={naivePopoverArrowClass({ arrowClass: props.arrowClass })}
+            />
+          </Show>
+          {props.children}
+        </KobaltePopover.Content>
+      </KobaltePopover.Portal>
     </KobaltePopover>
   );
 }

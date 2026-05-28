@@ -1171,13 +1171,6 @@
   }
 
   .naive-slider.n-slider.volume-slider {
-    --n-fill-color: var(--accent);
-    --n-fill-color-hover: var(--accent);
-    --n-handle-color: var(--accent);
-    --n-handle-size: 14px;
-    --n-rail-width-vertical: 3px;
-    --n-rail-color: color-mix(in oklch, var(--surface-3) 70%, transparent);
-    --n-rail-color-hover: color-mix(in oklch, var(--surface-3) 78%, transparent);
     flex: 1 1 0;
     width: var(--n-handle-size);
     height: auto;
@@ -1191,7 +1184,8 @@
   }
 
   .naive-slider.n-slider.volume-slider:hover .n-slider-handle,
-  .naive-slider.n-slider.volume-slider:focus-within .n-slider-handle {
+  .naive-slider.n-slider.volume-slider:focus-within .n-slider-handle,
+  .naive-slider.n-slider.volume-slider.is-dragging .n-slider-handle {
     opacity: 1;
     transform: scale(1);
   }
@@ -1219,11 +1213,24 @@
 
   .naive-slider .n-slider-handles {
     position: absolute;
-    inset: 0;
+    top: 0;
+    right: calc(var(--n-handle-size) / 2);
+    bottom: 0;
+    left: calc(var(--n-handle-size) / 2);
     pointer-events: none;
   }
 
+  .naive-slider.n-slider--vertical .n-slider-handles {
+    top: calc(var(--n-handle-size) / 2);
+    right: 0;
+    bottom: calc(var(--n-handle-size) / 2);
+    left: 0;
+  }
+
   .naive-slider .n-slider-handle-wrapper {
+    position: absolute;
+    top: 50%;
+    left: var(--naive-slider-percent, 0%);
     z-index: 1;
     display: inline-flex;
     width: var(--n-handle-size);
@@ -1233,6 +1240,14 @@
     border-radius: 50%;
     outline: none;
     pointer-events: auto;
+    transform: translate(-50%, -50%);
+  }
+
+  .naive-slider.n-slider--vertical .n-slider-handle-wrapper {
+    top: auto;
+    bottom: var(--naive-slider-percent, 0%);
+    left: 50%;
+    transform: translate(-50%, 50%);
   }
 
   .naive-slider .n-slider-handle {
@@ -1251,9 +1266,17 @@
 
   .naive-slider:not(.n-slider--disabled) .n-slider-handle-wrapper:hover .n-slider-handle,
   .naive-slider:not(.n-slider--disabled) .n-slider-handle-wrapper:focus .n-slider-handle,
-  .naive-slider:not(.n-slider--disabled) .n-slider-handle-wrapper:focus-visible .n-slider-handle {
+  .naive-slider:not(.n-slider--disabled) .n-slider-handle-wrapper:focus-visible .n-slider-handle,
+  .naive-slider:not(.n-slider--disabled).is-dragging .n-slider-handle {
     box-shadow: var(--n-handle-box-shadow-hover);
     transform: scale(1.05);
+  }
+
+  .naive-slider:not(.n-slider--disabled).volume-slider .n-slider-handle-wrapper:hover .n-slider-handle,
+  .naive-slider:not(.n-slider--disabled).volume-slider .n-slider-handle-wrapper:focus .n-slider-handle,
+  .naive-slider:not(.n-slider--disabled).volume-slider .n-slider-handle-wrapper:focus-visible .n-slider-handle,
+  .naive-slider:not(.n-slider--disabled).volume-slider.is-dragging .n-slider-handle {
+    transform: scale(1);
   }
 
   .naive-slider .n-slider-handle-indicator {
@@ -3536,21 +3559,21 @@
   }
 
   /* ============================================================
-     NaivePopover — NaiveUI 2.43.2 visual contract.
+     NaivePopover — SPlayer's NaiveUI 2.43.2 visual contract.
      Source: D:/AI/SPlayer/node_modules/naive-ui/es/popover/src/styles/index.cssr.mjs
-     plus styles/_common.mjs (space/spaceArrow/arrowOffset/arrowHeight/padding).
+     plus D:/AI/SPlayer/src/style/main.scss global popover overrides.
      ============================================================ */
 
   .n-popover.n-popover-shared {
-    --n-bezier: var(--ease-standard);
-    --n-bezier-ease-in: var(--ease-standard);
-    --n-bezier-ease-out: var(--ease-standard);
-    --n-color: color-mix(in oklch, var(--surface-2) 96%, transparent);
-    --n-text-color: var(--text);
+    --n-bezier: cubic-bezier(0.4, 0, 0.2, 1);
+    --n-bezier-ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --n-bezier-ease-out: cubic-bezier(0, 0, 0.2, 1);
+    --n-color: rgb(72 72 78);
+    --n-text-color: rgb(255 255 255 / 0.82);
     --n-font-size: 14px;
-    --n-border-radius: var(--radius-sm);
-    --n-box-shadow: var(--floating-shadow);
-    --n-divider-color: var(--border-overlay);
+    --n-border-radius: 8px;
+    --n-box-shadow: 0 3px 6px -4px rgb(0 0 0 / 0.24), 0 6px 12px 0 rgb(0 0 0 / 0.16), 0 9px 18px 8px rgb(0 0 0 / 0.1);
+    --n-divider-color: rgb(255 255 255 / 0.09);
     --n-padding: 8px 14px;
     --n-space: 6px;
     --n-space-arrow: 10px;
@@ -3564,7 +3587,10 @@
     font-size: var(--n-font-size);
     color: var(--n-text-color);
     box-shadow: var(--n-box-shadow);
+    overflow: hidden;
     word-break: break-word;
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
     transform-origin: var(--kb-popper-content-transform-origin, center);
     transition:
       box-shadow 0.3s var(--n-bezier),
@@ -3575,6 +3601,11 @@
   /* `raw` mode skips the content padding wrapper (Naive `raw` prop). */
   .n-popover.n-popover-shared:not(.n-popover-shared--raw) {
     padding: var(--n-padding);
+    background-color: var(--n-color);
+    border-radius: var(--n-border-radius);
+  }
+
+  .n-popover.n-popover-shared--raw {
     background-color: var(--n-color);
     border-radius: var(--n-border-radius);
   }
@@ -3633,8 +3664,10 @@
 
   /* Light-theme appearance override (when not using dark token palette). */
   :root[data-theme="light"] .n-popover.n-popover-shared {
-    --n-color: var(--surface-1);
-    --n-text-color: var(--text);
+    --n-color: #fff;
+    --n-text-color: rgb(51 54 57);
+    --n-box-shadow: 0 3px 6px -4px rgb(0 0 0 / 0.12), 0 6px 16px 0 rgb(0 0 0 / 0.08), 0 9px 28px 8px rgb(0 0 0 / 0.05);
+    --n-divider-color: rgb(239 239 245);
   }
 
   /* ============================================================
@@ -3738,28 +3771,31 @@
   }
 
   /* ============================================================
-     NaiveDropdown — NaiveUI 2.43.2 visual contract.
+     NaiveDropdown — SPlayer's NaiveUI 2.43.2 visual contract.
      Source: D:/AI/SPlayer/node_modules/naive-ui/es/dropdown/src/styles/index.cssr.mjs
-     plus styles/_common.mjs and styles/light.mjs.
+     plus styles/_common.mjs, styles/light.mjs, and
+     D:/AI/SPlayer/src/style/main.scss global dropdown overrides.
      Reuses the popover enter/leave keyframes since NaiveUI's dropdown
      shares the same fade-in-scale-up transition.
      ============================================================ */
 
   .n-dropdown.n-dropdown-menu {
-    --n-bezier: var(--ease-standard);
-    --n-color: color-mix(in oklch, var(--surface-2) 96%, transparent);
-    --n-text-color: var(--text);
-    --n-divider-color: var(--border-overlay);
-    --n-border-radius: var(--radius-sm);
-    --n-box-shadow: var(--floating-shadow);
-    --n-padding: 4px 0;
+    --n-bezier: cubic-bezier(0.4, 0, 0.2, 1);
+    --n-bezier-ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --n-bezier-ease-out: cubic-bezier(0, 0, 0.2, 1);
+    --n-color: rgb(72 72 78);
+    --n-text-color: rgb(255 255 255 / 0.82);
+    --n-divider-color: rgb(255 255 255 / 0.09);
+    --n-border-radius: 8px;
+    --n-box-shadow: 0 3px 6px -4px rgb(0 0 0 / 0.24), 0 6px 12px 0 rgb(0 0 0 / 0.16), 0 9px 18px 8px rgb(0 0 0 / 0.1);
+    --n-padding-default: 4px 0;
     --n-font-size: 14px;
     --n-option-height: 34px;
-    --n-option-text-color: var(--text-soft);
-    --n-option-text-color-hover: var(--text);
+    --n-option-text-color: rgb(255 255 255 / 0.82);
+    --n-option-text-color-hover: rgb(255 255 255);
     --n-option-text-color-active: var(--color-primary);
     --n-option-text-color-child-active: var(--color-primary);
-    --n-option-color-hover: color-mix(in oklch, var(--accent) 12%, transparent);
+    --n-option-color-hover: rgb(255 255 255 / 0.09);
     --n-option-color-active: color-mix(in oklch, var(--color-primary) 11%, transparent);
     --n-option-opacity-disabled: 0.5;
     --n-option-prefix-width: 14px;
@@ -3767,26 +3803,27 @@
     --n-option-suffix-width: 14px;
     --n-option-icon-suffix-width: 32px;
     --n-option-icon-size: 16px;
-    --n-prefix-color: var(--text-soft);
-    --n-suffix-color: var(--text-soft);
+    --n-min-width-default: 120px;
+    --n-prefix-color: rgb(255 255 255 / 0.82);
+    --n-suffix-color: rgb(255 255 255 / 0.82);
     position: relative;
     z-index: var(--z-popover);
-    min-width: 120px;
-    padding: var(--n-padding);
+    min-width: var(--n-min-width, var(--n-min-width-default));
+    padding: var(--n-padding, var(--n-padding-default));
     border-radius: var(--n-border-radius);
     background-color: var(--n-color);
     color: var(--n-text-color);
     box-shadow: var(--n-box-shadow);
     transform-origin: var(--kb-popper-content-transform-origin, center);
     outline: none;
-    animation: naive-popover-enter 0.15s var(--n-bezier);
+    animation: naive-popover-enter 0.15s var(--n-bezier-ease-out);
     transition:
       background-color 0.3s var(--n-bezier),
       box-shadow 0.3s var(--n-bezier);
   }
 
   .n-dropdown.n-dropdown-menu[data-closed] {
-    animation: naive-popover-leave 0.15s var(--n-bezier) forwards;
+    animation: naive-popover-leave 0.15s var(--n-bezier-ease-in) forwards;
   }
 
   .n-dropdown-option {
@@ -3864,7 +3901,6 @@
     z-index: 1;
     flex: 1;
     min-width: 0;
-    padding: 0 8px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -3908,7 +3944,158 @@
 
   /* Light-theme appearance override. */
   :root[data-theme="light"] .n-dropdown.n-dropdown-menu {
-    --n-color: var(--surface-1);
-    --n-text-color: var(--text);
+    --n-color: #fff;
+    --n-text-color: rgb(51 54 57);
+    --n-divider-color: rgb(239 239 245);
+    --n-box-shadow: 0 3px 6px -4px rgb(0 0 0 / 0.12), 0 6px 16px 0 rgb(0 0 0 / 0.08), 0 9px 28px 8px rgb(0 0 0 / 0.05);
+    --n-option-text-color: rgb(51 54 57);
+    --n-option-text-color-hover: rgb(51 54 57);
+    --n-option-color-hover: rgb(243 243 245);
+    --n-prefix-color: rgb(51 54 57);
+    --n-suffix-color: rgb(51 54 57);
+  }
+
+  /* ============================================================
+     NaivePopselect — SPlayer's NPopselect / InternalSelectMenu contract.
+     Source: D:/AI/SPlayer/node_modules/naive-ui/es/popselect/src/*.mjs,
+     _internal/select-menu/src/styles/index.cssr.mjs, and
+     D:/AI/SPlayer/src/style/main.scss (.n-popselect-menu overrides).
+     ============================================================ */
+
+  .n-popselect-menu.n-base-select-menu {
+    --n-bezier: cubic-bezier(0.4, 0, 0.2, 1);
+    --n-bezier-ease-in: cubic-bezier(0.4, 0, 1, 1);
+    --n-bezier-ease-out: cubic-bezier(0, 0, 0.2, 1);
+    --n-border-radius: 8px;
+    --n-color: rgb(72 72 78);
+    --n-menu-box-shadow: 0 3px 6px -4px rgb(0 0 0 / 0.24), 0 6px 12px 0 rgb(0 0 0 / 0.16), 0 9px 18px 8px rgb(0 0 0 / 0.1);
+    --n-option-font-size: 14px;
+    --n-option-height: 34px;
+    --n-option-padding: 0 12px;
+    --n-option-padding-right: 12px;
+    --n-option-text-color: rgb(255 255 255 / 0.82);
+    --n-option-text-color-active: var(--color-primary);
+    --n-option-text-color-disabled: rgb(255 255 255 / 0.38);
+    --n-option-text-color-pressed: color-mix(in oklch, var(--color-primary) 72%, transparent);
+    --n-option-color-pending: rgb(255 255 255 / 0.09);
+    --n-option-color-active: rgb(0 0 0 / 0);
+    --n-option-color-active-pending: rgb(255 255 255 / 0.09);
+    --n-option-opacity-disabled: 0.5;
+    --n-option-check-color: var(--color-primary);
+    position: fixed;
+    z-index: var(--z-modal-popover);
+    box-sizing: border-box;
+    display: flex;
+    width: 100px;
+    min-width: 100px;
+    max-height: calc(var(--n-option-height) * 7.6);
+    flex-direction: column;
+    gap: 0;
+    padding: 4px 0;
+    border-radius: var(--n-border-radius);
+    color: var(--n-option-text-color);
+    background-color: var(--n-color);
+    box-shadow: var(--n-menu-box-shadow);
+    overflow: hidden;
+    outline: none;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    transform-origin: var(--kb-popper-content-transform-origin, top center);
+    animation: naive-popover-enter 0.15s var(--n-bezier-ease-out);
+    transition:
+      background-color 0.3s var(--n-bezier),
+      box-shadow 0.3s var(--n-bezier);
+  }
+
+  .n-popselect-menu.n-base-select-menu[data-closed],
+  .n-popselect-menu.n-base-select-menu.is-closing {
+    pointer-events: none;
+    animation: naive-popover-leave 0.15s var(--n-bezier-ease-in) forwards;
+  }
+
+  .n-popselect-menu .n-base-select-option {
+    position: relative;
+    box-sizing: border-box;
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    min-height: var(--n-option-height);
+    align-items: center;
+    padding: var(--n-option-padding);
+    color: var(--n-option-text-color);
+    background: transparent;
+    font-size: var(--n-option-font-size);
+    line-height: 1.5;
+    cursor: pointer;
+    outline: none;
+    transition:
+      color 0.3s var(--n-bezier),
+      opacity 0.3s var(--n-bezier);
+  }
+
+  .n-popselect-menu .n-base-select-option--show-checkmark {
+    padding-right: calc(var(--n-option-padding-right) + 20px);
+  }
+
+  .n-popselect-menu .n-base-select-option::before {
+    content: "";
+    position: absolute;
+    inset: 0 4px;
+    border-radius: var(--n-border-radius);
+    transition: background-color 0.3s var(--n-bezier);
+  }
+
+  .n-popselect-menu .n-base-select-option:hover::before,
+  .n-popselect-menu .n-base-select-option[data-highlighted]::before {
+    background-color: var(--n-option-color-pending);
+  }
+
+  .n-popselect-menu .n-base-select-option--selected {
+    color: var(--n-option-text-color-active);
+  }
+
+  .n-popselect-menu .n-base-select-option--selected::before {
+    background-color: var(--n-option-color-active);
+  }
+
+  .n-popselect-menu .n-base-select-option--selected:hover::before,
+  .n-popselect-menu .n-base-select-option--selected[data-highlighted]::before {
+    background-color: var(--n-option-color-active-pending);
+  }
+
+  .n-popselect-menu .n-base-select-option__content {
+    z-index: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .n-popselect-menu .n-base-select-option__check {
+    position: absolute;
+    z-index: 1;
+    top: calc(50% - 7px);
+    right: calc(var(--n-option-padding-right) - 4px);
+    display: grid;
+    width: 16px;
+    height: 16px;
+    place-items: center;
+    color: var(--n-option-check-color);
+    animation: naive-popover-enter 0.2s var(--n-bezier-ease-out);
+  }
+
+  .n-popselect-menu .n-base-select-option__check svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  :root[data-theme="light"] .n-popselect-menu.n-base-select-menu {
+    --n-color: #fff;
+    --n-menu-box-shadow: 0 3px 6px -4px rgb(0 0 0 / 0.12), 0 6px 16px 0 rgb(0 0 0 / 0.08), 0 9px 28px 8px rgb(0 0 0 / 0.05);
+    --n-option-text-color: rgb(51 54 57);
+    --n-option-text-color-disabled: rgb(194 194 194);
+    --n-option-text-color-pressed: color-mix(in oklch, var(--color-primary) 72%, transparent);
+    --n-option-color-pending: rgb(243 243 245);
+    --n-option-color-active-pending: rgb(243 243 245);
   }
 }
