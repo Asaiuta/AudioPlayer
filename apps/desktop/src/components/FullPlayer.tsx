@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import type { JSX } from "solid-js";
 import type { RepeatMode, ShuffleMode } from "../shared/api/types";
-import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import { useTranslation } from "../shared/i18n";
 import { findActiveLyricIndex, type NcmLyricLine } from "../features/online/ncmPlayback";
 import { SpectrumCanvas } from "../features/playback/SpectrumCanvas";
@@ -60,6 +60,7 @@ interface FullPlayerProps {
   onPlay: () => void;
   onPause: () => void;
   onSeek: (position: number) => void;
+  onVolumePreview?: (volume: number) => void;
   onVolumeChange: (volume: number) => void;
   onSkipPrev: () => void;
   onSkipNext: () => void;
@@ -114,13 +115,13 @@ export function FullPlayer(props: FullPlayerProps) {
   const { t } = useTranslation();
   const uiSettings = useUISettings();
   const [volumePopoverOpen, setVolumePopoverOpen] = createSignal(false);
+  const [lastAudibleVolume, setLastAudibleVolume] = createSignal(0.7);
   const [closePresence, setClosePresence] = createSignal<boolean>(props.isOpen);
   const [backgroundLayers, setBackgroundLayers] = createSignal<readonly string[]>([]);
   const [lyricOffsets, setLyricOffsets] = createSignal<Record<string, number>>(readLyricOffsetMap());
   const [isMobileFullPlayer, setIsMobileFullPlayer] = createSignal<boolean>(false);
   let lyricListRef: HTMLDivElement | undefined;
   let rootRef: HTMLDivElement | undefined;
-  let fullVolumeRef: HTMLDivElement | undefined;
   let backgroundTimer: number | undefined;
   let closePresenceTimer: number | undefined;
 
@@ -179,19 +180,43 @@ export function FullPlayer(props: FullPlayerProps) {
     onClose: props.onClose
   });
 
-  useDismissibleOverlay(volumePopoverOpen, {
-    isInside: (target) => !!fullVolumeRef && fullVolumeRef.contains(target),
-    onDismiss: () => setVolumePopoverOpen(false),
-    escape: false
-  });
-
   const lyrics = () => props.lyrics ?? [];
   const lyricStatus = () => props.lyricStatus ?? "idle";
   const lyricError = () => props.lyricError ?? null;
   const hasLyrics = () => lyrics().length > 0;
-  const safeVolume = () => clamp01(props.volume);
+  const [uiVolume, setUiVolume] = createSignal(0);
+  createEffect(() => {
+    setUiVolume(clamp01(props.volume));
+  });
+  const safeVolume = () => uiVolume();
+  const previewVolume = (volume: number) => {
+    const next = clamp01(volume);
+    setUiVolume(next);
+    props.onVolumePreview?.(next);
+  };
+  const commitVolume = (volume: number) => {
+    const next = clamp01(volume);
+    setUiVolume(next);
+    props.onVolumeChange(next);
+  };
   const RepeatIcon = () => (props.repeatMode === "one" ? IconRepeatOne : IconRepeat);
   const VolumeIcon = () => (safeVolume() <= 0.001 ? IconVolumeMute : IconVolumeHigh);
+  const handleToggleMute = ((event: MouseEvent) => {
+    event.stopPropagation();
+    const currentVolume = safeVolume();
+    if (currentVolume <= 0.001) {
+      commitVolume(lastAudibleVolume());
+      return;
+    }
+    setLastAudibleVolume(currentVolume);
+    commitVolume(0);
+  }) as JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
+  const handleVolumeWheel = ((event: WheelEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const delta = event.deltaY > 0 ? -0.05 : 0.05;
+    commitVolume(safeVolume() + delta);
+  }) as JSX.EventHandlerUnion<HTMLButtonElement, WheelEvent>;
   const repeatLabel = () => t(`player.repeat.${props.repeatMode}` as const);
   const shuffleLabel = () => t(`player.shuffle.${props.shuffleMode}` as const);
   const displayTitle = () =>
@@ -499,12 +524,12 @@ export function FullPlayer(props: FullPlayerProps) {
     volumeOpen: volumePopoverOpen(),
     volumeValue: safeVolume(),
     volumeIcon: VolumeIcon(),
-    onToggleVolume: () => setVolumePopoverOpen((open) => !open),
-    onVolumeChange: (value: number) => props.onVolumeChange(clamp01(value)),
-    onOpenQueue: props.onOpenQueue,
-    volumeContainerRef: (element: HTMLDivElement) => {
-      fullVolumeRef = element;
-    }
+    onVolumeOpenChange: setVolumePopoverOpen,
+    onToggleMute: handleToggleMute,
+    onVolumePreview: previewVolume,
+    onVolumeChange: commitVolume,
+    onVolumeWheel: handleVolumeWheel,
+    onOpenQueue: props.onOpenQueue
   });
   const overlayMenuState = () => ({
     visible: metaVisible(),

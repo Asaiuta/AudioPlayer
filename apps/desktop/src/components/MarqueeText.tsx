@@ -12,6 +12,7 @@ interface MarqueeTextProps {
   speed?: number;
   /** pause time at the start before scrolling (ms) */
   delay?: number;
+  sizing?: "fill" | "content";
   class?: string;
   title?: string;
   style?: JSX.CSSProperties;
@@ -52,10 +53,12 @@ export function MarqueeText(props: MarqueeTextProps) {
     queueMicrotask(measure);
   });
 
+  const sizingClass = () => (props.sizing === "content" ? " marquee--content" : " marquee--fill");
+
   return (
     <div
       ref={containerRef}
-      class={`marquee${props.class ? ` ${props.class}` : ""}`}
+      class={`marquee${sizingClass()}${props.class ? ` ${props.class}` : ""}`}
       title={props.title ?? props.text}
       style={props.style}
     >
