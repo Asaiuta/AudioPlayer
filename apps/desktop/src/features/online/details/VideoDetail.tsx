@@ -8,6 +8,7 @@ import { SImage } from "../../../components/SImage";
 import { mvDetail, mvDetailInfo, mvUrl, videoDetail, videoDetailInfo, videoUrl } from "../../../shared/api/ncm/video";
 import { ncmMvPageUrl, ncmVideoPageUrl } from "../../../shared/api/ncm/urls";
 import { useTranslation } from "../../../shared/i18n";
+import { coverSizeUrl } from "../../../shared/ui/coverSize";
 import { NaiveH2, NaiveP } from "../../../shared/ui/naive";
 import type { FeedCardItem } from "../shared/types";
 import { parseVideoDetail, parseVideoSource, type VideoDetailInfo, type VideoSource } from "../videoParsers";
@@ -179,7 +180,7 @@ export function VideoDetail(props: VideoDetailProps) {
                 <Show when={artist().coverUrl}>
                   {(coverUrl) => (
                     <SImage
-                      src={coverUrl()}
+                      src={coverSizeUrl(coverUrl(), "s")}
                       alt=""
                       class="ncm-video-artist-avatar"
                       observeVisibility={true}

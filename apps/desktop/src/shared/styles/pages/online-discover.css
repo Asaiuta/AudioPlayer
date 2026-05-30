@@ -524,7 +524,24 @@
     }
   }
 
-  @media (min-width: 1000px) {
+  @media (max-width: 1180px) and (min-width: 861px) {
+    .online-toplist-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 860px) {
+    .online-toplist-grid {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .online-discover-section,
+    .online-discover-card-stack {
+      padding: 18px;
+    }
+  }
+
+  @media (min-width: 1181px) {
     .online-toplist-grid {
       grid-template-columns: repeat(3, minmax(0, 1fr));
     }

@@ -4,6 +4,7 @@ import { createApiClient, type ApiClient } from "../../shared/api/client";
 import { deleteFile, revealPathInFolder } from "../../shared/api/os";
 import type { LibraryRoot, MediaItem, PlayerState } from "../../shared/api/types";
 import type { TranslationKey } from "../../shared/i18n";
+import { copyToClipboard } from "../../shared/utils/clipboard";
 import { type LibraryListItem } from "./libraryViewTypes";
 import {
   adaptTrackSummaryToListItem,
@@ -444,10 +445,10 @@ export function useLibraryDataController(options: UseLibraryDataControllerOption
 
   const copyItemPath = async (item: LibraryListItem) => {
     const detail = await ensureItemDetail(item);
-    if (!detail || typeof navigator === "undefined" || !navigator.clipboard) {
+    if (!detail) {
       return;
     }
-    await navigator.clipboard.writeText(detail.source_path);
+    await copyToClipboard(detail.source_path);
   };
 
   const revealItemInFolder = async (item: LibraryListItem) => {

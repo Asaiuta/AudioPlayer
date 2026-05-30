@@ -12,7 +12,8 @@ import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
 import { DailySongsDetail } from "../details/DailySongsDetail";
-import { PlaylistDetail } from "../details/PlaylistDetail";
+import { OnlineLikedPlaylistDetailRoute } from "../details/OnlineLikedPlaylistDetailRoute";
+import { OnlinePlaylistDetailRoute } from "../details/OnlinePlaylistDetailRoute";
 import { VideoDetail } from "../details/VideoDetail";
 import { cloudsearch } from "../../../shared/api/ncm/search";
 import { createErrorMessageReader, type FeedbackSetter } from "../shared/feedback";
@@ -47,6 +48,7 @@ import type {
   OnlineTrackItem,
   SearchTab
 } from "../shared/types";
+import { createDetailViewReporter, type OnlineDetailViewReporterProps } from "../shared/detailViewReporter";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 import { createPagedDiscoverCards } from "../shared/usePagedDiscoverCards";
 import {
@@ -72,8 +74,8 @@ const toFeedCardItem = (item: DiscoverCardItem): FeedCardItem => ({
   title: item.title,
   subtitle: item.subtitle,
   coverUrl: item.coverUrl,
-  playCount: null,
-  description: null
+  playCount: item.playCount,
+  description: item.description
 });
 
 interface CatEntry { name: string; category: number; hot: boolean }
@@ -87,7 +89,7 @@ type DiscoverDetailView =
   | { kind: "playlist" }
   | { kind: "browse" };
 
-export interface DiscoverModeProps {
+export interface DiscoverModeProps extends OnlineDetailViewReporterProps {
   loginProfile: Accessor<NcmProfile | null>;
   globalQuery: Accessor<string>;
   submitNonce: Accessor<number>;
@@ -445,6 +447,9 @@ export function DiscoverMode(props: DiscoverModeProps) {
     if (detailNav.selectedPlaylist()) return { kind: "playlist" };
     return { kind: "browse" };
   });
+  const hasDetailView = createMemo<boolean>(() => detailView().kind !== "browse");
+
+  createDetailViewReporter(hasDetailView, props.onDetailViewChange);
 
   const catTypesList = createMemo(() => {
     const types = catTypes();
@@ -600,44 +605,15 @@ export function DiscoverMode(props: DiscoverModeProps) {
             when={detailNav.selectedPlaylist()}
             fallback={<NaiveP class="panel-note">{detailNav.isLoadingLikedSongs() ? t("ncm.playlist.loading") : t("ncm.liked.empty")}</NaiveP>}
           >
-            <PlaylistDetail
-              playlist={detailNav.selectedPlaylist()}
-              detail={detailNav.playlistDetailInfo()}
-              tracks={detailNav.filteredPlaylistTracks()}
-              trackCount={detailNav.playlistTrackCount()}
-              metaText={detailNav.playlistMetaText()}
-              subtitleText={t("ncm.liked.eyebrow", {
-                name: props.loginProfile()?.nickname ?? props.loginProfile()?.userId ?? ""
-              })}
-              isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
-              isLoadingDetail={detailNav.isLoadingPlaylistDetail()}
-              isTogglingSubscribe={detailNav.isTogglingPlaylistSubscribe()}
-              isScrolled={detailNav.isPlaylistDetailScrolled()}
-              filter={detailNav.playlistFilter()}
-              detailTab={detailNav.playlistDetailTab()}
-              setFilter={detailNav.setPlaylistFilter}
-              setDetailTab={detailNav.setPlaylistDetailTab}
-              onBack={detailNav.exitLikedSongs}
-              onRefresh={() => detailNav.enterLikedSongs()}
-              onPlayAll={detailNav.playAllPlaylistTracks}
-              onToggleSubscribe={detailNav.togglePlaylistSubscribe}
-              onRemoveTracks={detailNav.removePlaylistTracks}
-              onTracksRemovedLocally={detailNav.removePlaylistTracksLocally}
-              onPlaylistUpdated={detailNav.updateSelectedPlaylist}
-              onReorderTracks={detailNav.reorderPlaylistTracks}
-              onNavigateToSongWiki={props.onNavigateToSongWiki}
-              onScroll={detailNav.handlePlaylistTrackScroll}
-              backLabel={t("ncm.liked.backToFeed")}
-              showCommentsTab={false}
-              emptyStateText={t("ncm.liked.empty")}
-              sourcePlaylistId={detailNav.selectedPlaylist()?.id}
-              lockPlaylistName={true}
+            <OnlineLikedPlaylistDetailRoute
+              detailNav={detailNav}
               loginProfile={props.loginProfile()}
               setFeedback={props.setFeedback}
               playback={props.playback}
               currentTrackPath={props.currentTrackPath}
               currentSongId={props.currentSongId}
               isPlaying={props.isPlaying}
+              onNavigateToSongWiki={props.onNavigateToSongWiki}
             />
           </Show>
         </Match>
@@ -700,37 +676,16 @@ export function DiscoverMode(props: DiscoverModeProps) {
           />
         </Match>
         <Match when={detailView().kind === "playlist"}>
-          <PlaylistDetail
-            playlist={detailNav.selectedPlaylist()}
-            detail={detailNav.playlistDetailInfo()}
-            tracks={detailNav.filteredPlaylistTracks()}
-            trackCount={detailNav.playlistTrackCount()}
-            metaText={detailNav.playlistMetaText()}
+          <OnlinePlaylistDetailRoute
+            detailNav={detailNav}
             subtitleText={pageTitle()}
-            isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
-            isLoadingDetail={detailNav.isLoadingPlaylistDetail()}
-            isTogglingSubscribe={detailNav.isTogglingPlaylistSubscribe()}
-            isScrolled={detailNav.isPlaylistDetailScrolled()}
-            filter={detailNav.playlistFilter()}
-            detailTab={detailNav.playlistDetailTab()}
-            setFilter={detailNav.setPlaylistFilter}
-            setDetailTab={detailNav.setPlaylistDetailTab}
-            onBack={detailNav.handleBackToPlaylists}
-            onPlayAll={detailNav.playAllPlaylistTracks}
-            onRefresh={() => {
-              const playlist = detailNav.selectedPlaylist();
-              if (playlist) void detailNav.loadPlaylistTracks(playlist);
-            }}
-            onToggleSubscribe={detailNav.togglePlaylistSubscribe}
-            onPlaylistUpdated={detailNav.updateSelectedPlaylist}
-            onNavigateToSongWiki={props.onNavigateToSongWiki}
-            onScroll={detailNav.handlePlaylistTrackScroll}
             loginProfile={props.loginProfile()}
             setFeedback={props.setFeedback}
             playback={props.playback}
             currentTrackPath={props.currentTrackPath}
             currentSongId={props.currentSongId}
             isPlaying={props.isPlaying}
+            onNavigateToSongWiki={props.onNavigateToSongWiki}
           />
         </Match>
         <Match when={detailView().kind === "browse"}>

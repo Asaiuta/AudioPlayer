@@ -56,6 +56,16 @@ export interface DiscoverCardItem {
   subtitle: string | null;
   coverUrl: string | null;
   cursor: number | null;
+  userId: number | null;
+  creatorId: number | null;
+  trackCount: number | null;
+  playCount: number | null;
+  description: string | null;
+  tags: string[];
+  createTime: number | null;
+  updateTime: number | null;
+  privacy: number | null;
+  subscribed: boolean;
 }
 
 export interface DiscoverToplistTrack {

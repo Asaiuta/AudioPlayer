@@ -98,14 +98,7 @@ export function AlbumDetail(props: AlbumDetailProps) {
                 playDisabled={props.tracks.length === 0}
                 loading={props.isLoading}
                 onPlay={() => {
-                  const [first, ...rest] = props.tracks;
-                  if (!first) return;
-                  void (async () => {
-                    await props.playback.playOnlineTrack(first);
-                    for (const item of rest) {
-                      await props.playback.enqueueOnlineTrack(item);
-                    }
-                  })();
+                  void props.playback.playAll(props.tracks);
                 }}
                 activeTab={detailTab()}
                 onTabChange={(next) => setDetailTab(next === "comments" ? "comments" : "songs")}

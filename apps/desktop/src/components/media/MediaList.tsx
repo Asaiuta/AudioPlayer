@@ -2,38 +2,33 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount }
 import type { JSX } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
 import { ncmSongShareUrl } from "../../shared/api/ncm/urls";
+import { copyToClipboard } from "../../shared/utils/clipboard";
 import {
   readSongCommentsPayload,
-  songComments,
-  type NcmSongComment
+  songComments
 } from "../../shared/api/ncm/comment";
 import { useUISettings } from "../../shared/state/useUISettings";
 import { useDismissibleOverlay } from "../../shared/ui/useDismissibleOverlay";
-import { Modal } from "../Modal";
-import {
-  IconChevronDown,
-  IconCloud,
-  IconCopy,
-  IconDelete,
-  IconDownload,
-  IconFolder,
-  IconBookOpen,
-  IconMessage,
-  IconPlay,
-  IconPlaylist,
-  IconQueueAdd,
-  IconSearch,
-  IconShare,
-  IconThumbDown,
-  IconVideo,
-  IconDots
-} from "../icons";
+import { IconChevronDown } from "../icons";
 import { useUISearch } from "../../shared/state/UISearchContext";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
+import {
+  DEFAULT_MEDIA_CONTEXT_ACTIONS,
+  MEDIA_CONTEXT_ACTION_DESCRIPTORS,
+  createMediaContextMenuItems,
+  hasVisibleMediaContextActions,
+  isMediaContextAction,
+  type MediaContextAction
+} from "./mediaContextActions";
+import {
+  MediaCommentsModal,
+  closedMediaCommentsModal,
+  type MediaCommentsModalState
+} from "./MediaCommentsModal";
 import { MediaListFloatTools } from "./MediaListFloatTools";
 import { MediaListRow } from "./MediaListRow";
 import { MediaSortPopover } from "./MediaSortPopover";
-import { NaiveP } from "../../shared/ui/naive";
+import { createDefaultFavoriteRowAction } from "./mediaFavoriteRowAction";
 import { SImage } from "../SImage";
 import { displayNameFromSourcePath, stripBracketedContent } from "./mediaListFormatting";
 import {
@@ -52,31 +47,7 @@ export {
   displayNameFromSourcePath,
   formatMediaDuration
 } from "./mediaListFormatting";
-
-export type MediaContextAction =
-  | "play"
-  | "enqueue"
-  | "add-to-playlist"
-  | "mv"
-  | "view-comments"
-  | "daily-dislike"
-  | "copy-name"
-  | "copy-id"
-  | "copy-song-info"
-  | "share-link"
-  | "music-tag-editor"
-  | "cloud-import"
-  | "delete-from-playlist"
-  | "delete-from-cloud"
-  | "delete-from-local-disk"
-  | "show-in-folder"
-  | "cloud-match"
-  | "song-wiki"
-  | "search"
-  | "download"
-  | "copy-path"
-  | "delete-from-library"
-  | "delete";
+export type { MediaContextAction } from "./mediaContextActions";
 export type MediaSortField =
   | "default"
   | "title"
@@ -118,16 +89,29 @@ export interface MediaListItem {
   isCloud?: boolean;
 }
 
+export type MediaRowAction<T extends MediaListItem> =
+  | { kind: "enqueue" }
+  | {
+      kind: "favorite";
+      isActive: (item: T) => boolean;
+      isBusy?: (item: T) => boolean;
+      onToggle: (item: T, nextFavorite: boolean) => void;
+      activeLabel: string;
+      inactiveLabel: string;
+    };
+
 interface MediaListProps<T extends MediaListItem> {
   items: T[];
   totalCount?: number;
   virtualStart?: number;
+  rowHeight?: number;
   currentSourcePath?: string | null;
   currentMediaId?: string | null;
   currentSongId?: number | null;
   isPlayingNow?: boolean;
   onPlay: (item: T) => void;
   onEnqueue: (item: T) => void;
+  rowAction?: MediaRowAction<T>;
   onDoubleClick?: (item: T) => void;
   onCopyPath?: (item: T) => void;
   onVisibleRangeChange?: (range: { start: number; end: number }) => void;
@@ -161,16 +145,6 @@ interface SortMenuState {
   y: number;
 }
 
-interface CommentsModalState {
-  open: boolean;
-  title: string;
-  status: "idle" | "loading" | "success" | "error";
-  total: number;
-  hotComments: readonly NcmSongComment[];
-  comments: readonly NcmSongComment[];
-  error: string | null;
-}
-
 const closedMenu: MenuState = {
   open: false,
   x: 0,
@@ -184,16 +158,6 @@ const closedSortMenu: SortMenuState = {
   y: 0
 };
 
-const closedCommentsModal: CommentsModalState = {
-  open: false,
-  title: "",
-  status: "idle",
-  total: 0,
-  hotComments: [],
-  comments: [],
-  error: null
-};
-
 export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
   const { t } = useTranslation();
   const uiSettings = useUISettings();
@@ -201,7 +165,8 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<MenuState>(closedMenu);
   const [sortMenu, setSortMenu] = createSignal<SortMenuState>(closedSortMenu);
-  const [commentsModal, setCommentsModal] = createSignal<CommentsModalState>(closedCommentsModal);
+  const [commentsModal, setCommentsModal] =
+    createSignal<MediaCommentsModalState>(closedMediaCommentsModal);
   const [scrollTop, setScrollTop] = createSignal<number>(0);
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropIndex, setDropIndex] = createSignal<number | null>(null);
@@ -214,74 +179,24 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
   const contextActionSet = createMemo<Set<MediaContextAction>>(
     () =>
       new Set(
-        props.contextActions ?? [
-          "play",
-          "enqueue",
-          "search",
-          "copy-name",
-          "copy-id",
-          "share-link",
-          "song-wiki",
-          "view-comments"
-        ]
+        props.contextActions ?? DEFAULT_MEDIA_CONTEXT_ACTIONS
       )
   );
-  const contextActionEnabled = (action: MediaContextAction): boolean => {
-    switch (action) {
-      case "play":
-        return uiSettings.contextMenuOptions.play;
-      case "enqueue":
-        return uiSettings.contextMenuOptions.playNext;
-      case "add-to-playlist":
-        return uiSettings.contextMenuOptions.addToPlaylist;
-      case "mv":
-        return uiSettings.contextMenuOptions.mv;
-      case "view-comments":
-        return uiSettings.useOnlineService;
-      case "daily-dislike":
-        return uiSettings.contextMenuOptions.dislike;
-      case "copy-name":
-        return uiSettings.contextMenuOptions.more && uiSettings.contextMenuOptions.copyName;
-      case "copy-id":
-        return uiSettings.contextMenuOptions.more;
-      case "copy-song-info":
-        return uiSettings.contextMenuOptions.more;
-      case "share-link":
-        return uiSettings.contextMenuOptions.more;
-      case "music-tag-editor":
-        return uiSettings.contextMenuOptions.more && uiSettings.contextMenuOptions.musicTagEditor;
-      case "cloud-import":
-        return uiSettings.contextMenuOptions.cloudImport;
-      case "delete-from-playlist":
-        return uiSettings.contextMenuOptions.deleteFromPlaylist;
-      case "delete-from-cloud":
-        return uiSettings.contextMenuOptions.deleteFromCloud;
-      case "delete-from-local-disk":
-        return uiSettings.contextMenuOptions.deleteFromLocal;
-      case "show-in-folder":
-        return uiSettings.contextMenuOptions.openFolder;
-      case "cloud-match":
-        return uiSettings.contextMenuOptions.cloudMatch;
-      case "song-wiki":
-        return uiSettings.contextMenuOptions.more && uiSettings.contextMenuOptions.wiki;
-      case "search":
-        return uiSettings.contextMenuOptions.search;
-      case "download":
-        return uiSettings.contextMenuOptions.download;
-      case "copy-path":
-        return true;
-      case "delete-from-library":
-        return uiSettings.contextMenuOptions.deleteFromLibrary;
-      case "delete":
-        return uiSettings.contextMenuOptions.delete;
-      default: {
-        const _exhaustive: never = action;
-        return _exhaustive;
-      }
-    }
-  };
-  const hasVisibleContextActions = () => [...contextActionSet()].some(contextActionEnabled);
+  const hasVisibleContextActions = (target: T | null) =>
+    hasVisibleMediaContextActions(contextActionSet(), uiSettings, target);
   const showArtwork = () => props.hideArtwork !== true && !uiSettings.hiddenCovers.list;
+  const defaultRowAction = createDefaultFavoriteRowAction<T>();
+  const rowAction = createMemo<MediaRowAction<T>>(() => props.rowAction ?? defaultRowAction());
+  const rowHeight = createMemo<number>(() =>
+    Math.max(1, Math.trunc(props.rowHeight ?? MEDIA_LIST_ROW_HEIGHT_PX))
+  );
+  const rowContentGap = createMemo<number>(() =>
+    rowHeight() >= MEDIA_LIST_ROW_HEIGHT_PX ? 12 : 0
+  );
+  const tableStyle = createMemo<JSX.CSSProperties>(() => ({
+    "--media-row-height": `${rowHeight()}px`,
+    "--media-row-content-gap": `${rowContentGap()}px`
+  }) as JSX.CSSProperties);
   const totalItems = createMemo<number>(() => props.totalCount ?? props.items.length);
   const remoteVirtualStart = createMemo<number | null>(() =>
     props.totalCount !== undefined ? props.virtualStart ?? 0 : null
@@ -324,7 +239,8 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
 
   const handleRowContextMenu = (event: MouseEvent, itemId: string) => {
     event.preventDefault();
-    if (!hasVisibleContextActions()) {
+    const target = props.items.find((item) => item.id === itemId) ?? null;
+    if (!hasVisibleContextActions(target)) {
       closeMenu();
       return;
     }
@@ -338,12 +254,8 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
       props.onContextAction?.("copy-path", item);
       return;
     }
-    try {
-      if (item.source_path && typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(item.source_path);
-      }
-    } catch (error) {
-      console.warn("[MediaList] copy source_path failed", error);
+    if (item.source_path) {
+      await copyToClipboard(item.source_path);
     }
     props.onContextAction?.("copy-path", item);
   };
@@ -376,37 +288,19 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     if (!name) {
       return;
     }
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(name);
-      }
-    } catch (error) {
-      console.warn("[MediaList] copy name failed", error);
-    }
+    await copyToClipboard(name);
     props.onContextAction?.("copy-name", item);
   };
 
   const handleCopyId = async (item: T) => {
     if (typeof item.songId !== "number") return;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(String(item.songId));
-      }
-    } catch (error) {
-      console.warn("[MediaList] copy song id failed", error);
-    }
+    await copyToClipboard(String(item.songId));
     props.onContextAction?.("copy-id", item);
   };
 
   const handleShareLink = async (item: T) => {
     if (typeof item.songId !== "number") return;
-    try {
-      if (typeof navigator !== "undefined" && navigator.clipboard) {
-        await navigator.clipboard.writeText(ncmSongShareUrl(item.songId, uiSettings.shareUrlFormat));
-      }
-    } catch (error) {
-      console.warn("[MediaList] copy share link failed", error);
-    }
+    await copyToClipboard(ncmSongShareUrl(item.songId, uiSettings.shareUrlFormat));
     props.onContextAction?.("share-link", item);
   };
 
@@ -414,7 +308,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     if (typeof item.songId !== "number") return;
     const title = searchableTitle(item) || String(item.songId);
     setCommentsModal({
-      ...closedCommentsModal,
+      ...closedMediaCommentsModal,
       open: true,
       title,
       status: "loading"
@@ -434,7 +328,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     } catch (error) {
       console.warn("[MediaList] load song comments failed", error);
       setCommentsModal({
-        ...closedCommentsModal,
+        ...closedMediaCommentsModal,
         open: true,
         title,
         status: "error",
@@ -445,46 +339,42 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
 
   const handleMenuSelect = (key: string) => {
     const target = selectedMenuItem();
-    if (!target) return;
-    if (key === "play") {
-      props.onPlay(target);
-      props.onContextAction?.("play", target);
-    } else if (key === "enqueue") {
-      props.onEnqueue(target);
-      props.onContextAction?.("enqueue", target);
-    } else if (key === "copy-name") {
-      void handleCopyName(target);
-    } else if (key === "copy-id") {
-      void handleCopyId(target);
-    } else if (key === "share-link") {
-      void handleShareLink(target);
-    } else if (key === "song-wiki") {
-      props.onContextAction?.("song-wiki", target);
-    } else if (key === "view-comments") {
-      void handleViewComments(target);
-    } else if (key === "copy-path") {
-      void handleCopyPath(target);
-    } else if (key === "show-in-folder") {
-      props.onContextAction?.("show-in-folder", target);
-    } else if (key === "search") {
-      handleSearchItem(target);
-    } else if (key === "music-tag-editor") {
-      props.onContextAction?.("music-tag-editor", target);
-    } else if (
-      key === "add-to-playlist" ||
-      key === "daily-dislike" ||
-      key === "delete" ||
-      key === "delete-from-playlist" ||
-      key === "delete-from-cloud" ||
-      key === "cloud-match" ||
-      key === "delete-from-library" ||
-      key === "delete-from-local-disk" ||
-      key === "mv" ||
-      key === "cloud-import" ||
-      key === "download" ||
-      key === "copy-song-info"
-    ) {
-      props.onContextAction?.(key, target);
+    if (!target || !isMediaContextAction(key)) return;
+    const action = MEDIA_CONTEXT_ACTION_DESCRIPTORS[key];
+    switch (action.effect) {
+      case "play":
+        props.onPlay(target);
+        props.onContextAction?.("play", target);
+        return;
+      case "enqueue":
+        props.onEnqueue(target);
+        props.onContextAction?.("enqueue", target);
+        return;
+      case "copy-name":
+        void handleCopyName(target);
+        return;
+      case "copy-id":
+        void handleCopyId(target);
+        return;
+      case "share-link":
+        void handleShareLink(target);
+        return;
+      case "view-comments":
+        void handleViewComments(target);
+        return;
+      case "copy-path":
+        void handleCopyPath(target);
+        return;
+      case "search":
+        handleSearchItem(target);
+        return;
+      case "emit":
+        props.onContextAction?.(key, target);
+        return;
+      default: {
+        const _exhaustive: never = action.effect;
+        return _exhaustive;
+      }
     }
   };
   const handleDragStart = (event: DragEvent, _item: T, index: number) => {
@@ -553,6 +443,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
       totalItems: totalItems(),
       scrollTop: scrollTop(),
       viewportHeight: viewportHeight(),
+      rowHeight: rowHeight(),
       virtualizeThreshold: MEDIA_LIST_VIRTUALIZE_THRESHOLD
     });
     return previous.start === next.start && previous.end === next.end ? previous : next;
@@ -565,11 +456,11 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     return props.items.slice(range.start, range.end);
   });
   const virtualHeight = createMemo<number>(() =>
-    useVirtualRows() ? totalItems() * MEDIA_LIST_ROW_HEIGHT_PX : 0
+    useVirtualRows() ? totalItems() * rowHeight() : 0
   );
   const virtualOffset = createMemo<number>(() =>
     useVirtualRows()
-      ? (remoteVirtualStart() ?? visibleRange().start) * MEDIA_LIST_ROW_HEIGHT_PX
+      ? (remoteVirtualStart() ?? visibleRange().start) * rowHeight()
       : 0
   );
 
@@ -582,7 +473,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     if (index < 0) return;
     const absoluteIndex = remoteVirtualStart() !== null ? (props.virtualStart ?? 0) + index : index;
     viewportRef?.scrollTo({
-      top: Math.max(0, absoluteIndex * MEDIA_LIST_ROW_HEIGHT_PX),
+      top: Math.max(0, absoluteIndex * rowHeight()),
       behavior: "smooth"
     });
   };
@@ -689,117 +580,14 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     );
   };
 
-  const menuItems = (): ContextMenuItem[] => {
-    const actions = contextActionSet();
-    const target = selectedMenuItem();
-
-    const visible = (key: MediaContextAction): boolean => {
-      if (
-        (key === "copy-id" ||
-          key === "copy-song-info" ||
-          key === "share-link" ||
-          key === "song-wiki" ||
-          key === "view-comments" ||
-          key === "cloud-match" ||
-          key === "mv") &&
-        typeof target?.songId !== "number"
-      ) {
-        return false;
-      }
-      if (key === "mv" && (!target?.mvId || target.mvId === 0)) {
-        return false;
-      }
-      if (key === "download" && !target?.songId) {
-        return false;
-      }
-      return actions.has(key) && contextActionEnabled(key);
-    };
-
-    const groups: { divider: boolean; items: ContextMenuItem[] }[] = [
-      {
-        divider: false,
-        items: [
-          { key: "play", label: t("media.context.play"), icon: <IconPlay /> },
-          { key: "enqueue", label: t("media.context.enqueue"), icon: <IconQueueAdd /> },
-          { key: "add-to-playlist", label: t("media.context.addToPlaylist"), icon: <IconPlaylist /> },
-          { key: "mv", label: t("media.context.mv"), icon: <IconVideo /> },
-          { key: "view-comments", label: t("media.context.viewComments"), icon: <IconMessage /> }
-        ]
-      },
-      {
-        divider: true,
-        items: [
-          { key: "daily-dislike", label: t("media.context.dailyDislike"), icon: <IconThumbDown /> }
-        ]
-      },
-      {
-        divider: true,
-        items: [
-          {
-            key: "more",
-            label: t("media.context.more"),
-            icon: <IconDots />,
-            children: [
-              { key: "copy-name", label: t("media.context.copyName"), icon: <IconCopy /> },
-              { key: "copy-id", label: t("media.context.copyId"), icon: <IconCopy /> },
-              { key: "copy-song-info", label: t("media.context.copySongInfo"), icon: <IconCopy /> },
-              { key: "share-link", label: t("media.context.shareLink"), icon: <IconShare /> },
-              { divider: true, key: "more-divider-tag", label: "", icon: undefined },
-              { key: "music-tag-editor", label: t("media.context.musicTagEditor"), icon: <IconBookOpen /> }
-            ]
-          }
-        ]
-      },
-      {
-        divider: true,
-        items: [
-          { key: "cloud-import", label: t("media.context.cloudImport"), icon: <IconCloud /> },
-          { key: "delete-from-playlist", label: t("media.context.deleteFromPlaylist"), icon: <IconDelete /> },
-          { key: "delete-from-cloud", label: t("media.context.deleteFromCloud"), icon: <IconDelete /> },
-          { key: "delete-from-local-disk", label: t("media.context.deleteFromLocalDisk"), icon: <IconDelete /> },
-          { key: "show-in-folder", label: t("media.context.showInFolder"), icon: <IconFolder /> },
-          { key: "cloud-match", label: t("media.context.cloudMatch"), icon: <IconCloud /> },
-          { key: "song-wiki", label: t("media.context.songWiki"), icon: <IconBookOpen /> },
-          { key: "search", label: t("media.context.search"), icon: <IconSearch /> },
-          { key: "download", label: t("media.context.download"), icon: <IconDownload /> },
-          { key: "copy-path", label: t("media.context.copyPath"), icon: <IconCopy /> },
-          { key: "delete-from-library", label: t("media.context.deleteFromLibrary"), icon: <IconDelete /> },
-          { key: "delete", label: props.deleteActionLabel ?? t("media.context.delete"), icon: <IconDelete /> }
-        ]
-      }
-    ];
-
-    const result: ContextMenuItem[] = [];
-    for (const group of groups) {
-      const filtered = group.items.map((item) => {
-        if (item.children) {
-          const visibleChildren = item.children.filter((child) => {
-            if (child.divider) {
-              const prevChildren = item.children!;
-              const hasVisibleBefore = prevChildren.some(
-                (c, i) => i < prevChildren.indexOf(child) && !c.divider && visible(c.key as MediaContextAction)
-              );
-              const hasVisibleAfter = prevChildren.some(
-                (c, i) => i > prevChildren.indexOf(child) && !c.divider && visible(c.key as MediaContextAction)
-              );
-              return hasVisibleBefore && hasVisibleAfter;
-            }
-            return visible(child.key as MediaContextAction);
-          });
-          if (visibleChildren.length === 0) return null;
-          return { ...item, children: visibleChildren };
-        }
-        return visible(item.key as MediaContextAction) ? item : null;
-      }).filter((item): item is ContextMenuItem => item !== null);
-
-      if (filtered.length === 0) continue;
-      if (group.divider && result.length > 0) {
-        result.push({ key: `divider-${result.length}`, label: "", divider: true });
-      }
-      result.push(...filtered);
-    }
-    return result;
-  };
+  const menuItems = (): ContextMenuItem[] =>
+    createMediaContextMenuItems({
+      actionSet: contextActionSet(),
+      settings: uiSettings,
+      target: selectedMenuItem(),
+      t,
+      deleteActionLabel: props.deleteActionLabel
+    });
   const menuHeader = () => {
     const target = selectedMenuItem();
     if (!target) return null;
@@ -841,7 +629,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     <Show
       when={totalItems() > 0}
       fallback={
-        <div class="media-list-table content-fade-in" data-state="empty">
+        <div class="media-list-table content-fade-in" data-state="empty" style={tableStyle()}>
           <div class="media-list-empty">{props.emptyState ?? null}</div>
         </div>
       }
@@ -856,6 +644,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
           "is-cover-hidden": !showArtwork()
         }}
         aria-busy={props.isLoading || undefined}
+        style={tableStyle()}
       >
         <div class="media-list-header" role="row">
           <span class="media-cell media-cell-index" role="columnheader">
@@ -930,6 +719,7 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
                   eqAriaLabel={t("media.eq.aria")}
                   playLabel={t("library.item.play")}
                   enqueueLabel={t("library.item.enqueue")}
+                  rowAction={rowAction()}
                   displaySongText={displaySongText}
                   onSelect={setSelectedId}
                   onPlay={props.onPlay}
@@ -968,45 +758,10 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
           onSelect={handleMenuSelect}
           onClose={closeMenu}
         />
-        <Modal
-          open={commentsModal().open}
-          title={t("media.comments.title", { title: commentsModal().title })}
-          onClose={() => setCommentsModal(closedCommentsModal)}
-          size="lg"
-        >
-          <div class="media-comments-modal">
-            <Show when={commentsModal().status === "loading"}>
-              <NaiveP class="panel-note">{t("media.comments.loading")}</NaiveP>
-            </Show>
-            <Show when={commentsModal().status === "error"}>
-              <NaiveP class="panel-note">{commentsModal().error ?? t("common.error.requestFailed")}</NaiveP>
-            </Show>
-            <Show when={commentsModal().status === "success" && commentsModal().total === 0}>
-              <NaiveP class="panel-note">{t("media.comments.empty")}</NaiveP>
-            </Show>
-            <Show when={commentsModal().hotComments.length > 0}>
-              <section class="media-comments-section">
-                <h4>{t("media.comments.hot")}</h4>
-                <For each={commentsModal().hotComments}>
-                  {(comment) => <MediaCommentItem comment={comment} />}
-                </For>
-              </section>
-            </Show>
-            <Show when={commentsModal().comments.length > 0}>
-              <section class="media-comments-section">
-                <h4>
-                  {t("media.comments.all")}
-                  <Show when={commentsModal().total > 0}>
-                    <span>{commentsModal().total}</span>
-                  </Show>
-                </h4>
-                <For each={commentsModal().comments}>
-                  {(comment) => <MediaCommentItem comment={comment} />}
-                </For>
-              </section>
-            </Show>
-          </div>
-        </Modal>
+        <MediaCommentsModal
+          state={commentsModal()}
+          onClose={() => setCommentsModal(closedMediaCommentsModal)}
+        />
         <Show when={sortMenu().open && typeof document !== "undefined"}>
           <MediaSortPopover
             ref={(element) => {
@@ -1028,37 +783,5 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
         </Show>
       </div>
     </Show>
-  );
-}
-
-function MediaCommentItem(props: { comment: NcmSongComment }) {
-  const timeLabel = () =>
-    props.comment.time === null ? "" : new Date(props.comment.time).toLocaleDateString();
-
-  return (
-    <article class="media-comment-item">
-      <Show when={props.comment.user.avatarUrl} fallback={<div class="media-comment-avatar" aria-hidden="true" />}>
-        {(avatarUrl) => (
-          <SImage
-            src={avatarUrl()}
-            alt={props.comment.user.nickname}
-            class="media-comment-avatar"
-            observeVisibility={true}
-            shape="circle"
-            aspect="square"
-          />
-        )}
-      </Show>
-      <div class="media-comment-body">
-        <div class="media-comment-meta">
-          <span>{props.comment.user.nickname}</span>
-          <span>{timeLabel()}</span>
-        </div>
-        <NaiveP>{props.comment.content}</NaiveP>
-        <Show when={props.comment.likedCount > 0}>
-          <span class="media-comment-like">{props.comment.likedCount}</span>
-        </Show>
-      </div>
-    </article>
   );
 }

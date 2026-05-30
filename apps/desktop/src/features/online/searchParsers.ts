@@ -1,4 +1,5 @@
 import type { NcmResponseEnvelope } from "../../shared/api/ncm/base";
+import { isRecord, readArray, readBoolean, readNumber, readString } from "../../shared/jsonReaders";
 import { parseRadioCard } from "./radioParsers";
 import type { DiscoverCardItem, FeedCardItem, SearchTab } from "./shared/types";
 
@@ -10,24 +11,6 @@ export const NCM_SEARCH_TYPES: Record<SearchTab, number> = {
   videos: 1004,
   radios: 1009
 };
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [];
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
 const stableStringId = (value: string): number => {
   let hash = 0;
@@ -85,9 +68,6 @@ const readSearchItems = (payload: NcmResponseEnvelope, keys: readonly string[]):
     .find((items) => items.length > 0);
   return matched ?? [];
 };
-
-const readBoolean = (value: unknown): boolean | null =>
-  typeof value === "boolean" ? value : null;
 
 const parseSearchCoverItem = (
   value: unknown,
@@ -165,7 +145,17 @@ export const parseNcmMvAllCards = (payload: NcmResponseEnvelope): DiscoverCardIt
     title: item.title,
     subtitle: item.subtitle,
     coverUrl: item.coverUrl,
-    cursor: null
+    cursor: null,
+    userId: null,
+    creatorId: null,
+    trackCount: null,
+    playCount: item.playCount,
+    description: item.description,
+    tags: [],
+    createTime: null,
+    updateTime: null,
+    privacy: null,
+    subscribed: false
   }));
 
 export const parseNcmArtistAlbums = (payload: NcmResponseEnvelope): {

@@ -1,4 +1,6 @@
 import type { NcmResponseEnvelope } from "../../shared/api/ncm/base";
+import { isRecord, readArray, readBoolean, readNumber, readString } from "../../shared/jsonReaders";
+import { formatYmd } from "../../shared/utils/dateFormat";
 import type { FeedCardItem, OnlineTrackItem } from "./shared/types";
 
 export interface SongWikiStory {
@@ -60,26 +62,6 @@ export interface SongWikiSongMeta {
   albumItem: FeedCardItem | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim()) {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const readBoolean = (value: unknown): boolean | null =>
-  typeof value === "boolean" ? value : null;
-
 const readRecord = (value: unknown): Record<string, unknown> | null =>
   isRecord(value) ? value : null;
 
@@ -111,14 +93,7 @@ const readNestedString = (value: Record<string, unknown>, keys: readonly string[
   return last && parent ? readString(parent[last]) : null;
 };
 
-const formatDateFromTimestamp = (timestamp: number): string => {
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "";
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}.${month}.${day}`;
-};
+const formatDateFromTimestamp = (timestamp: number): string => formatYmd(timestamp, ".", "");
 
 const readFirstListen = (
   listen: Record<string, unknown> | null,

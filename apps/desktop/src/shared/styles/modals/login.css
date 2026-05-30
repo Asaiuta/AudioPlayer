@@ -282,3 +282,9 @@
     white-space: nowrap;
     border: 0;
   }
+
+  @media (max-width: 720px) {
+    .login-modal-row {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }

@@ -1,4 +1,4 @@
-import { Match, Show, Switch, createMemo, createSignal, onMount } from "solid-js";
+import { Match, Show, Switch, createEffect, createMemo, createSignal, on, onMount } from "solid-js";
 import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { useNcmAccount } from "../../shared/state/NcmAccountContext";
@@ -52,6 +52,7 @@ export function NeteasePage(props: NeteasePageProps) {
 
   const [isCheckingLogin, setIsCheckingLogin] = createSignal(false);
   const [isLoginBusy, setIsLoginBusy] = createSignal(false);
+  const [hasDetailView, setHasDetailView] = createSignal(false);
   const [feedback, setFeedback] = createSignal<Feedback>(createInitialFeedback(t));
   const [pendingDiscoverSearch, setPendingDiscoverSearch] = createSignal(false);
 
@@ -107,6 +108,16 @@ export function NeteasePage(props: NeteasePageProps) {
   const loginStatusText = createLoginStatusText(t, isCheckingLogin, loginProfile);
 
   const isDiscoverMode = () => props.mode === "discover";
+  const shouldShowFeedbackCard = createMemo<boolean>(() =>
+    !hasDetailView() &&
+    Boolean(feedback().message) &&
+    feedback().message !== t("ncm.feedback.initial")
+  );
+
+  createEffect(on(
+    () => props.mode,
+    () => setHasDetailView(false)
+  ));
 
   return (
     <div class={`panel panel-page online-page${props.mode === "recommend" ? " is-recommend-page" : ""}${isDiscoverMode() ? " is-discover-page" : ""}`}>
@@ -130,6 +141,7 @@ export function NeteasePage(props: NeteasePageProps) {
             onPlay={props.onPlay}
             onPause={props.onPause}
             onSkipNext={props.onSkipNext}
+            onDetailViewChange={setHasDetailView}
           />
         </Match>
         <Match when={props.mode === "discover"}>
@@ -151,6 +163,7 @@ export function NeteasePage(props: NeteasePageProps) {
             currentSongId={props.currentSongId}
             isPlaying={props.isPlaying}
             onPause={props.onPause}
+            onDetailViewChange={setHasDetailView}
           />
         </Match>
         <Match when={props.mode === "liked-songs"}>
@@ -165,6 +178,7 @@ export function NeteasePage(props: NeteasePageProps) {
             currentTrackPath={props.currentTrackPath}
             currentSongId={props.currentSongId}
             isPlaying={props.isPlaying}
+            onDetailViewChange={setHasDetailView}
           />
         </Match>
         <Match when={props.mode === "liked"}>
@@ -185,6 +199,7 @@ export function NeteasePage(props: NeteasePageProps) {
             onNavigateToRadioDetail={props.onNavigateToRadioDetail}
             onNavigateToSongWiki={props.onNavigateToSongWiki}
             radioSubscribeEvent={props.radioSubscribeEvent}
+            onDetailViewChange={setHasDetailView}
           />
         </Match>
         <Match when={props.mode === "created-playlists" || props.mode === "collected-playlists"}>
@@ -203,11 +218,12 @@ export function NeteasePage(props: NeteasePageProps) {
             currentTrackPath={props.currentTrackPath}
             currentSongId={props.currentSongId}
             isPlaying={props.isPlaying}
+            onDetailViewChange={setHasDetailView}
           />
         </Match>
       </Switch>
 
-      <Show when={feedback().message && feedback().message !== t("ncm.feedback.initial")}>
+      <Show when={shouldShowFeedbackCard()}>
         <section class="online-login-card">
           <div class="status-stack">
             <strong>{t("ncm.login.title")}</strong>

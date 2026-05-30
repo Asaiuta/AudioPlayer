@@ -20,6 +20,7 @@ import {
 } from "../../shared/api/ncm/song";
 import { useTranslation } from "../../shared/i18n";
 import { useUISettings } from "../../shared/state/useUISettings";
+import { formatYmd } from "../../shared/utils/dateFormat";
 import {
   IconAlbum,
   IconArtist,
@@ -71,15 +72,7 @@ interface SheetPreviewState {
   error: string | null;
 }
 
-const formatPublishDate = (timestamp: number | null): string | null => {
-  if (timestamp === null) return null;
-  const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return null;
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-};
+const formatPublishDate = (timestamp: number | null): string | null => formatYmd(timestamp, "-", null);
 
 const hasWikiContent = (model: SongWikiViewModel | null): boolean =>
   Boolean(
@@ -392,6 +385,7 @@ export function SongWikiPage(props: SongWikiPageProps) {
                     </div>
                     <MediaList
                       items={similarSongs()}
+                      rowHeight={72}
                       currentSourcePath={props.currentTrackPath}
                       currentSongId={props.currentSongId}
                       isPlayingNow={props.isPlaying}

@@ -1,5 +1,4 @@
 import type { TranslationKey } from "../../../shared/i18n";
-import type { NcmUserSubcountData } from "../../../shared/api/ncm/user";
 import type { NcmMvArea, NcmMvOrder, NcmMvType } from "../../../shared/api/ncm/video";
 import type {
   DiscoverArtistArea,
@@ -87,15 +86,3 @@ export const DISCOVER_MV_ORDERS: readonly DiscoverMvFilter<NcmMvOrder>[] = [
   { labelKey: "ncm.discover.mv.order.hot", value: "最热" },
   { labelKey: "ncm.discover.mv.order.new", value: "最新" }
 ];
-
-export const readUserSubcountData = (payload: unknown): NcmUserSubcountData => {
-  if (typeof payload !== "object" || payload === null) return {};
-  const record = payload as { data?: unknown };
-  if (typeof record.data === "object" && record.data !== null) {
-    return record.data as NcmUserSubcountData;
-  }
-  return payload as NcmUserSubcountData;
-};
-
-export const readPositiveCount = (value: unknown): number =>
-  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;

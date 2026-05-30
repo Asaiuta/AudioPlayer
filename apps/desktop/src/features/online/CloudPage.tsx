@@ -284,21 +284,15 @@ export function CloudPage(props: CloudPageProps) {
 
   const playTrackContext = async (item: OnlineTrackItem, contextItems: readonly OnlineTrackItem[]) => {
     const startIndex = contextItems.findIndex((candidate) => candidate.id === item.id);
-    const [first, ...rest] = (startIndex >= 0 ? contextItems.slice(startIndex) : [item]);
-    if (!first) return;
-    await playback.playOnlineTrack(first);
-    for (const restItem of rest) {
-      await playback.enqueueOnlineTrack(restItem);
+    if (startIndex >= 0) {
+      await playback.playAll(contextItems, { startIndex });
+      return;
     }
+    await playback.playOnlineTrack(item);
   };
 
   const playAll = async () => {
-    const [first, ...rest] = filteredTracks();
-    if (!first) return;
-    await playback.playOnlineTrack(first);
-    for (const item of rest) {
-      await playback.enqueueOnlineTrack(item);
-    }
+    await playback.playAll(filteredTracks());
   };
 
   const handleTrackDoubleClick = (item: OnlineTrackItem) => {

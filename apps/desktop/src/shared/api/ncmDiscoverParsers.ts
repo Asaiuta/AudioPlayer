@@ -10,6 +10,7 @@ import {
   isBoolean,
   isInteger,
   isNullableInteger,
+  isNullableNumber,
   isNullableString,
   isRecord,
   isString,
@@ -18,6 +19,15 @@ import {
   parseStatus,
   parseStringItem
 } from "./ncmParserUtils";
+
+const readOptionalNullableInteger = (value: unknown): number | null =>
+  isNullableInteger(value) ? value : null;
+
+const readOptionalNullableNumber = (value: unknown): number | null =>
+  isNullableNumber(value) ? value : null;
+
+const readStringArray = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter(isString) : [];
 
 const parseNcmDiscoverCard = (value: unknown): NcmDiscoverCard | null => {
   if (!isRecord(value)) {
@@ -37,7 +47,17 @@ const parseNcmDiscoverCard = (value: unknown): NcmDiscoverCard | null => {
     title: value.title,
     subtitle: value.subtitle,
     coverUrl: value.cover_url,
-    cursor: value.cursor
+    cursor: value.cursor,
+    userId: readOptionalNullableInteger(value.user_id),
+    creatorId: readOptionalNullableInteger(value.creator_id),
+    trackCount: readOptionalNullableInteger(value.track_count),
+    playCount: readOptionalNullableNumber(value.play_count),
+    description: isNullableString(value.description) ? value.description : null,
+    tags: readStringArray(value.tags),
+    createTime: readOptionalNullableInteger(value.create_time),
+    updateTime: readOptionalNullableInteger(value.update_time),
+    privacy: readOptionalNullableInteger(value.privacy),
+    subscribed: isBoolean(value.subscribed) ? value.subscribed : false
   };
 };
 
@@ -81,12 +101,11 @@ const parseNcmDiscoverToplistTrack = (value: unknown): NcmDiscoverToplistTrack |
 
 const parseNcmDiscoverToplist = (value: unknown): NcmDiscoverToplist | null => {
   const card = parseNcmDiscoverCard(value);
-  if (!card || !isRecord(value) || !isNullableString(value.description) || !isBoolean(value.is_official)) {
+  if (!card || !isRecord(value) || !isBoolean(value.is_official)) {
     return null;
   }
   return {
     ...card,
-    description: value.description,
     tracks: parseArray(value.tracks, parseNcmDiscoverToplistTrack, "Invalid NCM discover toplist tracks payload"),
     isOfficial: value.is_official
   };

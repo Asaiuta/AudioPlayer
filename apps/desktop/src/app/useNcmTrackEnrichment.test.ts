@@ -13,6 +13,7 @@ const supplement = (
   artist: null,
   artists: [],
   album: null,
+  albumId: null,
   coverUrl,
   dynamicCoverUrl,
   lyrics: [],

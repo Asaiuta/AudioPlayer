@@ -1,3 +1,10 @@
+import {
+  isRecord,
+  readArray,
+  readBoolean as readBooleanValue,
+  readNumber,
+  readString
+} from "../../shared/jsonReaders";
 import type { FeedCardItem } from "./shared/types";
 import type { OnlineTrackItem } from "./shared/types";
 
@@ -16,29 +23,9 @@ export interface RadioDetailInfo extends FeedCardItem {
   subscribed: boolean | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-
-const readArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [];
-
-const readBoolean = (value: unknown): boolean | null => {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number" && (value === 0 || value === 1)) return value === 1;
-  return null;
-};
+// NCM radio payloads use 0/1 numeric flags as booleans (e.g. `subed`).
+const readBoolean = (value: unknown): boolean | null =>
+  readBooleanValue(value, { numeric: true });
 
 const readNestedCreator = (value: unknown): string | null => {
   if (!isRecord(value)) return null;

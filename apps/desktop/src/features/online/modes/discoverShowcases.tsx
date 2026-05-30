@@ -8,6 +8,7 @@ import { CoverGridSkeleton } from "../../../components/page/Skeleton";
 import { SImage } from "../../../components/SImage";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { coverSizeUrl } from "../../../shared/ui/coverSize";
 import { NaiveSkeleton, NaiveSpin } from "../../../shared/ui/naive";
 import { DISCOVER_PAGE_LIMIT, isTranslationKey } from "../shared/parsers";
 import type { PlaybackController } from "../shared/playback";
@@ -114,6 +115,8 @@ export function DiscoverPlaylistShowcase(props: DiscoverPlaylistShowcaseProps) {
                 title={item.title}
                 subtitle={item.subtitle}
                 coverUrl={item.coverUrl}
+                playCount={item.playCount}
+                description={item.description}
                 coverVisible={!uiSettings.hiddenCovers.playlist}
                 onClick={() =>
                   void props.onLoadPlaylist(playlistSummaryFromDiscoverCard(item))
@@ -274,7 +277,7 @@ export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
                 <Show when={!uiSettings.hiddenCovers.toplist}>
                   <div class="online-toplist-cover" aria-hidden="true">
                     <Show when={item.coverUrl} fallback={<span>{item.title.slice(0, 1)}</span>}>
-                      {(coverUrl) => <SImage src={coverUrl()} alt="" observeVisibility={true} shape="rect" aspect="square" />}
+                      {(coverUrl) => <SImage src={coverSizeUrl(coverUrl(), "m")} alt="" observeVisibility={true} shape="rect" aspect="square" />}
                     </Show>
                     <span class="online-toplist-cover-play" aria-hidden="true">
                       <IconPlay />
@@ -321,6 +324,7 @@ export function DiscoverToplistShowcase(props: DiscoverToplistShowcaseProps) {
                 title={item.title}
                 subtitle={item.subtitle ?? item.description}
                 coverUrl={item.coverUrl}
+                playCount={item.playCount}
                 description={item.description}
                 coverVisible={!uiSettings.hiddenCovers.toplist}
                 onClick={() =>

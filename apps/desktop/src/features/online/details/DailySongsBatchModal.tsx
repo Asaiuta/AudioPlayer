@@ -6,6 +6,7 @@ import { SImage } from "../../../components/SImage";
 import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
 import type { NcmPlaylistSummary } from "../../../shared/api/client";
+import { coverSizeUrl } from "../../../shared/ui/coverSize";
 import { NaiveList, NaiveListItem, NaiveThing } from "../../../shared/ui/naive";
 import type { FeedbackSetter } from "../shared/feedback";
 import { createErrorMessageReader } from "../shared/feedback";
@@ -356,7 +357,7 @@ export function DailySongsBatchModal(props: DailySongsBatchModalProps) {
                       prefix={
                         <span class="local-playlist-target-icon" aria-hidden="true">
                           <Show when={playlist.coverUrl} fallback={<IconPlaylist />}>
-                            {(coverUrl) => <SImage src={coverUrl()} alt="" observeVisibility={true} shape="rect" aspect="square" />}
+                            {(coverUrl) => <SImage src={coverSizeUrl(coverUrl(), "s")} alt="" observeVisibility={true} shape="rect" aspect="square" />}
                           </Show>
                         </span>
                       }

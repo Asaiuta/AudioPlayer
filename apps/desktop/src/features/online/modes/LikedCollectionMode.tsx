@@ -11,12 +11,15 @@ import {
 } from "../../../components/icons";
 import { SegmentedTabs } from "../../../components/page/SegmentedTabs";
 import { createApiClient } from "../../../shared/api/client";
+import { isRecord, readArray, readNumber, readString } from "../../../shared/jsonReaders";
 import { useTranslation, type TranslationKey } from "../../../shared/i18n";
 import {
   userAlbumSublist,
   userArtistSublist,
   userDjSublist,
   userMvSublist,
+  readPositiveCount,
+  readUserSubcountData,
   userSubcount,
   type NcmCollectionSublistParams,
   type NcmUserSubcountData
@@ -34,16 +37,16 @@ import {
 } from "../ncmPlaylistSummaryCache";
 import { AlbumDetail } from "../details/AlbumDetail";
 import { ArtistDetail } from "../details/ArtistDetail";
-import { PlaylistDetail } from "../details/PlaylistDetail";
+import { OnlinePlaylistDetailRoute } from "../details/OnlinePlaylistDetailRoute";
 import { VideoDetail } from "../details/VideoDetail";
 import {
   createErrorMessageReader,
   createLoginStatusText,
   type FeedbackSetter
 } from "../shared/feedback";
-import { readPositiveCount, readUserSubcountData } from "../shared/parsers";
 import type { FeedCardItem, NcmProfile, OnlineTrackItem, RadioSubscribeEvent } from "../shared/types";
 import type { PlaybackController } from "../shared/playback";
+import { createDetailViewReporter, type OnlineDetailViewReporterProps } from "../shared/detailViewReporter";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
 type CollectionTab = "playlists" | "albums" | "artists" | "videos" | "radios";
@@ -57,7 +60,7 @@ interface CollectionStat {
   icon: Component<JSX.SvgSVGAttributes<SVGSVGElement>>;
 }
 
-interface LikedCollectionModeProps {
+interface LikedCollectionModeProps extends OnlineDetailViewReporterProps {
   loginProfile: Accessor<NcmProfile | null>;
   isCheckingLogin: Accessor<boolean>;
   isLoginBusy: Accessor<boolean>;
@@ -111,24 +114,6 @@ const collectionTabs: Array<{ value: CollectionTab; labelKey: TranslationKey }> 
   { value: "videos", labelKey: "ncm.collection.tabs.videos" },
   { value: "radios", labelKey: "ncm.collection.tabs.radios" }
 ];
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [];
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 
 const readNestedName = (value: unknown): string | null => {
   if (!isRecord(value)) return null;
@@ -524,6 +509,8 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
     detailNav.selectedVideo() !== null
   );
 
+  createDetailViewReporter(hasDetailView, props.onDetailViewChange);
+
   const renderCollectionGrid = (
     items: Accessor<FeedCardItem[]>,
     emptyKey: TranslationKey,
@@ -702,32 +689,16 @@ export function LikedCollectionMode(props: LikedCollectionModeProps) {
       </Show>
 
       <Show when={detailNav.selectedPlaylist()}>
-        <PlaylistDetail
-          playlist={detailNav.selectedPlaylist()}
-          detail={detailNav.playlistDetailInfo()}
-          tracks={detailNav.filteredPlaylistTracks()}
-          trackCount={detailNav.playlistTrackCount()}
-          metaText={detailNav.playlistMetaText()}
+        <OnlinePlaylistDetailRoute
+          detailNav={detailNav}
           subtitleText={t("ncm.collection.title")}
-          isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
-          isLoadingDetail={detailNav.isLoadingPlaylistDetail()}
-          isTogglingSubscribe={detailNav.isTogglingPlaylistSubscribe()}
-          isScrolled={detailNav.isPlaylistDetailScrolled()}
-          filter={detailNav.playlistFilter()}
-          detailTab={detailNav.playlistDetailTab()}
-          setFilter={detailNav.setPlaylistFilter}
-          setDetailTab={detailNav.setPlaylistDetailTab}
-          onBack={detailNav.handleBackToPlaylists}
-          onPlayAll={detailNav.playAllPlaylistTracks}
-          onToggleSubscribe={detailNav.togglePlaylistSubscribe}
-          onNavigateToSongWiki={props.onNavigateToSongWiki}
-          onScroll={detailNav.handlePlaylistTrackScroll}
           loginProfile={props.loginProfile()}
           setFeedback={props.setFeedback}
           playback={props.playback}
           currentTrackPath={props.currentTrackPath}
           currentSongId={props.currentSongId}
           isPlaying={props.isPlaying}
+          onNavigateToSongWiki={props.onNavigateToSongWiki}
         />
       </Show>
       <Show when={detailNav.selectedAlbum() !== null}>

@@ -18,26 +18,33 @@ const USER_PLAYLIST_MAX_PAGES = 50;
 export const createOnlinePlaylistSummary = (input: {
   id: number;
   name: string;
+  userId?: number | null;
+  creatorId?: number | null;
   creator?: string | null;
   coverUrl?: string | null;
   trackCount?: number | null;
   playCount?: number | null;
   description?: string | null;
+  tags?: readonly string[];
+  createTime?: number | null;
+  updateTime?: number | null;
+  privacy?: number | null;
+  subscribed?: boolean;
 }): OnlinePlaylistSummary => ({
   id: input.id,
   name: input.name,
-  userId: null,
-  creatorId: null,
+  userId: input.userId ?? null,
+  creatorId: input.creatorId ?? null,
   creator: input.creator ?? null,
   coverUrl: input.coverUrl ?? null,
   trackCount: input.trackCount ?? null,
   playCount: input.playCount ?? null,
   description: input.description ?? null,
-  tags: [],
-  createTime: null,
-  updateTime: null,
-  privacy: null,
-  subscribed: false
+  tags: [...(input.tags ?? [])],
+  createTime: input.createTime ?? null,
+  updateTime: input.updateTime ?? null,
+  privacy: input.privacy ?? null,
+  subscribed: input.subscribed ?? false
 });
 
 export const playlistSummaryFromFeedCard = (item: FeedCardItem): OnlinePlaylistSummary =>
@@ -54,8 +61,18 @@ export const playlistSummaryFromDiscoverCard = (item: DiscoverCardItem): OnlineP
   createOnlinePlaylistSummary({
     id: item.id,
     name: item.title,
+    userId: item.userId,
+    creatorId: item.creatorId,
     creator: item.subtitle,
-    coverUrl: item.coverUrl
+    coverUrl: item.coverUrl,
+    trackCount: item.trackCount,
+    playCount: item.playCount,
+    description: item.description,
+    tags: item.tags,
+    createTime: item.createTime,
+    updateTime: item.updateTime,
+    privacy: item.privacy,
+    subscribed: item.subscribed
   });
 
 export const groupUserPlaylistsLikeSplayer = (

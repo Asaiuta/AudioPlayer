@@ -122,6 +122,7 @@ export const parseResolvedNcmTrackSupplementResponse = (value: unknown): Resolve
     !isNullableString(supplement.artist) ||
     !Array.isArray(supplement.artists) ||
     !isNullableString(supplement.album) ||
+    !isNullableInteger(supplement.album_id) ||
     !isNullableString(supplement.cover_url) ||
     !isNullableString(supplement.dynamic_cover_url) ||
     !Array.isArray(supplement.lyrics) ||
@@ -154,6 +155,7 @@ export const parseResolvedNcmTrackSupplementResponse = (value: unknown): Resolve
     artist: supplement.artist,
     artists,
     album: supplement.album,
+    albumId: supplement.album_id,
     coverUrl: supplement.cover_url,
     dynamicCoverUrl: supplement.dynamic_cover_url,
     lyrics,

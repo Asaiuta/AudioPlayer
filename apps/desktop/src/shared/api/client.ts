@@ -44,6 +44,16 @@ import {
   type NcmApiClient,
   type NcmApiTransport
 } from "./ncmClient";
+import {
+  isBoolean,
+  isInteger,
+  isNullableInteger,
+  isNullableNumber,
+  isNullableString,
+  isNumber,
+  isRecord,
+  isString
+} from "./ncmParserUtils";
 export type { CurrentLyricsResponse, LyricLine, LyricWord } from "./lyrics";
 export type { LoadOptions, PlaybackApiClient } from "./playback";
 export type { PlayQueueOptions, QueueAdjacent, QueueApiClient } from "./queue";
@@ -139,28 +149,6 @@ export interface ApiClient extends PlaybackApiClient, QueueApiClient, SettingsAp
   getCoverArtUrl: (mediaId: string) => string;
   getLibraryTrackCoverArtUrl: (trackKey: number) => string;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
-
-const isNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
-const isInteger = (value: unknown): value is number =>
-  isNumber(value) && Number.isInteger(value);
-
-const isString = (value: unknown): value is string => typeof value === "string";
-
-const isNullableString = (value: unknown): value is string | null =>
-  value === null || isString(value);
-
-const isNullableNumber = (value: unknown): value is number | null =>
-  value === null || isNumber(value);
-
-const isNullableInteger = (value: unknown): value is number | null =>
-  value === null || isInteger(value);
 
 const hasFields = <T extends string>(
   value: Record<string, unknown>,

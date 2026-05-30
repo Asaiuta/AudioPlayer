@@ -16,10 +16,29 @@ export interface PlaybackContext {
   setFeedback: FeedbackSetter;
 }
 
+export interface PlayAllOptions {
+  /**
+   * Index within `items` to start playback from. The track at this index is
+   * played immediately; every subsequent track is enqueued in order. Items
+   * before the index are ignored. Out-of-range or negative values fall back to
+   * starting at index 0. Defaults to 0.
+   */
+  startIndex?: number;
+}
+
 export interface PlaybackController {
   playOnlineTrack: (item: OnlineTrackItem) => Promise<void>;
   enqueueOnlineTrack: (item: OnlineTrackItem) => Promise<void>;
   queueNextOnlineTrack: (item: OnlineTrackItem) => Promise<void>;
+  /**
+   * Play a full list as a queue: play the first eligible track, then enqueue
+   * the remaining tracks in their given (visible/filtered/sorted) order. The
+   * order of `items` is the queue contract and is preserved exactly. An empty
+   * (or fully out-of-range) list is a no-op; a single eligible track only plays
+   * and enqueues nothing extra. Error handling matches `playOnlineTrack` /
+   * `enqueueOnlineTrack` (each surfaces feedback via `setFeedback`).
+   */
+  playAll: (items: readonly OnlineTrackItem[], options?: PlayAllOptions) => Promise<void>;
 }
 
 export function createPlaybackController(ctx: PlaybackContext): PlaybackController {
@@ -79,5 +98,20 @@ export function createPlaybackController(ctx: PlaybackContext): PlaybackControll
     }
   };
 
-  return { playOnlineTrack, enqueueOnlineTrack, queueNextOnlineTrack };
+  const playAll = async (
+    items: readonly OnlineTrackItem[],
+    options: PlayAllOptions = {}
+  ) => {
+    const startIndex = options.startIndex !== undefined && options.startIndex > 0
+      ? options.startIndex
+      : 0;
+    const [first, ...rest] = items.slice(startIndex);
+    if (!first) return;
+    await playOnlineTrack(first);
+    for (const item of rest) {
+      await enqueueOnlineTrack(item);
+    }
+  };
+
+  return { playOnlineTrack, enqueueOnlineTrack, queueNextOnlineTrack, playAll };
 }

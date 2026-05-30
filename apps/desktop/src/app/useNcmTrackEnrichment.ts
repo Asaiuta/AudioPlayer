@@ -26,6 +26,8 @@ export interface NcmTrackEnrichment {
   currentLyricLines: Accessor<readonly NcmLyricLine[]>;
   currentInlineLyric: Accessor<string | null>;
   fullPlayerTitle: Accessor<string>;
+  fullPlayerArtist: Accessor<string | null>;
+  fullPlayerAlbum: Accessor<string | null>;
   fullPlayerSubtitle: Accessor<string>;
   fullPlayerDetail: Accessor<string | null>;
   lyricStatus: Accessor<"idle" | "loading" | "ready" | "error">;
@@ -203,19 +205,22 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       currentPlayerPath() ??
       ""
   );
+  const fullPlayerArtist = createMemo(() =>
+    firstNonEmpty(
+      currentSupplementForRequest()?.artist,
+      currentTrackRef()?.artist,
+      currentPlayerArtist()
+    )
+  );
+  const fullPlayerAlbum = createMemo(() =>
+    firstNonEmpty(
+      currentSupplementForRequest()?.album,
+      currentTrackRef()?.album,
+      currentPlayerAlbum()
+    )
+  );
   const fullPlayerSubtitle = createMemo(() =>
-    [
-      firstNonEmpty(
-        currentSupplementForRequest()?.artist,
-        currentTrackRef()?.artist,
-        currentPlayerArtist()
-      ),
-      firstNonEmpty(
-        currentSupplementForRequest()?.album,
-        currentTrackRef()?.album,
-        currentPlayerAlbum()
-      )
-    ]
+    [fullPlayerArtist(), fullPlayerAlbum()]
       .filter(Boolean)
       .join(" · ")
   );
@@ -246,6 +251,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       artist: request.artist,
       artists: [],
       album: request.album,
+      albumId: null,
       coverUrl: request.coverUrl,
       dynamicCoverUrl: null,
       lyrics: [],
@@ -305,6 +311,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
           artist: resolvedSupplement?.artist ?? request.trackRef.artist,
           artists: resolvedSupplement?.artists ?? [],
           album: resolvedSupplement?.album ?? request.trackRef.album,
+          albumId: resolvedSupplement?.albumId ?? null,
           coverUrl: resolvedSupplement?.coverUrl ?? request.trackRef.coverUrl,
           dynamicCoverUrl: resolvedSupplement?.dynamicCoverUrl ?? null,
           lyrics,
@@ -330,6 +337,7 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
         artist: request.artist,
         artists: [],
         album: request.album,
+        albumId: null,
         coverUrl: request.coverUrl,
         dynamicCoverUrl: null,
         lyrics: localLyrics,
@@ -404,6 +412,8 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
     currentLyricLines,
     currentInlineLyric,
     fullPlayerTitle,
+    fullPlayerArtist,
+    fullPlayerAlbum,
     fullPlayerSubtitle,
     fullPlayerDetail,
     lyricStatus,

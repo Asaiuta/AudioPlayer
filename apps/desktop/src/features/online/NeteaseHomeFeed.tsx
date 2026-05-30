@@ -9,7 +9,9 @@ import { createApiClient, type NcmHomeFeed } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { cacheFetch } from "../../shared/state/cacheFetch";
 import { useUISettings, type CoverHiddenKey, type HomeSectionKey } from "../../shared/state/useUISettings";
+import { copyToClipboard } from "../../shared/utils/clipboard";
 import { NaiveSkeleton } from "../../shared/ui/naive";
+import { coverSizeUrl } from "../../shared/ui/coverSize";
 import { playlistSummaryFromFeedCard, type OnlinePlaylistSummary } from "./ncmPlaylistSummary";
 import type { DiscoverTab, FeedCardItem } from "./shared/types";
 
@@ -181,7 +183,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
           break;
       }
     } else if (key === "copy-name") {
-      void navigator.clipboard?.writeText(ctx.item.title);
+      void copyToClipboard(ctx.item.title);
     }
   };
 
@@ -396,7 +398,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                 {(coverUrl) => (
                   <>
                     <SImage
-                      src={coverUrl()}
+                      src={coverSizeUrl(coverUrl(), "s")}
                       alt=""
                       class="ncm-home-feed-fm-card-blur"
                       observeVisibility={true}
@@ -405,7 +407,7 @@ export function NeteaseHomeFeed(props: NeteaseHomeFeedProps) {
                       ariaHidden="true"
                     />
                     <SImage
-                      src={coverUrl()}
+                      src={coverSizeUrl(coverUrl(), "m")}
                       alt=""
                       class="ncm-home-feed-fm-card-cover"
                       observeVisibility={true}

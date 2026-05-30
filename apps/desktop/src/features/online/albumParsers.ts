@@ -1,4 +1,9 @@
 import type { NcmResponseEnvelope } from "../../shared/api/ncm/base";
+import {
+  isRecord,
+  readBoolean as readBooleanValue,
+  readNumber
+} from "../../shared/jsonReaders";
 import type { FeedCardItem } from "./shared/types";
 
 export interface AlbumDynamicInfo {
@@ -13,23 +18,9 @@ export interface AlbumDetailInfo extends FeedCardItem {
   shareCount: number | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const readBoolean = (value: unknown): boolean | null => {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number" && (value === 0 || value === 1)) return value === 1;
-  return null;
-};
+// NCM album payloads use 0/1 numeric flags as booleans (e.g. `subed`).
+const readBoolean = (value: unknown): boolean | null =>
+  readBooleanValue(value, { numeric: true });
 
 export const parseAlbumDynamicInfo = (payload: NcmResponseEnvelope): AlbumDynamicInfo => {
   const data = isRecord(payload.data) ? payload.data : null;

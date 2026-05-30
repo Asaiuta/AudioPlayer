@@ -5,7 +5,7 @@ import { PageHeader } from "../../../components/page/PageHeader";
 import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
 import { NaiveP } from "../../../shared/ui/naive";
-import { PlaylistDetail } from "../details/PlaylistDetail";
+import { OnlineLikedPlaylistDetailRoute } from "../details/OnlineLikedPlaylistDetailRoute";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import { getNcmLikedPlaylistCached } from "../ncmPlaylistSummaryCache";
 import {
@@ -15,11 +15,12 @@ import {
 } from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
 import type { NcmProfile, OnlineTrackItem } from "../shared/types";
+import { createDetailViewReporter, type OnlineDetailViewReporterProps } from "../shared/detailViewReporter";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
 const api = createApiClient();
 
-export interface LikedSongsModeProps {
+export interface LikedSongsModeProps extends OnlineDetailViewReporterProps {
   loginProfile: Accessor<NcmProfile | null>;
   isCheckingLogin: Accessor<boolean>;
   isLoginBusy: Accessor<boolean>;
@@ -48,6 +49,9 @@ export function LikedSongsMode(props: LikedSongsModeProps) {
   const readErrorMessage = createErrorMessageReader(t);
 
   const loginStatusText = createLoginStatusText(t, props.isCheckingLogin, props.loginProfile);
+  const hasDetailView = () => detailNav.selectedPlaylist() !== null;
+
+  createDetailViewReporter(hasDetailView, props.onDetailViewChange);
 
   const likedTrackLimit = (playlist: OnlinePlaylistSummary): number | undefined =>
     playlist.trackCount !== null && playlist.trackCount > 0 ? playlist.trackCount : undefined;
@@ -133,49 +137,19 @@ export function LikedSongsMode(props: LikedSongsModeProps) {
             </NaiveP>
           }
         >
-          <PlaylistDetail
-            playlist={detailNav.selectedPlaylist()}
-            detail={detailNav.playlistDetailInfo()}
-            tracks={detailNav.filteredPlaylistTracks()}
-            trackCount={detailNav.playlistTrackCount()}
-            metaText={detailNav.playlistMetaText()}
-            subtitleText={t("ncm.liked.eyebrow", {
-              name: props.loginProfile()?.nickname ?? props.loginProfile()?.userId ?? ""
-            })}
-            isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
-            isLoadingDetail={detailNav.isLoadingPlaylistDetail()}
-            isTogglingSubscribe={detailNav.isTogglingPlaylistSubscribe()}
-            isScrolled={detailNav.isPlaylistDetailScrolled()}
-            filter={detailNav.playlistFilter()}
-            detailTab={detailNav.playlistDetailTab()}
-            setFilter={detailNav.setPlaylistFilter}
-            setDetailTab={detailNav.setPlaylistDetailTab}
-            onBack={() => undefined}
-            onRefresh={() => {
-              const playlist = detailNav.selectedPlaylist();
-              if (playlist) {
-                void detailNav.loadPlaylistTracks(playlist, { limit: likedTrackLimit(playlist) });
-              }
-            }}
-            onPlayAll={detailNav.playAllPlaylistTracks}
-            onToggleSubscribe={detailNav.togglePlaylistSubscribe}
-            onRemoveTracks={detailNav.removePlaylistTracks}
-            onTracksRemovedLocally={detailNav.removePlaylistTracksLocally}
-            onPlaylistUpdated={detailNav.updateSelectedPlaylist}
-            onReorderTracks={detailNav.reorderPlaylistTracks}
-            onNavigateToSongWiki={props.onNavigateToSongWiki}
-            onScroll={detailNav.handlePlaylistTrackScroll}
-            showBackButton={false}
-            showCommentsTab={false}
-            emptyStateText={t("ncm.liked.empty")}
-            sourcePlaylistId={detailNav.selectedPlaylist()?.id}
-            lockPlaylistName={true}
+          <OnlineLikedPlaylistDetailRoute
+            detailNav={detailNav}
             loginProfile={props.loginProfile()}
             setFeedback={props.setFeedback}
             playback={props.playback}
             currentTrackPath={props.currentTrackPath}
             currentSongId={props.currentSongId}
             isPlaying={props.isPlaying}
+            onRefresh={(playlist) => detailNav.loadPlaylistTracks(playlist, {
+              limit: likedTrackLimit(playlist),
+              forceRefresh: true
+            })}
+            onNavigateToSongWiki={props.onNavigateToSongWiki}
           />
         </Show>
       </Show>

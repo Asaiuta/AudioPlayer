@@ -1,3 +1,4 @@
+import { isRecord, readArray, readNumber, readString } from "../../shared/jsonReaders";
 import type { FeedCardItem } from "./shared/types";
 
 export interface VideoDetailInfo {
@@ -21,25 +22,8 @@ export interface VideoSource {
   quality: number | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-
 const readId = (value: unknown): number | string | null =>
   readNumber(value) ?? readString(value);
-
-const readArray = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 
 const readArtist = (value: unknown): FeedCardItem | null => {
   if (!isRecord(value)) return null;

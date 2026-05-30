@@ -520,14 +520,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
                 playDisabled={radioTracks().length === 0}
                 loading={isLoadingRadioTracks()}
                 onPlay={() => {
-                  const [first, ...rest] = radioTracks();
-                  if (!first) return;
-                  void (async () => {
-                    await playback.playOnlineTrack(first);
-                    for (const item of rest) {
-                      await playback.enqueueOnlineTrack(item);
-                    }
-                  })();
+                  void playback.playAll(radioTracks());
                 }}
                 activeTab={radioDetailTab()}
                 onTabChange={(next) => setRadioDetailTabWithReset(next === "comments" ? "comments" : "programs")}

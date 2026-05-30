@@ -20,6 +20,7 @@ export interface NcmTrackSupplement {
   artist: string | null;
   artists: NcmArtistSummary[];
   album: string | null;
+  albumId: number | null;
   coverUrl: string | null;
   dynamicCoverUrl: string | null;
   lyrics: NcmLyricLine[];

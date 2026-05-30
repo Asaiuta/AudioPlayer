@@ -15,6 +15,15 @@ import type {
   QueueEntry,
   ScanResult
 } from "./types";
+import {
+  isBoolean,
+  isInteger,
+  isNullableInteger,
+  isNullableNumber,
+  isNullableString,
+  isRecord,
+  isString
+} from "./ncmParserUtils";
 
 export interface LibraryQueueMediaIdsInput {
   mediaIds: string[];
@@ -98,28 +107,6 @@ export type LibraryRequestJson = (path: string, init?: RequestInit) => Promise<u
 export interface LibraryApiTransport {
   requestJson: LibraryRequestJson;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
-
-const isNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
-const isInteger = (value: unknown): value is number =>
-  isNumber(value) && Number.isInteger(value);
-
-const isString = (value: unknown): value is string => typeof value === "string";
-
-const isNullableString = (value: unknown): value is string | null =>
-  value === null || isString(value);
-
-const isNullableNumber = (value: unknown): value is number | null =>
-  value === null || isNumber(value);
-
-const isNullableInteger = (value: unknown): value is number | null =>
-  value === null || isInteger(value);
 
 const parseStatus = (value: unknown): "success" | "error" => {
   if (value === "success" || value === "error") {

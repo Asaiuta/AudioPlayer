@@ -607,3 +607,20 @@
       font-size: 20px;
     }
   }
+
+  @media (max-width: 860px) and (min-width: 769px) {
+    .ncm-home-feed-fm-card {
+      min-height: 184px;
+    }
+
+    .ncm-home-feed-fm-card-cover {
+      width: 132px;
+      height: 132px;
+      flex-basis: 132px;
+    }
+
+    .ncm-home-feed-fm-card-copy {
+      min-height: 132px;
+      margin-left: 16px;
+    }
+  }

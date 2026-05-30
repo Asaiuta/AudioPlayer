@@ -2,8 +2,15 @@ import { Show } from "solid-js";
 import type { UISettings } from "../../shared/state/useUISettings";
 import { NaiveTag, type NaiveTagTone } from "../../shared/ui/naive";
 import { SImage } from "../SImage";
-import { IconCloud, IconPause, IconPlay, IconQueueAdd } from "../icons";
-import type { MediaListItem } from "./MediaList";
+import {
+  IconCloud,
+  IconPause,
+  IconPlay,
+  IconQueueAdd,
+  IconSPlayerFavorite,
+  IconSPlayerFavoriteBorder
+} from "../icons";
+import type { MediaListItem, MediaRowAction } from "./MediaList";
 import {
   displayNameFromSourcePath,
   formatMediaDuration,
@@ -24,6 +31,7 @@ interface MediaListRowProps<T extends MediaListItem> {
   eqAriaLabel: string;
   playLabel: string;
   enqueueLabel: string;
+  rowAction: MediaRowAction<T>;
   displaySongText: (value: string) => string;
   onSelect: (id: string) => void;
   onPlay: (item: T) => void;
@@ -65,6 +73,41 @@ export function MediaListRow<T extends MediaListItem>(props: MediaListRowProps<T
     ]
       .filter(Boolean)
       .join(" ");
+  const favoriteActive = () => {
+    const action = props.rowAction;
+    return action.kind === "favorite" && action.isActive(props.item);
+  };
+  const favoriteBusy = () => {
+    const action = props.rowAction;
+    return action.kind === "favorite" && (action.isBusy?.(props.item) ?? false);
+  };
+  const rowActionLabel = () => {
+    const action = props.rowAction;
+    if (action.kind === "enqueue") return props.enqueueLabel;
+    return favoriteActive() ? action.activeLabel : action.inactiveLabel;
+  };
+  const handleRowActionClick = (event: MouseEvent) => {
+    event.stopPropagation();
+    const action = props.rowAction;
+    switch (action.kind) {
+      case "enqueue":
+        props.onEnqueue(props.item);
+        return;
+      case "favorite":
+        if (favoriteBusy()) return;
+        action.onToggle(props.item, !favoriteActive());
+        return;
+      default: {
+        const _exhaustive: never = action;
+        return _exhaustive;
+      }
+    }
+  };
+  const RowActionIcon = () => {
+    const action = props.rowAction;
+    if (action.kind === "enqueue") return <IconQueueAdd />;
+    return favoriteActive() ? <IconSPlayerFavorite /> : <IconSPlayerFavoriteBorder />;
+  };
 
   return (
     <li
@@ -79,134 +122,139 @@ export function MediaListRow<T extends MediaListItem>(props: MediaListRowProps<T
       onDrop={(event) => props.onDrop?.(event, props.absoluteIndex)}
       onDragEnd={() => props.onDragEnd?.()}
     >
-      <span class="media-cell media-cell-index" role="cell">
-        <Show when={props.isCurrent} fallback={<span class="media-row-index">{props.absoluteIndex + 1}</span>}>
-          <span class="media-current-mark" aria-label={props.eqAriaLabel} role="img">♪</span>
-        </Show>
-        <button
-          type="button"
-          class="media-index-action media-index-action-play"
-          aria-label={props.playLabel}
-          title={props.playLabel}
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onPlay(props.item);
-          }}
-        >
-          <IconPlay />
-        </button>
-        <button
-          type="button"
-          class="media-index-action media-index-action-status"
-          aria-label={props.playLabel}
-          title={props.playLabel}
-          onClick={(event) => {
-            event.stopPropagation();
-            props.onPlay(props.item);
-          }}
-        >
-          <Show when={props.isPlayingNow} fallback={<IconPlay />}>
-            <IconPause />
+      <div class="media-row-content" role="presentation">
+        <span class="media-cell media-cell-index" role="cell">
+          <Show when={props.isCurrent} fallback={<span class="media-row-index">{props.absoluteIndex + 1}</span>}>
+            <span class="media-current-mark" aria-label={props.eqAriaLabel} role="img">♪</span>
           </Show>
-        </button>
-      </span>
-      <span class="media-cell media-cell-title" role="cell">
-        <span class="media-row-title-wrap">
-          <Show when={props.showArtwork}>
-            <Show when={props.item.artworkUrl}>
-              <span class="media-row-artwork" aria-hidden="true">
-                <SImage src={props.item.artworkUrl} alt="" observeVisibility={true} shape="rect" aspect="square" />
-              </span>
+          <button
+            type="button"
+            class="media-index-action media-index-action-play"
+            aria-label={props.playLabel}
+            title={props.playLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onPlay(props.item);
+            }}
+          >
+            <IconPlay />
+          </button>
+          <button
+            type="button"
+            class="media-index-action media-index-action-status"
+            aria-label={props.playLabel}
+            title={props.playLabel}
+            onClick={(event) => {
+              event.stopPropagation();
+              props.onPlay(props.item);
+            }}
+          >
+            <Show when={props.isPlayingNow} fallback={<IconPlay />}>
+              <IconPause />
             </Show>
-            <Show when={!props.item.artworkUrl}>
-              <span class="media-row-artwork media-row-artwork-fallback" aria-hidden="true">
-                {artworkInitial()}
-              </span>
-            </Show>
-          </Show>
-          <span class="media-row-copy">
-            <span class="media-row-title" title={props.item.source_path ?? title()}>
-              <span class="media-row-title-text">{displayTitle()}</span>
-            </span>
-            <span class="media-row-desc">
-              <Show when={props.uiSettings.showSongQuality && props.item.qualityLabel}>
-                {(quality) => (
-                  <NaiveTag
-                    class={qualityTagClass(quality())}
-                    tone={qualityTagTone(quality())}
-                  >
-                    {quality()}
-                  </NaiveTag>
-                )}
-              </Show>
-              <Show when={props.uiSettings.showSongOriginalTag && props.item.originalTag}>
-                {(tag) => (
-                  <NaiveTag class={originalTagClass(tag())} tone={originalTagTone(tag())}>
-                    {tag()}
-                  </NaiveTag>
-                )}
-              </Show>
-              <Show when={props.uiSettings.showSongPrivilegeTag && props.item.privilegeTag}>
-                {(tag) => <NaiveTag class="media-row-tag media-row-tag-error" tone="error">{tag()}</NaiveTag>}
-              </Show>
-              <Show when={props.uiSettings.showSongPrivilegeTag && props.item.isCloud}>
-                <NaiveTag
-                  class="media-row-tag media-row-tag-info media-row-tag-icon"
-                  tone="info"
-                  icon={true}
-                  ariaLabel="Cloud"
-                >
-                  <IconCloud />
-                </NaiveTag>
-              </Show>
-              <Show when={props.item.mvId}>
-                <NaiveTag class="media-row-tag media-row-tag-warning" tone="warning">MV</NaiveTag>
-              </Show>
-              <Show when={props.uiSettings.showSongExplicitTag && props.item.explicit}>
-                <NaiveTag class="media-row-tag media-row-tag-error" tone="error" title="Explicit Content">
-                  E
-                </NaiveTag>
-              </Show>
-              <Show when={props.uiSettings.showSongArtist}>
-                <span class="media-row-credits">
-                  {credits() || props.emptyCreditsLabel}
+          </button>
+        </span>
+        <span class="media-cell media-cell-title" role="cell">
+          <span class="media-row-title-wrap">
+            <Show when={props.showArtwork}>
+              <Show when={props.item.artworkUrl}>
+                <span class="media-row-artwork" aria-hidden="true">
+                  <SImage src={props.item.artworkUrl} alt="" observeVisibility={true} shape="rect" aspect="square" />
                 </span>
               </Show>
+              <Show when={!props.item.artworkUrl}>
+                <span class="media-row-artwork media-row-artwork-fallback" aria-hidden="true">
+                  {artworkInitial()}
+                </span>
+              </Show>
+            </Show>
+            <span class="media-row-copy">
+              <span class="media-row-title" title={props.item.source_path ?? title()}>
+                <span class="media-row-title-text">{displayTitle()}</span>
+              </span>
+              <span class="media-row-desc">
+                <Show when={props.uiSettings.showSongQuality && props.item.qualityLabel}>
+                  {(quality) => (
+                    <NaiveTag
+                      class={qualityTagClass(quality())}
+                      tone={qualityTagTone(quality())}
+                    >
+                      {quality()}
+                    </NaiveTag>
+                  )}
+                </Show>
+                <Show when={props.uiSettings.showSongOriginalTag && props.item.originalTag}>
+                  {(tag) => (
+                    <NaiveTag class={originalTagClass(tag())} tone={originalTagTone(tag())}>
+                      {tag()}
+                    </NaiveTag>
+                  )}
+                </Show>
+                <Show when={props.uiSettings.showSongPrivilegeTag && props.item.privilegeTag}>
+                  {(tag) => <NaiveTag class="media-row-tag media-row-tag-error" tone="error">{tag()}</NaiveTag>}
+                </Show>
+                <Show when={props.uiSettings.showSongPrivilegeTag && props.item.isCloud}>
+                  <NaiveTag
+                    class="media-row-tag media-row-tag-info media-row-tag-icon"
+                    tone="info"
+                    icon={true}
+                    ariaLabel="Cloud"
+                  >
+                    <IconCloud />
+                  </NaiveTag>
+                </Show>
+                <Show when={props.item.mvId}>
+                  <NaiveTag class="media-row-tag media-row-tag-warning" tone="warning">MV</NaiveTag>
+                </Show>
+                <Show when={props.uiSettings.showSongExplicitTag && props.item.explicit}>
+                  <NaiveTag class="media-row-tag media-row-tag-error" tone="error" title="Explicit Content">
+                    E
+                  </NaiveTag>
+                </Show>
+                <Show when={props.uiSettings.showSongArtist}>
+                  <span class="media-row-credits">
+                    {credits() || props.emptyCreditsLabel}
+                  </span>
+                </Show>
+              </span>
             </span>
           </span>
         </span>
-      </span>
-      <Show when={props.uiSettings.showSongAlbum}>
-        <span class="media-cell media-cell-album" role="cell">
-          {props.item.album ? props.displaySongText(props.item.album) : "—"}
-        </span>
-      </Show>
-      <Show when={props.uiSettings.showSongOperations}>
-        <span class="media-cell media-cell-actions" role="cell">
-          <button
-            type="button"
-            class="row-action"
-            aria-label={props.enqueueLabel}
-            title={props.enqueueLabel}
-            onClick={(event) => {
-              event.stopPropagation();
-              props.onEnqueue(props.item);
-            }}
-          >
-            <IconQueueAdd />
-          </button>
-        </span>
-      </Show>
-      <Show when={props.uiSettings.showSongDuration}>
-        <span class="media-cell media-cell-duration" role="cell">
-          {formatMediaDuration(props.item.duration_secs)}
-        </span>
-      </Show>
-      <Show when={!props.hideSize}>
-        <span class="media-cell media-cell-size" role="cell">
-          {formatMediaSize(props.item.size_bytes ?? null)}
-        </span>
-      </Show>
+        <Show when={props.uiSettings.showSongAlbum}>
+          <span class="media-cell media-cell-album" role="cell">
+            {props.item.album ? props.displaySongText(props.item.album) : "—"}
+          </span>
+        </Show>
+        <Show when={props.uiSettings.showSongOperations}>
+          <span class="media-cell media-cell-actions" role="cell">
+            <button
+              type="button"
+              class="row-action"
+              classList={{
+                "row-action-favorite": props.rowAction.kind === "favorite",
+                "is-active": favoriteActive()
+              }}
+              aria-label={rowActionLabel()}
+              aria-pressed={props.rowAction.kind === "favorite" ? favoriteActive() : undefined}
+              title={rowActionLabel()}
+              disabled={favoriteBusy()}
+              onClick={handleRowActionClick}
+            >
+              <RowActionIcon />
+            </button>
+          </span>
+        </Show>
+        <Show when={props.uiSettings.showSongDuration}>
+          <span class="media-cell media-cell-duration" role="cell">
+            {formatMediaDuration(props.item.duration_secs)}
+          </span>
+        </Show>
+        <Show when={!props.hideSize}>
+          <span class="media-cell media-cell-size" role="cell">
+            {formatMediaSize(props.item.size_bytes ?? null)}
+          </span>
+        </Show>
+      </div>
     </li>
   );
 }

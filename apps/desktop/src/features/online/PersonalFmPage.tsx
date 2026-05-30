@@ -110,15 +110,11 @@ export function PersonalFmPage(props: PersonalFmPageProps) {
   };
 
   const playTracks = async (items: readonly OnlineTrackItem[] = tracks()) => {
-    const [first, ...rest] = items;
-    if (!first) {
+    if (items.length === 0) {
       setRawFeedback("error", t("ncm.fm.feedback.empty"));
       return;
     }
-    await playback.playOnlineTrack(first);
-    for (const item of rest) {
-      await playback.enqueueOnlineTrack(item);
-    }
+    await playback.playAll(items);
     setRawFeedback("success", t("ncm.fm.feedback.started", { count: items.length }));
   };
 
@@ -301,6 +297,7 @@ export function PersonalFmPage(props: PersonalFmPageProps) {
             </div>
             <MediaList
               items={tracks()}
+              rowHeight={74}
               currentSourcePath={props.currentTrackPath}
               currentSongId={props.currentSongId}
               isPlayingNow={props.isPlaying}

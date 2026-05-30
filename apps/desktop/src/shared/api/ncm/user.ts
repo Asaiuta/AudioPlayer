@@ -67,6 +67,18 @@ export interface NcmCollectionSublistParams {
   offset?: number;
 }
 
+export const readUserSubcountData = (payload: unknown): NcmUserSubcountData => {
+  if (typeof payload !== "object" || payload === null) return {};
+  const record = payload as { data?: unknown };
+  if (typeof record.data === "object" && record.data !== null) {
+    return record.data as NcmUserSubcountData;
+  }
+  return payload as NcmUserSubcountData;
+};
+
+export const readPositiveCount = (value: unknown): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+
 /**
  * Parameters for `/scrobble`.
  * Backend keys (lowercase, see `ncm-api-rs/src/api/scrobble.rs`):

@@ -1,10 +1,6 @@
-export const formatMediaDuration = (secs: number | null): string => {
-  if (secs === null || !Number.isFinite(secs)) return "—";
-  const total = Math.max(0, Math.floor(secs));
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
+import { formatDuration } from "../player/time";
+
+export const formatMediaDuration = (secs: number | null): string => formatDuration(secs, "—");
 
 export const formatMediaSize = (bytes: number | null | undefined): string => {
   if (bytes === null || bytes === undefined || !Number.isFinite(bytes)) return "—";

@@ -1,4 +1,11 @@
 import type { NcmResponseEnvelope } from "../../shared/api/ncm/base";
+import {
+  isRecord,
+  readArray,
+  readBoolean as readBooleanValue,
+  readNumber,
+  readString
+} from "../../shared/jsonReaders";
 import type { FeedCardItem } from "./shared/types";
 
 export interface ArtistDetailInfo extends FeedCardItem {
@@ -10,29 +17,9 @@ export interface ArtistDetailInfo extends FeedCardItem {
   followed: boolean | null;
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [];
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
-
-const readBoolean = (value: unknown): boolean | null => {
-  if (typeof value === "boolean") return value;
-  if (typeof value === "number" && (value === 0 || value === 1)) return value === 1;
-  return null;
-};
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+// NCM artist payloads use 0/1 numeric flags as booleans (e.g. `followed`).
+const readBoolean = (value: unknown): boolean | null =>
+  readBooleanValue(value, { numeric: true });
 
 const readFirstString = (value: unknown): string | null =>
   readArray(value)

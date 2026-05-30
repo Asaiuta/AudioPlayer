@@ -1,16 +1,18 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import {
-  IconChat,
+  IconArtist,
   IconChevronLeft,
+  IconClock,
   IconDots,
-  IconEye,
   IconHeart,
   IconHeartFilled,
+  IconLink,
   IconList,
-  IconMusic,
   IconPlay,
+  IconRefresh,
   IconSearch,
-  IconShare
+  IconShare,
+  IconTag
 } from "../../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../../components/media/ContextMenu";
 import type { MediaContextAction } from "../../../components/media/MediaList";
@@ -22,7 +24,9 @@ import { PageStickyHeader } from "../../../components/page/PageStickyHeader";
 import { PageSurface } from "../../../components/page/PageSurface";
 import { SImage } from "../../../components/SImage";
 import { useTranslation } from "../../../shared/i18n";
+import { copyToClipboard } from "../../../shared/utils/clipboard";
 import { useUISettings } from "../../../shared/state/useUISettings";
+import { coverSizeUrl } from "../../../shared/ui/coverSize";
 import { NaiveH2, NaiveP, NaiveSpin } from "../../../shared/ui/naive";
 import type { OnlinePlaylistSummary } from "../ncmPlaylistSummary";
 import type { PlaylistDetailInfo } from "../playlistParsers";
@@ -49,7 +53,7 @@ export interface PlaylistDetailProps {
   detailTab: "songs" | "comments";
   setFilter: (value: string) => void;
   setDetailTab: (tab: "songs" | "comments") => void;
-  onBack: () => void;
+  onBack?: () => void;
   onPlayAll: () => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
   onToggleSubscribe?: () => void | Promise<void>;
@@ -59,8 +63,6 @@ export interface PlaylistDetailProps {
   onReorderTracks?: (fromIndex: number, toIndex: number) => void | Promise<void>;
   onNavigateToSongWiki?: (track: OnlineTrackItem) => void;
   onScroll: (event: Event) => void;
-  backLabel?: string;
-  showBackButton?: boolean;
   showCommentsTab?: boolean;
   emptyStateText?: string;
   sourcePlaylistId?: number;
@@ -92,18 +94,28 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
       : props.emptyStateText ?? t("ncm.empty.noTracks");
   });
   const isSubscribed = createMemo<boolean>(() => detailPlaylist()?.subscribed ?? false);
-  const hasDynamicCounts = createMemo<boolean>(() =>
-    props.detail?.commentCount !== null && props.detail?.commentCount !== undefined ||
-    props.detail?.shareCount !== null && props.detail?.shareCount !== undefined ||
-    props.detail?.bookedCount !== null && props.detail?.bookedCount !== undefined
-  );
   const subscribeLabel = createMemo<string>(() => {
     if (props.isTogglingSubscribe) return t("ncm.playlist.subscribeWorking");
     return isSubscribed() ? t("ncm.playlist.unsubscribe") : t("ncm.playlist.subscribe");
   });
+  const playlistPlayCount = createMemo<number | null>(() => detailPlaylist()?.playCount ?? null);
+  const tags = createMemo<readonly string[]>(() => detailPlaylist()?.tags ?? []);
+  const dateText = createMemo<string | null>(() => {
+    const playlist = detailPlaylist();
+    const timestamp = playlist?.updateTime ?? playlist?.createTime ?? null;
+    if (timestamp === null) return null;
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return null;
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${month}-${day}`;
+  });
 
-  const formatTimestamp = (timestamp: number): string =>
-    new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(timestamp));
+  const formatPlayCount = (count: number): string => {
+    if (count >= 100_000_000) return `${(count / 100_000_000).toFixed(1)}亿`;
+    if (count >= 10_000) return `${(count / 10_000).toFixed(1)}万`;
+    return String(count);
+  };
   const playlistUrl = () => {
     const playlist = detailPlaylist();
     return playlist ? `https://music.163.com/#/playlist?id=${playlist.id}` : "";
@@ -120,7 +132,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
   const menuItems = (): ContextMenuItem[] => {
     const items: ContextMenuItem[] = [];
     if (props.onRefresh) {
-      items.push({ key: "refresh", label: t("ncm.playlist.refreshCache"), icon: <IconList /> });
+      items.push({ key: "refresh", label: t("ncm.playlist.refreshCache"), icon: <IconRefresh /> });
     }
     if (props.onPlaylistUpdated && props.setFeedback && canEditPlaylist()) {
       items.push({ key: "edit", label: t("ncm.playlist.edit"), icon: <IconDots /> });
@@ -129,8 +141,8 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
       items.push({ key: "batch", label: t("ncm.daily.batch"), icon: <IconList /> });
     }
     items.push(
-      { key: "copy", label: t("ncm.playlist.copyShareLink"), icon: <IconDots /> },
-      { key: "open", label: t("ncm.playlist.openSource"), icon: <IconChevronLeft /> }
+      { key: "copy", label: t("ncm.playlist.copyShareLink"), icon: <IconShare /> },
+      { key: "open", label: t("ncm.playlist.openSource"), icon: <IconLink /> }
     );
     return items;
   };
@@ -141,14 +153,13 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
   };
   const copyShareLink = async () => {
     const url = playlistUrl();
-    if (!url || typeof navigator === "undefined" || !navigator.clipboard) {
+    if (!url) {
       props.setFeedback?.("error", t("media.copy.error"));
       return;
     }
-    try {
-      await navigator.clipboard.writeText(url);
+    if (await copyToClipboard(url)) {
       props.setFeedback?.("success", t("ncm.playlist.shareCopied"));
-    } catch {
+    } else {
       props.setFeedback?.("error", t("media.copy.error"));
     }
   };
@@ -217,7 +228,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                           {(coverUrl) => (
                             <>
                               <SImage
-                                src={coverUrl()}
+                                src={coverSizeUrl(coverUrl(), "m")}
                                 alt=""
                                 class="playlist-detail-art-img"
                                 observeVisibility={false}
@@ -225,7 +236,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                                 aspect="square"
                               />
                               <SImage
-                                src={coverUrl()}
+                                src={coverSizeUrl(coverUrl(), "s")}
                                 alt=""
                                 class="playlist-detail-art-shadow"
                                 observeVisibility={false}
@@ -237,6 +248,14 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                           )}
                         </Show>
                         <div class="playlist-detail-art-mask" />
+                        <Show when={playlistPlayCount()}>
+                          {(playCount) => (
+                            <span class="playlist-detail-play-count">
+                              <IconPlay />
+                              {formatPlayCount(playCount())}
+                            </span>
+                          )}
+                        </Show>
                       </div>
                     </Show>
                     <div class="playlist-detail-copy">
@@ -255,64 +274,20 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                           <div class="playlist-detail-meta">
                             <Show when={uiSettings.playlistPageElements.creator}>
                               <span>
-                                <IconMusic />
+                                <IconArtist />
                                 {playlist().creator ?? t("ncm.playlist.creatorUnknown")}
                               </span>
                             </Show>
-                            <Show when={uiSettings.playlistPageElements.time}>
+                            <Show when={uiSettings.playlistPageElements.time && dateText()}>
                               <span>
-                                <IconList />
-                                {playlist().updateTime !== null || playlist().createTime !== null
-                                  ? formatTimestamp(playlist().updateTime ?? playlist().createTime ?? 0)
-                                  : t("ncm.playlist.trackCount", { count: props.trackCount })}
+                                <IconClock />
+                                {dateText()}
                               </span>
                             </Show>
-                            <Show when={playlist().playCount !== null}>
-                              <span>
-                                <IconEye />
-                                {playlist().playCount}
-                              </span>
-                            </Show>
-                            <Show when={hasDynamicCounts()}>
-                              <Show when={props.detail?.commentCount !== null && props.detail?.commentCount !== undefined}>
-                                <span>
-                                  <IconChat />
-                                  {t("ncm.playlist.commentCount", { count: props.detail?.commentCount ?? 0 })}
-                                </span>
-                              </Show>
-                              <Show when={props.detail?.shareCount !== null && props.detail?.shareCount !== undefined}>
-                                <span>
-                                  <IconShare />
-                                  {t("ncm.playlist.shareCount", { count: props.detail?.shareCount ?? 0 })}
-                                </span>
-                              </Show>
-                              <Show when={props.detail?.bookedCount !== null && props.detail?.bookedCount !== undefined}>
-                                <span>
-                                  <IconHeart />
-                                  {t("ncm.playlist.bookedCount", { count: props.detail?.bookedCount ?? 0 })}
-                                </span>
-                              </Show>
-                            </Show>
-                            <Show when={uiSettings.playlistPageElements.tags}>
-                              <span>
-                                <IconDots />
-                                <Show
-                                  when={playlist().tags.length > 0}
-                                  fallback={
-                                    playlist().subscribed
-                                      ? t("ncm.playlist.tag.subscribed")
-                                      : t("ncm.playlist.tag.public")
-                                  }
-                                >
-                                  <For each={playlist().tags}>
-                                    {(tag, index) => (
-                                      <>
-                                        {index() > 0 ? " / " : ""}
-                                        {tag}
-                                      </>
-                                    )}
-                                  </For>
-                                </Show>
+                            <Show when={uiSettings.playlistPageElements.tags && tags().length > 0}>
+                              <span class="playlist-detail-tags">
+                                <IconTag />
+                                <For each={tags()}>{(tag) => <span class="playlist-detail-tag">{tag}</span>}</For>
                               </span>
                             </Show>
                           </div>
@@ -329,14 +304,14 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                             <IconPlay />
                             {props.isLoadingTracks ? t("ncm.playlist.loading") : t("ncm.playlist.play")}
                           </button>
-                          <Show when={props.showBackButton ?? true}>
+                          <Show when={props.onBack !== undefined}>
                             <button
                               type="button"
                               class="ghost-button playlist-detail-back"
-                              onClick={props.onBack}
+                              onClick={() => props.onBack?.()}
                             >
                               <IconChevronLeft />
-                              {props.backLabel ?? t("ncm.playlist.backToList")}
+                              {t("ncm.playlist.backToList")}
                             </button>
                           </Show>
                           <Show when={canToggleSubscribe()}>
@@ -431,6 +406,7 @@ export function PlaylistDetail(props: PlaylistDetailProps) {
                       onReorder={(fromIndex, toIndex) => void props.onReorderTracks?.(fromIndex, toIndex)}
                       isLoading={props.isLoadingTracks}
                       emptyState={<NaiveP class="panel-note">{emptyStateText()}</NaiveP>}
+                      hideSize
                       hideTopScrollTool
                     />
                   </Show>

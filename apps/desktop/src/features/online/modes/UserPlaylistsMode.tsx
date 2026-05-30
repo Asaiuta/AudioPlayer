@@ -15,7 +15,7 @@ import {
   loadNcmUserPlaylistsByModeCached,
   subscribeNcmUserPlaylistGroups
 } from "../ncmPlaylistSummaryCache";
-import { PlaylistDetail } from "../details/PlaylistDetail";
+import { OnlinePlaylistDetailRoute } from "../details/OnlinePlaylistDetailRoute";
 import {
   createErrorMessageReader,
   createLoginStatusText,
@@ -23,13 +23,14 @@ import {
 } from "../shared/feedback";
 import type { PlaybackController } from "../shared/playback";
 import type { NcmProfile, OnlineTrackItem } from "../shared/types";
+import { createDetailViewReporter, type OnlineDetailViewReporterProps } from "../shared/detailViewReporter";
 import { useDetailNavigation } from "../shared/useDetailNavigation";
 
 export type UserPlaylistsKind = "created-playlists" | "collected-playlists";
 
 const api = createApiClient();
 
-export interface UserPlaylistsModeProps {
+export interface UserPlaylistsModeProps extends OnlineDetailViewReporterProps {
   kind: UserPlaylistsKind;
   loginProfile: Accessor<NcmProfile | null>;
   isCheckingLogin: Accessor<boolean>;
@@ -84,6 +85,9 @@ export function UserPlaylistsMode(props: UserPlaylistsModeProps) {
   const loginStatusText = createLoginStatusText(t, props.isCheckingLogin, props.loginProfile);
 
   const readErrorMessage = createErrorMessageReader(t);
+  const hasDetailView = () => detailNav.selectedPlaylist() !== null;
+
+  createDetailViewReporter(hasDetailView, props.onDetailViewChange);
 
   createEffect(on(props.loginProfile, (profile, prev) => {
     if (prev !== undefined && prev !== null && profile === null) {
@@ -251,32 +255,16 @@ export function UserPlaylistsMode(props: UserPlaylistsModeProps) {
           </Show>
         }
       >
-        <PlaylistDetail
-          playlist={detailNav.selectedPlaylist()}
-          detail={detailNav.playlistDetailInfo()}
-          tracks={detailNav.filteredPlaylistTracks()}
-          trackCount={detailNav.playlistTrackCount()}
-          metaText={detailNav.playlistMetaText()}
+        <OnlinePlaylistDetailRoute
+          detailNav={detailNav}
           subtitleText={pageTitle()}
-          isLoadingTracks={detailNav.isLoadingPlaylistTracks()}
-          isLoadingDetail={detailNav.isLoadingPlaylistDetail()}
-          isTogglingSubscribe={detailNav.isTogglingPlaylistSubscribe()}
-          isScrolled={detailNav.isPlaylistDetailScrolled()}
-          filter={detailNav.playlistFilter()}
-          detailTab={detailNav.playlistDetailTab()}
-          setFilter={detailNav.setPlaylistFilter}
-          setDetailTab={detailNav.setPlaylistDetailTab}
-          onBack={detailNav.handleBackToPlaylists}
-          onPlayAll={detailNav.playAllPlaylistTracks}
-          onToggleSubscribe={detailNav.togglePlaylistSubscribe}
-          onNavigateToSongWiki={props.onNavigateToSongWiki}
-          onScroll={detailNav.handlePlaylistTrackScroll}
           loginProfile={props.loginProfile()}
           setFeedback={props.setFeedback}
           playback={props.playback}
           currentTrackPath={props.currentTrackPath}
           currentSongId={props.currentSongId}
           isPlaying={props.isPlaying}
+          onNavigateToSongWiki={props.onNavigateToSongWiki}
         />
       </Show>
     </Show>
