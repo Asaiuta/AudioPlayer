@@ -2,7 +2,7 @@ import { createMemo, createSignal } from "solid-js";
 import { IconChevronLeft, IconList, IconPlay, IconRefresh } from "../../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../../components/media/ContextMenu";
 import type { MediaContextAction } from "../../../components/media/MediaList";
-import { MediaList } from "../../../components/media/MediaList";
+import { NcmMediaList } from "../NcmMediaList";
 import { BackToTop } from "../../../components/page/BackToTop";
 import { PageBody } from "../../../components/page/PageBody";
 import { PageHero } from "../../../components/page/PageHero";
@@ -154,7 +154,7 @@ export function DailySongsDetail(props: DailySongsDetailProps) {
         </header>
       </PageHero>
       <PageBody class="ncm-detail-page-body">
-        <MediaList
+        <NcmMediaList
           items={props.tracks}
           currentSourcePath={props.currentTrackPath}
           currentSongId={props.currentSongId}

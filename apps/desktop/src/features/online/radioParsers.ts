@@ -24,7 +24,7 @@ export interface RadioDetailInfo extends FeedCardItem {
 }
 
 // NCM radio payloads use 0/1 numeric flags as booleans (e.g. `subed`).
-const readBoolean = (value: unknown): boolean | null =>
+const readNumericBoolean = (value: unknown): boolean | null =>
   readBooleanValue(value, { numeric: true });
 
 const readNestedCreator = (value: unknown): string | null => {
@@ -81,9 +81,9 @@ export const parseRadioDetailInfo = (payload: unknown, fallback: FeedCardItem): 
     programCount: readNumber(source?.programCount ?? source?.programCnt ?? source?.count) ?? null,
     subscriberCount: readNumber(source?.subCount ?? source?.subedCount ?? source?.subscribedCount) ?? card?.playCount ?? null,
     subscribed:
-      readBoolean(source?.subed) ??
-      readBoolean(source?.subscribed) ??
-      readBoolean(source?.isSub)
+      readNumericBoolean(source?.subed) ??
+      readNumericBoolean(source?.subscribed) ??
+      readNumericBoolean(source?.isSub)
   };
 };
 

@@ -18,7 +18,7 @@ export interface ArtistDetailInfo extends FeedCardItem {
 }
 
 // NCM artist payloads use 0/1 numeric flags as booleans (e.g. `followed`).
-const readBoolean = (value: unknown): boolean | null =>
+const readNumericBoolean = (value: unknown): boolean | null =>
   readBooleanValue(value, { numeric: true });
 
 const readFirstString = (value: unknown): string | null =>
@@ -47,10 +47,10 @@ const readIdentify = (artist: Record<string, unknown>, data: Record<string, unkn
 const readFollowed = (artist: Record<string, unknown>, data: Record<string, unknown> | null): boolean | null => {
   const user = isRecord(data?.user) ? data?.user : null;
   return (
-    readBoolean(artist.followed) ??
-    readBoolean(artist.subed) ??
-    readBoolean(artist.subscribed) ??
-    readBoolean(user?.followed)
+    readNumericBoolean(artist.followed) ??
+    readNumericBoolean(artist.subed) ??
+    readNumericBoolean(artist.subscribed) ??
+    readNumericBoolean(user?.followed)
   );
 };
 

@@ -5,13 +5,14 @@ import type { PlaybackHistoryEntry } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
 import type { TranslationKey } from "../../shared/i18n";
 import { IconDelete, IconPlayCircle } from "../../components/icons";
-import { MediaList, type MediaContextAction, type MediaListItem } from "../../components/media/MediaList";
+import type { MediaContextAction, MediaListItem } from "../../components/media/MediaList";
 import { BackToTop } from "../../components/page/BackToTop";
 import { PageBody } from "../../components/page/PageBody";
 import { PageHero } from "../../components/page/PageHero";
 import { PageSurface } from "../../components/page/PageSurface";
 import { resolveArtworkUrl } from "../../shared/ui/artwork";
 import type { NcmTrackReference } from "../online/ncmPlayback";
+import { NcmMediaList } from "../online/NcmMediaList";
 import { createPlaybackController } from "../online/shared/playback";
 import type { Feedback as OnlineFeedback, OnlineTrackItem } from "../online/shared/types";
 
@@ -284,7 +285,7 @@ export function HistoryPage(props: HistoryPageProps) {
       <PageBody class="history-page-body">
         <div class="history-page-list">
           <Show when={historySongs().length > 0} fallback={<div class="history-page-empty status-line">{t("history.empty")}</div>}>
-            <MediaList
+            <NcmMediaList
               items={historySongs()}
               currentSourcePath={props.currentTrackPath}
               currentMediaId={props.currentMediaId}

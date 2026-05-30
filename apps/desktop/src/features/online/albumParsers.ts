@@ -19,7 +19,7 @@ export interface AlbumDetailInfo extends FeedCardItem {
 }
 
 // NCM album payloads use 0/1 numeric flags as booleans (e.g. `subed`).
-const readBoolean = (value: unknown): boolean | null =>
+const readNumericBoolean = (value: unknown): boolean | null =>
   readBooleanValue(value, { numeric: true });
 
 export const parseAlbumDynamicInfo = (payload: NcmResponseEnvelope): AlbumDynamicInfo => {
@@ -27,10 +27,10 @@ export const parseAlbumDynamicInfo = (payload: NcmResponseEnvelope): AlbumDynami
   const source = data ?? payload;
   return {
     subscribed:
-      readBoolean(source.subed) ??
-      readBoolean(source.subscribed) ??
-      readBoolean(source.isSub) ??
-      readBoolean(source.liked),
+      readNumericBoolean(source.subed) ??
+      readNumericBoolean(source.subscribed) ??
+      readNumericBoolean(source.isSub) ??
+      readNumericBoolean(source.liked),
     commentCount: readNumber(source.commentCount),
     shareCount: readNumber(source.shareCount)
   };

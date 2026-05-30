@@ -1,6 +1,6 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
-import { MediaList, type MediaContextAction } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/MediaList";
 import {
   IconCloud,
   IconList,
@@ -24,6 +24,7 @@ import {
 } from "./shared/feedback";
 import { createPlaybackController } from "./shared/playback";
 import type { Feedback, OnlineTrackItem } from "./shared/types";
+import { NcmMediaList } from "./NcmMediaList";
 
 const api = createApiClient();
 const CLOUD_PAGE_LIMIT = 500;
@@ -462,7 +463,7 @@ export function CloudPage(props: CloudPageProps) {
           onClose={() => setMenuOpen(false)}
         />
 
-        <MediaList
+        <NcmMediaList
           items={filteredTracks()}
           currentSourcePath={props.currentTrackPath}
           currentSongId={props.currentSongId}

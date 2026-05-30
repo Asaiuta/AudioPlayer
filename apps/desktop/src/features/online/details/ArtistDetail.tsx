@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { AlbumCard } from "../../../components/AlbumCard";
 import { IconAlbum, IconChevronLeft, IconHeart, IconHeartFilled, IconMusic, IconVideo } from "../../../components/icons";
-import { MediaList } from "../../../components/media/MediaList";
+import { NcmMediaList } from "../NcmMediaList";
 import { SegmentedTabs, type SegmentedTabItem } from "../../../components/page/SegmentedTabs";
 import { BackToTop } from "../../../components/page/BackToTop";
 import { PageBody } from "../../../components/page/PageBody";
@@ -172,7 +172,7 @@ export function ArtistDetail(props: ArtistDetailProps) {
                       ariaLabel={t("ncm.artist.songs.orderAria")}
                     />
                   </div>
-                  <MediaList
+                  <NcmMediaList
                     items={props.tracks}
                     currentSourcePath={props.currentTrackPath}
                     currentSongId={props.currentSongId}

@@ -10,7 +10,7 @@ import {
   IconSparkle,
   IconThumbDown
 } from "../../components/icons";
-import { MediaList, type MediaContextAction } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/MediaList";
 import { SImage } from "../../components/SImage";
 import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
@@ -18,6 +18,7 @@ import { useNcmAccount } from "../../shared/state/NcmAccountContext";
 import { useUISettings } from "../../shared/state/useUISettings";
 import { NaiveH2, NaiveH3 } from "../../shared/ui/naive";
 import type { NcmTrackReference } from "./ncmPlayback";
+import { NcmMediaList } from "./NcmMediaList";
 import {
   createErrorMessageReader,
   createFeedbackSetter,
@@ -295,7 +296,7 @@ export function PersonalFmPage(props: PersonalFmPageProps) {
             <div class="song-wiki-section-title">
               <NaiveH3>{t("ncm.fm.queue")}</NaiveH3>
             </div>
-            <MediaList
+            <NcmMediaList
               items={tracks()}
               rowHeight={74}
               currentSourcePath={props.currentTrackPath}

@@ -1,7 +1,7 @@
 import { For, Match, Show, Switch, createMemo } from "solid-js";
 import type { Accessor } from "solid-js";
 import { AlbumCard } from "../../../components/AlbumCard";
-import { MediaList } from "../../../components/media/MediaList";
+import { NcmMediaList } from "../NcmMediaList";
 import { SegmentedTabs } from "../../../components/page/SegmentedTabs";
 import { useTranslation } from "../../../shared/i18n";
 import { useUISettings } from "../../../shared/state/useUISettings";
@@ -117,7 +117,7 @@ export function SearchMode(props: SearchModeProps) {
 function SongsResultPanel(props: SearchModeProps) {
   const { t } = useTranslation();
   return (
-    <MediaList
+    <NcmMediaList
       items={props.songResults}
       currentSourcePath={props.currentTrackPath}
       currentSongId={props.currentSongId}

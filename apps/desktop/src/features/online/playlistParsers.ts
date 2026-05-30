@@ -20,7 +20,7 @@ export interface PlaylistDetailInfo extends OnlinePlaylistSummary {
 }
 
 // NCM playlist payloads use 0/1 numeric flags as booleans (e.g. `subed`).
-const readBoolean = (value: unknown): boolean | null =>
+const readNumericBoolean = (value: unknown): boolean | null =>
   readBooleanValue(value, { numeric: true });
 
 export const parsePlaylistDynamicInfo = (payload: NcmResponseEnvelope): PlaylistDynamicInfo => {
@@ -28,9 +28,9 @@ export const parsePlaylistDynamicInfo = (payload: NcmResponseEnvelope): Playlist
   const source = data ?? payload;
   return {
     subscribed:
-      readBoolean(source.subscribed) ??
-      readBoolean(source.subed) ??
-      readBoolean(source.isSub),
+      readNumericBoolean(source.subscribed) ??
+      readNumericBoolean(source.subed) ??
+      readNumericBoolean(source.isSub),
     commentCount: readNumber(source.commentCount),
     shareCount: readNumber(source.shareCount),
     bookedCount: readNumber(source.bookedCount)

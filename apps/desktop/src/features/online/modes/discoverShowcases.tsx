@@ -3,7 +3,7 @@ import type { Resource } from "solid-js";
 import { AlbumCard } from "../../../components/AlbumCard";
 import { EmptyState } from "../../../components/EmptyState";
 import { IconPlay } from "../../../components/icons";
-import { MediaList } from "../../../components/media/MediaList";
+import { NcmMediaList } from "../NcmMediaList";
 import { CoverGridSkeleton } from "../../../components/page/Skeleton";
 import { SImage } from "../../../components/SImage";
 import { useTranslation } from "../../../shared/i18n";
@@ -497,7 +497,7 @@ export function DiscoverNewShowcase(props: DiscoverNewShowcaseProps) {
       >
         <Show when={props.discoverNewKind === "albums"} fallback={
           <div class="online-discover-card-stack content-fade-in">
-            <MediaList
+            <NcmMediaList
               items={songs()}
               currentSourcePath={props.currentTrackPath}
               currentSongId={props.currentSongId}

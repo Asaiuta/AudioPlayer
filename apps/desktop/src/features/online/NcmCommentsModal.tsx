@@ -1,11 +1,11 @@
 import { For, Show } from "solid-js";
-import { useTranslation } from "../../shared/i18n";
+import { Modal } from "../../components/Modal";
+import { SImage } from "../../components/SImage";
 import type { NcmSongComment } from "../../shared/api/ncm/comment";
+import { useTranslation } from "../../shared/i18n";
 import { NaiveP } from "../../shared/ui/naive";
-import { Modal } from "../Modal";
-import { SImage } from "../SImage";
 
-export interface MediaCommentsModalState {
+export interface NcmCommentsModalState {
   open: boolean;
   title: string;
   status: "idle" | "loading" | "success" | "error";
@@ -15,7 +15,7 @@ export interface MediaCommentsModalState {
   error: string | null;
 }
 
-export const closedMediaCommentsModal: MediaCommentsModalState = {
+export const closedNcmCommentsModal: NcmCommentsModalState = {
   open: false,
   title: "",
   status: "idle",
@@ -25,12 +25,12 @@ export const closedMediaCommentsModal: MediaCommentsModalState = {
   error: null
 };
 
-interface MediaCommentsModalProps {
-  state: MediaCommentsModalState;
+interface NcmCommentsModalProps {
+  state: NcmCommentsModalState;
   onClose: () => void;
 }
 
-export function MediaCommentsModal(props: MediaCommentsModalProps) {
+export function NcmCommentsModal(props: NcmCommentsModalProps) {
   const { t } = useTranslation();
   const state = () => props.state;
 
@@ -55,7 +55,7 @@ export function MediaCommentsModal(props: MediaCommentsModalProps) {
           <section class="media-comments-section">
             <h4>{t("media.comments.hot")}</h4>
             <For each={state().hotComments}>
-              {(comment) => <MediaCommentItem comment={comment} />}
+              {(comment) => <NcmCommentItem comment={comment} />}
             </For>
           </section>
         </Show>
@@ -68,7 +68,7 @@ export function MediaCommentsModal(props: MediaCommentsModalProps) {
               </Show>
             </h4>
             <For each={state().comments}>
-              {(comment) => <MediaCommentItem comment={comment} />}
+              {(comment) => <NcmCommentItem comment={comment} />}
             </For>
           </section>
         </Show>
@@ -77,7 +77,7 @@ export function MediaCommentsModal(props: MediaCommentsModalProps) {
   );
 }
 
-function MediaCommentItem(props: { comment: NcmSongComment }) {
+function NcmCommentItem(props: { comment: NcmSongComment }) {
   const timeLabel = () =>
     props.comment.time === null ? "" : new Date(props.comment.time).toLocaleDateString();
 

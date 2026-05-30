@@ -1,16 +1,10 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import type { JSX } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
-import { ncmSongShareUrl } from "../../shared/api/ncm/urls";
 import { copyToClipboard } from "../../shared/utils/clipboard";
-import {
-  readSongCommentsPayload,
-  songComments
-} from "../../shared/api/ncm/comment";
 import { useUISettings } from "../../shared/state/useUISettings";
 import { useDismissibleOverlay } from "../../shared/ui/useDismissibleOverlay";
 import { IconChevronDown } from "../icons";
-import { useUISearch } from "../../shared/state/UISearchContext";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import {
   DEFAULT_MEDIA_CONTEXT_ACTIONS,
@@ -20,15 +14,9 @@ import {
   isMediaContextAction,
   type MediaContextAction
 } from "./mediaContextActions";
-import {
-  MediaCommentsModal,
-  closedMediaCommentsModal,
-  type MediaCommentsModalState
-} from "./MediaCommentsModal";
 import { MediaListFloatTools } from "./MediaListFloatTools";
 import { MediaListRow } from "./MediaListRow";
 import { MediaSortPopover } from "./MediaSortPopover";
-import { createDefaultFavoriteRowAction } from "./mediaFavoriteRowAction";
 import { SImage } from "../SImage";
 import { displayNameFromSourcePath, stripBracketedContent } from "./mediaListFormatting";
 import {
@@ -100,7 +88,7 @@ export type MediaRowAction<T extends MediaListItem> =
       inactiveLabel: string;
     };
 
-interface MediaListProps<T extends MediaListItem> {
+export interface MediaListProps<T extends MediaListItem> {
   items: T[];
   totalCount?: number;
   virtualStart?: number;
@@ -161,12 +149,9 @@ const closedSortMenu: SortMenuState = {
 export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
   const { t } = useTranslation();
   const uiSettings = useUISettings();
-  const search = useUISearch();
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [menu, setMenu] = createSignal<MenuState>(closedMenu);
   const [sortMenu, setSortMenu] = createSignal<SortMenuState>(closedSortMenu);
-  const [commentsModal, setCommentsModal] =
-    createSignal<MediaCommentsModalState>(closedMediaCommentsModal);
   const [scrollTop, setScrollTop] = createSignal<number>(0);
   const [draggedIndex, setDraggedIndex] = createSignal<number | null>(null);
   const [dropIndex, setDropIndex] = createSignal<number | null>(null);
@@ -185,8 +170,8 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
   const hasVisibleContextActions = (target: T | null) =>
     hasVisibleMediaContextActions(contextActionSet(), uiSettings, target);
   const showArtwork = () => props.hideArtwork !== true && !uiSettings.hiddenCovers.list;
-  const defaultRowAction = createDefaultFavoriteRowAction<T>();
-  const rowAction = createMemo<MediaRowAction<T>>(() => props.rowAction ?? defaultRowAction());
+  const defaultRowAction: MediaRowAction<T> = { kind: "enqueue" };
+  const rowAction = createMemo<MediaRowAction<T>>(() => props.rowAction ?? defaultRowAction);
   const rowHeight = createMemo<number>(() =>
     Math.max(1, Math.trunc(props.rowHeight ?? MEDIA_LIST_ROW_HEIGHT_PX))
   );
@@ -273,16 +258,6 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     () => props.items.find((item) => item.id === menu().itemId) ?? null
   );
 
-  const handleSearchItem = (item: T) => {
-    const keyword = searchableTitle(item).trim();
-    if (!keyword) {
-      return;
-    }
-    search.setQuery(keyword);
-    search.submitSearch();
-    props.onContextAction?.("search", item);
-  };
-
   const handleCopyName = async (item: T) => {
     const name = searchableTitle(item).trim();
     if (!name) {
@@ -296,45 +271,6 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
     if (typeof item.songId !== "number") return;
     await copyToClipboard(String(item.songId));
     props.onContextAction?.("copy-id", item);
-  };
-
-  const handleShareLink = async (item: T) => {
-    if (typeof item.songId !== "number") return;
-    await copyToClipboard(ncmSongShareUrl(item.songId, uiSettings.shareUrlFormat));
-    props.onContextAction?.("share-link", item);
-  };
-
-  const handleViewComments = async (item: T) => {
-    if (typeof item.songId !== "number") return;
-    const title = searchableTitle(item) || String(item.songId);
-    setCommentsModal({
-      ...closedMediaCommentsModal,
-      open: true,
-      title,
-      status: "loading"
-    });
-    props.onContextAction?.("view-comments", item);
-    try {
-      const payload = readSongCommentsPayload(await songComments(item.songId, 30, 0));
-      setCommentsModal({
-        open: true,
-        title,
-        status: "success",
-        total: payload.total,
-        hotComments: payload.hotComments,
-        comments: payload.comments,
-        error: null
-      });
-    } catch (error) {
-      console.warn("[MediaList] load song comments failed", error);
-      setCommentsModal({
-        ...closedMediaCommentsModal,
-        open: true,
-        title,
-        status: "error",
-        error: error instanceof Error ? error.message : t("common.error.requestFailed")
-      });
-    }
   };
 
   const handleMenuSelect = (key: string) => {
@@ -357,16 +293,16 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
         void handleCopyId(target);
         return;
       case "share-link":
-        void handleShareLink(target);
+        props.onContextAction?.("share-link", target);
         return;
       case "view-comments":
-        void handleViewComments(target);
+        props.onContextAction?.("view-comments", target);
         return;
       case "copy-path":
         void handleCopyPath(target);
         return;
       case "search":
-        handleSearchItem(target);
+        props.onContextAction?.("search", target);
         return;
       case "emit":
         props.onContextAction?.(key, target);
@@ -757,10 +693,6 @@ export function MediaList<T extends MediaListItem>(props: MediaListProps<T>) {
           items={menuItems()}
           onSelect={handleMenuSelect}
           onClose={closeMenu}
-        />
-        <MediaCommentsModal
-          state={commentsModal()}
-          onClose={() => setCommentsModal(closedMediaCommentsModal)}
         />
         <Show when={sortMenu().open && typeof document !== "undefined"}>
           <MediaSortPopover

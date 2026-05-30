@@ -9,7 +9,7 @@ import {
   IconHeartFilled,
   IconList
 } from "../../components/icons";
-import { MediaList } from "../../components/media/MediaList";
+import { NcmMediaList } from "./NcmMediaList";
 import { PageHeader } from "../../components/page/PageHeader";
 import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { createApiClient } from "../../shared/api/client";
@@ -61,7 +61,7 @@ const safeLoad = async <T,>(load: () => Promise<T>, fallback: T): Promise<T> => 
 };
 
 const openRadioSource = (id: number) => {
-  window.open(ncmDjRadioPageUrl(id), "_blank");
+  window.open(ncmDjRadioPageUrl(id), "_blank", "noopener,noreferrer");
 };
 
 export interface RadioDetailRequest {
@@ -571,7 +571,7 @@ export function NeteaseRadioPage(props: NeteaseRadioPageProps) {
                   />
                 }
               >
-                <MediaList
+                <NcmMediaList
                   items={radioTracks()}
                   currentSourcePath={props.currentTrackPath}
                   currentSongId={props.currentSongId}

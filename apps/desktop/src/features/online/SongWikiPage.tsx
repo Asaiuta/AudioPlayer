@@ -31,7 +31,7 @@ import {
   IconPlay,
   IconStar
 } from "../../components/icons";
-import { MediaList } from "../../components/media/MediaList";
+import { NcmMediaList } from "./NcmMediaList";
 import { SImage } from "../../components/SImage";
 import { NaiveH2, NaiveH3, NaiveSkeleton, NaiveSpin } from "../../shared/ui/naive";
 import { createErrorMessageReader, type FeedbackSetter } from "./shared/feedback";
@@ -383,7 +383,7 @@ export function SongWikiPage(props: SongWikiPageProps) {
                     <div class="song-wiki-section-title">
                       <NaiveH3>{t("ncm.songWiki.sections.similar")}</NaiveH3>
                     </div>
-                    <MediaList
+                    <NcmMediaList
                       items={similarSongs()}
                       rowHeight={72}
                       currentSourcePath={props.currentTrackPath}

@@ -1,11 +1,11 @@
 import { createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { Accessor } from "solid-js";
 import { createApiClient } from "../../shared/api/client";
-import { useTranslation } from "../../shared/i18n";
 import { likeSong } from "../../shared/api/ncm/user";
+import { useTranslation } from "../../shared/i18n";
 import { useNcmAccount } from "../../shared/state/NcmAccountContext";
 import { message } from "../../shared/ui/naive";
-import type { MediaListItem, MediaRowAction } from "./MediaList";
+import type { MediaListItem, MediaRowAction } from "../../components/media/MediaList";
 
 const ncmFavoriteApi = createApiClient();
 const likedSongIdsByUser = new Map<number, ReadonlySet<number>>();
@@ -13,7 +13,7 @@ const likedSongIdsByUser = new Map<number, ReadonlySet<number>>();
 const readErrorMessage = (error: unknown, fallback: string): string =>
   error instanceof Error && error.message.trim().length > 0 ? error.message : fallback;
 
-export function createDefaultFavoriteRowAction<T extends MediaListItem>(): Accessor<MediaRowAction<T>> {
+export function createNcmFavoriteRowAction<T extends MediaListItem>(): Accessor<MediaRowAction<T>> {
   const { t } = useTranslation();
   const accountStore = useNcmAccount();
   const [likedSongIds, setLikedSongIds] = createSignal<ReadonlySet<number>>(new Set<number>());
@@ -111,7 +111,7 @@ export function createDefaultFavoriteRowAction<T extends MediaListItem>(): Acces
           setLikedSongIds(next);
         }
       } catch (error) {
-        console.warn("[MediaList] load liked song ids failed", error);
+        console.warn("[NcmMediaList] load liked song ids failed", error);
         if (!cancelled && !cached) {
           setLikedSongIds(new Set<number>());
         }

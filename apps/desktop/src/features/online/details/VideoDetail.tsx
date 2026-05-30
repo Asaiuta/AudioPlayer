@@ -200,7 +200,11 @@ export function VideoDetail(props: VideoDetailProps) {
             <span><IconShare /> {formatNumber(detail()?.shareCount ?? null)}</span>
             <button type="button" class="ghost-button" onClick={() => {
               const id = currentVideoId() ?? 0;
-              window.open(currentVideoKind() === "mv" ? ncmMvPageUrl(id) : ncmVideoPageUrl(id), "_blank");
+              window.open(
+                currentVideoKind() === "mv" ? ncmMvPageUrl(id) : ncmVideoPageUrl(id),
+                "_blank",
+                "noopener,noreferrer"
+              );
             }}>
               <IconLink />
               {t("ncm.playlist.openSource")}
