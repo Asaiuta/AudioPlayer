@@ -28,7 +28,7 @@ import type { ScanProgress } from "./libraryScanState";
 import { nextSortForField, nextSortForOrder } from "./librarySortModel";
 
 const DEFAULT_LIBRARY_RANGE = { start: 0, end: 80 };
-const LEGACY_LIBRARY_TABS: readonly LibraryTab[] = ["artists", "albums", "folders"];
+const FULL_ROW_LIBRARY_TABS: readonly LibraryTab[] = ["folders"];
 
 interface LibraryControllerViewStateOptions {
   t: (key: TranslationKey, params?: Record<string, string | number>) => string;
@@ -69,7 +69,7 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
   const [libraryRevision, setLibraryRevision] = createSignal<string | null>(null);
   const [libraryTotalCount, setLibraryTotalCount] = createSignal<number>(0);
   const [virtualRows, setVirtualRows] = createSignal<LibraryListItem[]>([]);
-  const [legacyRows, setLegacyRows] = createSignal<LibraryListItem[]>([]);
+  const [fullRows, setFullRows] = createSignal<LibraryListItem[]>([]);
   const [artistGroupOptions, setArtistGroupOptions] = createSignal<LibraryTrackGroupSummary[]>([]);
   const [albumGroupOptions, setAlbumGroupOptions] = createSignal<LibraryTrackGroupSummary[]>([]);
   const [selectedArtistGroupKey, setSelectedArtistGroupKey] = createSignal<string | null>(null);
@@ -186,38 +186,38 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
       });
   };
 
-  let legacyRowsAbortController: AbortController | null = null;
+  let fullRowsAbortController: AbortController | null = null;
 
-  const refreshLegacyRows = async () => {
+  const refreshFullRows = async () => {
     if (!viewReady()) {
-      setLegacyRows([]);
+      setFullRows([]);
       return;
     }
-    legacyRowsAbortController?.abort();
+    fullRowsAbortController?.abort();
     const abortController = new AbortController();
-    legacyRowsAbortController = abortController;
+    fullRowsAbortController = abortController;
     try {
       const rows = await requestViewRows();
       if (!abortController.signal.aborted) {
-        setLegacyRows(rows);
+        setFullRows(rows);
       }
     } catch (error) {
       if (!abortController.signal.aborted) {
-        setLegacyRows([]);
+        setFullRows([]);
         setRawFeedback("error", readErrorMessage(error));
       }
     }
   };
 
   onCleanup(() => {
-    legacyRowsAbortController?.abort();
+    fullRowsAbortController?.abort();
   });
 
   const reloadLibraryView = async () => {
     const requestId = latestViewRequestId + 1;
     latestViewRequestId = requestId;
     latestGroupRequestId += 1;
-    setLegacyRows([]);
+    setFullRows([]);
     setArtistGroupOptions([]);
     setAlbumGroupOptions([]);
     setSelectedArtistGroupKey(null);
@@ -273,8 +273,8 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
       requestGroupedView("albums", untrack(selectedAlbumGroupKey));
       return;
     }
-    if (LEGACY_LIBRARY_TABS.includes(tab)) {
-      void refreshLegacyRows();
+    if (FULL_ROW_LIBRARY_TABS.includes(tab)) {
+      void refreshFullRows();
     }
   });
 
@@ -302,15 +302,15 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
     return [];
   });
   const folderTree = createMemo<LibraryFolderNode[]>(() => buildFolderTreeFromFolders(folderOptions()));
-  const legacyFilteredItems = createMemo(() => legacyRows());
+  const fullRowItems = createMemo(() => fullRows());
   const filteredItems = createMemo(() =>
-    activeTab() === "songs" ? virtualRows() : legacyFilteredItems()
+    activeTab() === "songs" ? virtualRows() : fullRowItems()
   );
   const activeGroupedItems = createMemo(() => {
     const tab = activeTab();
     if (tab === "artists") return artistGroupRows();
     if (tab === "albums") return albumGroupRows();
-    return legacyFilteredItems();
+    return fullRowItems();
   });
   const artistGroups = createMemo<LibraryGroup[]>(() =>
     artistGroupOptions().map((group) => ({
@@ -345,7 +345,7 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
           (1024 * 1024 * 1024)).toFixed(2)
       );
     }
-    const totalBytes = legacyFilteredItems().reduce((total, item) => total + (item.size_bytes ?? 0), 0);
+    const totalBytes = fullRowItems().reduce((total, item) => total + (item.size_bytes ?? 0), 0);
     return Number((totalBytes / (1024 * 1024 * 1024)).toFixed(2));
   });
 
@@ -358,8 +358,8 @@ export function createLibraryControllerViewState(options: LibraryControllerViewS
     setLibraryTotalCount,
     virtualRows,
     setVirtualRows,
-    legacyRows,
-    setLegacyRows,
+    fullRows,
+    setFullRows,
     virtualTotal,
     setVirtualTotal,
     virtualRange,

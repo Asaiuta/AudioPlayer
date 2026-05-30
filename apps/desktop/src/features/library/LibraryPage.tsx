@@ -49,7 +49,7 @@ type LibraryConfirmAction =
 
 export function LibraryPage(props: LibraryPageProps) {
   const { t } = useTranslation();
-  const { query: globalQuery } = useUISearch();
+  const { query: globalQuery, setQuery: setGlobalQuery, submitSearch } = useUISearch();
   const controller = useLibraryDataController({ t, globalQuery });
   const [playlistModalItems, setPlaylistModalItems] = createSignal<LibraryListItem[] | null>(null);
   const [batchModalItems, setBatchModalItems] = createSignal<LibraryListItem[] | null>(null);
@@ -147,11 +147,20 @@ export function LibraryPage(props: LibraryPageProps) {
     setConfirmAction({ kind: "remove-playlist-items", items: [...items] });
   };
 
+  const searchLibraryItem = (item: LibraryListItem) => {
+    const keyword = (item.title?.trim() || item.fileName?.trim() || item.source_path?.trim() || "").trim();
+    if (!keyword) return;
+    setGlobalQuery(keyword);
+    submitSearch();
+  };
+
   const handleContextAction = (action: MediaContextAction, item: LibraryListItem) => {
     if (action === "copy-name") {
       controller.notifyCopyName();
     } else if (action === "copy-path") {
       controller.notifyCopyPath();
+    } else if (action === "search") {
+      searchLibraryItem(item);
     } else if (action === "show-in-folder") {
       void controller.revealItemInFolder(item).catch(() => undefined);
     } else if (action === "add-to-playlist") {
