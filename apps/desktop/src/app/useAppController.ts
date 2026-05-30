@@ -24,7 +24,11 @@ import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useTranslation } from "../shared/i18n";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
 import { paletteEngine } from "../shared/theme/paletteEngine";
-import { applyUserAppearanceSettings } from "../shared/styles/customAppearance";
+import {
+  applyPlayerCoverAccentColor,
+  applyThemePaletteForSettings,
+  applyUserAppearanceSettings
+} from "../shared/styles/customAppearance";
 import type {
   ApiClient,
   NcmTrackSummary,
@@ -80,6 +84,8 @@ export interface AppController {
   currentLyricLines: Accessor<readonly NcmLyricLine[]>;
   currentInlineLyric: Accessor<string | null>;
   fullPlayerTitle: Accessor<string>;
+  fullPlayerArtist: Accessor<string | null>;
+  fullPlayerAlbum: Accessor<string | null>;
   fullPlayerSubtitle: Accessor<string>;
   fullPlayerDetail: Accessor<string | null>;
   lyricStatus: Accessor<"idle" | "loading" | "ready" | "error">;
@@ -170,7 +176,8 @@ export function useAppController(api: ApiClient): AppController {
     player: playback.player,
     livePosition: playback.livePosition,
     coverUrl: playback.coverUrl,
-    dynamicCoverEnabled: () => fullPlayerOpen() && uiSettings.dynamicCover
+    dynamicCoverEnabled: () => fullPlayerOpen() && uiSettings.dynamicCover,
+    localLyricDirectories: () => uiSettings.localLyricDirectories
   });
 
   const handleChangeCurrentNcmQuality = async (level: string) => {
@@ -290,28 +297,38 @@ export function useAppController(api: ApiClient): AppController {
   createEffect(() => {
     const themeMode = uiSettings.themeMode;
     void themeMode;
-    if (!uiSettings.playerFollowCoverColor) {
+    const playerFollowCoverColor = uiSettings.playerFollowCoverColor;
+    const themeFollowCover = uiSettings.themeFollowCover;
+    if (!playerFollowCoverColor && !themeFollowCover) {
+      applyPlayerCoverAccentColor(null);
       applyUserAppearanceSettings(uiSettings);
       return;
     }
     const url = ncm.currentNcmCoverUrl() ?? playback.coverUrl();
     let cancelled = false;
     if (!url) {
+      applyPlayerCoverAccentColor(null);
       applyUserAppearanceSettings(uiSettings);
       return;
     }
-    void paletteEngine.extractSourceColor(url).then((sourceColor) => {
+    void paletteEngine.extractPaletteSource(url).then((paletteSource) => {
       if (cancelled) return;
-      if (sourceColor === null) {
+      if (paletteSource === null) {
+        applyPlayerCoverAccentColor(null);
         applyUserAppearanceSettings(uiSettings);
         return;
       }
-      paletteEngine.applyPalette(
-        paletteEngine.createPaletteFromSource(
-          sourceColor,
-          document.documentElement.dataset.theme === "light" ? "light" : "dark"
-        )
+      const scheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+      const palette = paletteEngine.createPaletteFromExtractedSource(paletteSource, scheme);
+      applyPlayerCoverAccentColor(
+        playerFollowCoverColor ? palette.theme.main : null,
+        playerFollowCoverColor ? palette.theme.mainRgb : null
       );
+      if (!themeFollowCover) {
+        applyUserAppearanceSettings(uiSettings);
+        return;
+      }
+      applyThemePaletteForSettings(uiSettings, palette);
     });
     onCleanup(() => {
       cancelled = true;
@@ -358,6 +375,8 @@ export function useAppController(api: ApiClient): AppController {
     currentLyricLines: ncm.currentLyricLines,
     currentInlineLyric: ncm.currentInlineLyric,
     fullPlayerTitle: ncm.fullPlayerTitle,
+    fullPlayerArtist: ncm.fullPlayerArtist,
+    fullPlayerAlbum: ncm.fullPlayerAlbum,
     fullPlayerSubtitle: ncm.fullPlayerSubtitle,
     fullPlayerDetail: ncm.fullPlayerDetail,
     lyricStatus: ncm.lyricStatus,

@@ -42,19 +42,19 @@
 
   .full-player-comment-song {
     display: grid;
-    grid-template-columns: 60px minmax(0, 1fr) 40px;
+    grid-template-columns: 60px minmax(0, 1fr) auto;
     align-items: center;
     gap: 12px;
     min-height: 90px;
     margin: 0 60px 12px;
     padding: 0 16px;
-    border-radius: var(--radius-card);
+    border-radius: 12px;
     color: var(--full-player-ink);
     background: var(--full-player-glass);
   }
 
   .full-player-comment-song.is-cover-hidden {
-    grid-template-columns: minmax(0, 1fr) 40px;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .full-player-comment-song .cover-art,
@@ -62,7 +62,7 @@
   .full-player-comment-song .cover-art-image {
     width: 60px;
     height: 60px;
-    border-radius: var(--radius-card);
+    border-radius: 12px;
   }
 
   .full-player-comment-song-info {
@@ -89,19 +89,44 @@
     font-size: 14px;
   }
 
-  .full-player-comment-close {
-    display: grid;
-    place-items: center;
+  .full-player-comment-actions {
+    display: flex;
+    gap: 12px;
+  }
+
+  .full-player-comment-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     width: 40px;
     height: 40px;
     border: 0;
     border-radius: var(--radius-sm);
     color: var(--full-player-ink);
     background: var(--full-player-glass);
+    cursor: pointer;
+    transition:
+      background-color 0.3s var(--ease-standard),
+      opacity 0.3s var(--ease-standard);
   }
 
-  .full-player-comment-close:hover {
+  .full-player-comment-action svg {
+    width: 24px;
+    height: 24px;
+  }
+
+  .full-player-comment-action:first-child svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .full-player-comment-action:hover:not(:disabled) {
     background: var(--full-player-cover-color-28);
+  }
+
+  .full-player-comment-action:disabled {
+    opacity: 0.48;
+    cursor: not-allowed;
   }
 
   .full-player-comment-scroll {
@@ -144,8 +169,8 @@
 
   .full-player-comment-section h3 {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
     margin: 34px 0 4px;
     color: var(--full-player-ink);
     font-family: var(--font-display);
@@ -153,7 +178,20 @@
     font-weight: 730;
   }
 
-  .full-player-comment-section h3 span {
+  .full-player-comment-section h3 svg {
+    width: 22px;
+    height: 22px;
+    flex: none;
+  }
+
+  .full-player-comment-section-title {
+    color: inherit;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: inherit;
+  }
+
+  .full-player-comment-section-count {
     color: var(--full-player-ink-soft);
     font-family: var(--font-sans);
     font-size: 14px;

@@ -1,3 +1,14 @@
+  @keyframes full-player-breathe {
+    0%, 100% {
+      transform: scale(0.95);
+      opacity: 0.6;
+    }
+    50% {
+      transform: scale(1.1);
+      opacity: 1;
+    }
+  }
+
   .full-player-stage.is-lyrics-layout .full-player-cover {
     width: min(100%, 404px);
     max-height: min(44vh, 404px);
@@ -7,12 +18,60 @@
     font-size: clamp(22px, 2.3vw, 32px);
   }
 
-  .full-player-stage.is-lyrics-layout .full-player-subtitle {
+  .full-player-stage.is-lyrics-layout .full-player-artists,
+  .full-player-stage.is-lyrics-layout .full-player-album {
     font-size: clamp(14px, 1.05vw, 17px);
   }
 
   .full-player-stage.is-lyrics-layout .full-player-lyric-line {
     font-size: var(--lyric-font-size, clamp(34px, 4.8vw, 72px));
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .full-player-lyric-list {
+      scroll-behavior: auto;
+    }
+
+    .full-player-cover .cover-art-image:hover,
+    .full-player-cover:hover .cover-art-image,
+    .full-player-lyric-line.is-active,
+    .full-player,
+    .full-player.is-open,
+    .full-player.expand-animation-flow,
+    .full-player.expand-animation-flow.is-open,
+    .full-player-stage.is-comment-fullscreen .full-player-primary,
+    .full-player-stage.is-comment-fullscreen .full-player-lyric-panel {
+      transform: none;
+    }
+
+    .full-player,
+    .full-player.is-open,
+    .full-player.expand-animation-flow,
+    .full-player.expand-animation-flow.is-open {
+      filter: none;
+      transition: opacity var(--duration-base) var(--ease-standard);
+    }
+
+    .full-player-primary,
+    .full-player-lyric-panel,
+    .full-player-comment-panel {
+      transition: opacity var(--duration-base) var(--ease-standard);
+    }
+
+    .full-player-comment-panel.mode-fullscreen,
+    .full-player-comment-panel.mode-fullscreen.visible {
+      transform: translateX(-50%) scale(1);
+    }
+
+    .full-player.cover-mode-record .full-player-cover .cover-art {
+      animation: none;
+    }
+
+    .full-player-vinyl-needle,
+    .full-player.cover-mode-record .full-player-cover.is-playing .full-player-vinyl-needle {
+      transition: none;
+      transform: rotate(-12deg);
+    }
   }
 
   @media (max-width: 989.98px) {
@@ -111,5 +170,52 @@
 
     .full-player-control-shell {
       height: 80px;
+    }
+  }
+
+  @media (max-width: 420px), (max-height: 560px) {
+    .full-player-cover,
+    .full-player-stage.is-lyrics-layout .full-player-cover {
+      width: min(210px, 30vh, 72vw);
+      max-height: min(30vh, 210px);
+    }
+
+    .full-player-spectrum {
+      display: none;
+    }
+
+    .full-player-title {
+      font-size: clamp(22px, 7.6vw, 30px);
+    }
+
+    .full-player-artists,
+    .full-player-album {
+      margin-top: 6px;
+      font-size: 13px;
+    }
+
+    .full-player-play-meta {
+      display: none;
+    }
+
+    .full-player-transport .transport-button {
+      width: 34px;
+      height: 34px;
+    }
+
+    .full-player-transport .transport-primary {
+      width: 44px;
+      height: 44px;
+    }
+
+    .full-player-lyric-list {
+      height: min(42vh, 290px);
+      padding-top: 38px;
+      padding-bottom: 62px;
+    }
+
+    .full-player-lyric-line,
+    .full-player-stage.is-lyrics-layout .full-player-lyric-line {
+      font-size: clamp(22px, 7.8vw, 34px);
     }
   }

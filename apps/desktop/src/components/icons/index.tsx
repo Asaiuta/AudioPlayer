@@ -69,6 +69,15 @@ export function IconMusic(props: IconProps) {
   );
 }
 
+export function IconTag(props: IconProps) {
+  return (
+    <svg {...baseProps} {...props}>
+      <path d="M3.8 4.6v5.2c0 0.5 0.2 1 0.6 1.4l5.9 5.9a1.8 1.8 0 0 0 2.5 0l4.3-4.3a1.8 1.8 0 0 0 0-2.5L11.2 4.4A2 2 0 0 0 9.8 3.8H4.6a0.8 0.8 0 0 0-0.8 0.8z" />
+      <circle cx="7.2" cy="7.2" r="1.1" />
+    </svg>
+  );
+}
+
 export function IconStorage(props: IconProps) {
   return (
     <svg {...baseProps} {...props}>
@@ -165,6 +174,26 @@ export function IconChevronRight(props: IconProps) {
   return (
     <svg {...baseProps} {...props}>
       <path d="M8 4l5 6-5 6" />
+    </svg>
+  );
+}
+
+export function IconReplay5(props: IconProps) {
+  return (
+    <svg {...baseProps} viewBox="0 0 24 24" {...props}>
+      <path d="M8 7H4V3" />
+      <path d="M4.8 7A8 8 0 1 1 4 12" />
+      <path d="M14.2 9.2h-3.6l-0.4 2.4h1.9a2.2 2.2 0 1 1-2 3" />
+    </svg>
+  );
+}
+
+export function IconForward5(props: IconProps) {
+  return (
+    <svg {...baseProps} viewBox="0 0 24 24" {...props}>
+      <path d="M16 7h4V3" />
+      <path d="M19.2 7A8 8 0 1 0 20 12" />
+      <path d="M14.2 9.2h-3.6l-0.4 2.4h1.9a2.2 2.2 0 1 1-2 3" />
     </svg>
   );
 }

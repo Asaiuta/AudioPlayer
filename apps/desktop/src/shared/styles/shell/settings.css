@@ -36,61 +36,34 @@
 
   @keyframes settings-highlight-pulse {
     0% {
-      background: var(--color-primary-tonal-28);
+      opacity: 0;
+    }
+    20% {
+      opacity: 1;
+    }
+    40% {
+      opacity: 0;
+    }
+    60% {
+      opacity: 1;
+    }
+    80% {
+      opacity: 0;
     }
     100% {
-      background: color-mix(in oklch, var(--surface-2) 50%, transparent);
+      opacity: 0;
     }
   }
 
-  /* ── Toggle switch ───────────────────────────────────── */
-
-  .toggle-switch {
-    position: relative;
-    display: inline-block;
-    width: 40px;
-    height: 22px;
-    cursor: pointer;
-  }
-
-  .toggle-switch input {
-    opacity: 0;
-    width: 0;
-    height: 0;
-    position: absolute;
-  }
-
-  .toggle-switch-slider {
-    position: absolute;
-    inset: 0;
-    border-radius: var(--radius-pill);
-    background: var(--surface-3);
-    transition: background var(--duration-fast) var(--ease-standard);
-  }
-
-  .toggle-switch-slider::before {
-    content: "";
-    position: absolute;
-    left: 2px;
-    top: 2px;
-    width: 18px;
-    height: 18px;
-    border-radius: var(--radius-pill);
-    background: var(--text);
-    transition: transform var(--duration-fast) var(--ease-standard);
-  }
-
-  .toggle-switch input:checked + .toggle-switch-slider {
-    background: var(--accent);
-  }
-
-  .toggle-switch input:checked + .toggle-switch-slider::before {
-    transform: translateX(18px);
-    background: white;
-  }
-
-  .toggle-switch input:focus-visible + .toggle-switch-slider {
-    box-shadow: 0 0 0 3px var(--color-primary-tonal-28);
+  @keyframes settings-search-fade-down {
+    from {
+      opacity: 0;
+      transform: translate3d(0, -10px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
   }
 
   /* ── Range with value ────────────────────────────────── */

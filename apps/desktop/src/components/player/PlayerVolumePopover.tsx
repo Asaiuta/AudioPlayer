@@ -18,6 +18,7 @@ interface PlayerVolumePopoverProps {
   sliderDisabled?: boolean;
   sliderClass?: string;
   sliderStyle?: JSX.CSSProperties;
+  triggerRootStyle?: JSX.CSSProperties;
   valueClass?: string;
   onButtonClick?: JSX.EventHandlerUnion<HTMLButtonElement, MouseEvent>;
   onButtonWheel?: JSX.EventHandlerUnion<HTMLButtonElement, WheelEvent>;
@@ -54,7 +55,7 @@ export function PlayerVolumePopover(props: PlayerVolumePopoverProps) {
       raw
       class={props.popoverClass}
       ariaLabel={props.dialogLabel}
-      rootStyle={{ width: "38px", height: "38px" }}
+      rootStyle={props.triggerRootStyle ?? { width: "38px", height: "38px" }}
       trigger={
         <button
           type="button"

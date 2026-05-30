@@ -25,35 +25,12 @@
     pointer-events: none;
   }
 
-  .full-player-mobile-topbar-button,
-  .full-player-mobile-action-button,
-  .full-player-mobile-mode-button,
-  .full-player-mobile-control-button,
-  .full-player-mobile-play-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: 0;
-    border-radius: var(--radius-pill);
-    color: var(--full-player-ink);
-    background: transparent;
-    transition:
-      background-color 0.2s var(--ease-standard),
-      color 0.2s var(--ease-standard),
-      transform 0.2s var(--ease-standard),
-      opacity 0.2s var(--ease-standard);
-  }
-
   .full-player-mobile-topbar-button {
-    width: 40px;
-    height: 40px;
+    --full-player-button-size: 40px;
+    --full-player-button-icon-size: 26px;
+    --full-player-button-radius: var(--radius-pill);
     pointer-events: auto;
     opacity: 0.8;
-  }
-
-  .full-player-mobile-topbar-button svg {
-    width: 26px;
-    height: 26px;
   }
 
   .full-player-mobile-content {
@@ -183,8 +160,9 @@
   }
 
   .full-player-mobile-action-button {
-    width: 40px;
-    height: 40px;
+    --full-player-button-size: 40px;
+    --full-player-button-icon-size: 26px;
+    --full-player-button-radius: var(--radius-pill);
     opacity: 0.6;
   }
 
@@ -193,16 +171,13 @@
     opacity: 1;
   }
 
-  .full-player-mobile-action-button svg {
-    width: 26px;
-    height: 26px;
+  .full-player-mobile-action-button.is-active svg {
+    fill: currentColor;
   }
 
   .full-player-mobile-progress-section {
-    display: grid;
-    grid-template-columns: 40px minmax(0, 1fr) 40px;
+    display: flex;
     align-items: center;
-    gap: 12px;
     margin: 0 4px 30px;
   }
 
@@ -211,13 +186,22 @@
     color: var(--full-player-ink);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
+    line-height: 1;
     opacity: 0.6;
     text-align: center;
+    cursor: pointer;
+    transition: opacity 0.3s var(--ease-standard);
+  }
+
+  .full-player-mobile-time:hover {
+    opacity: 1;
   }
 
   .full-player-mobile-progress {
     position: relative;
+    flex: 1;
     height: 4px;
+    margin: 0 12px;
     overflow: hidden;
     border-radius: var(--radius-pill);
     background: var(--full-player-progress-rail);
@@ -245,8 +229,12 @@
   }
 
   .full-player-mobile-mode-button {
-    width: 40px;
-    height: 40px;
+    --full-player-button-size: 40px;
+    --full-player-button-icon-size: 24px;
+    --full-player-button-radius: var(--radius-pill);
+    --full-player-button-hover-bg: transparent;
+    --full-player-button-hover-scale: 1;
+    --full-player-button-active-scale: 0.95;
     opacity: 0.8;
   }
 
@@ -255,39 +243,30 @@
   }
 
   .full-player-mobile-control-button {
-    width: 50px;
-    height: 50px;
-  }
-
-  .full-player-mobile-control-button svg {
-    width: 36px;
-    height: 36px;
-  }
-
-  .full-player-mobile-mode-button svg {
-    width: 24px;
-    height: 24px;
+    --full-player-button-size: 50px;
+    --full-player-button-icon-size: 36px;
+    --full-player-button-radius: var(--radius-pill);
+    --full-player-button-hover-bg: transparent;
+    --full-player-button-hover-scale: 1;
+    --full-player-button-active-scale: 0.95;
   }
 
   .full-player-mobile-play-button {
-    width: 60px;
-    height: 60px;
+    --full-player-button-size: 60px;
+    --full-player-button-icon-size: 40px;
+    --full-player-button-radius: var(--radius-pill);
+    --full-player-button-hover-bg: var(--full-player-cover-color-20);
+    --full-player-button-active-scale: 0.95;
     color: var(--full-player-ink-active);
-    background: var(--full-player-cover-color-20);
+    background-color: var(--full-player-cover-color-20);
   }
 
-  .full-player-mobile-play-button svg {
-    width: 40px;
-    height: 40px;
+  .full-player-mobile-play-button:hover:not(:disabled) {
+    background-color: var(--full-player-cover-color-20);
   }
 
-  .full-player-mobile-topbar-button:active,
-  .full-player-mobile-action-button:active,
-  .full-player-mobile-mode-button:active,
-  .full-player-mobile-control-button:active,
   .full-player-mobile-play-button:active {
-    transform: scale(0.95);
-    background: var(--full-player-cover-color-14);
+    background-color: var(--full-player-cover-color-12);
   }
 
   .full-player-mobile-lyric-page {
@@ -354,6 +333,10 @@
     height: 100%;
   }
 
+  .full-player-mobile-lyric-main .full-player-lyric-menu {
+    display: none;
+  }
+
   .full-player-mobile-lyric-main .full-player-lyric-list {
     gap: 22px;
     padding: 42px 0 88px;
@@ -386,7 +369,7 @@
     padding: 0;
     border: 0;
     border-radius: var(--radius-pill);
-    background: color-mix(in oklch, var(--full-player-ink) 20%, transparent);
+    background: rgb(255 255 255 / 0.2);
     pointer-events: auto;
     transition:
       width 0.3s var(--ease-standard),
@@ -396,6 +379,7 @@
 
   .full-player-mobile-dot.is-active {
     width: 16px;
+    border-radius: 4px;
     background: var(--full-player-ink);
     opacity: 0.8;
   }

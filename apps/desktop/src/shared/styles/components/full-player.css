@@ -1,3 +1,5 @@
+@layer reset, tokens, base, components;
+
 @import "../full-player/shell.css" layer(components);
 @import "../full-player/background.css" layer(components);
 @import "../full-player/layout.css" layer(components);

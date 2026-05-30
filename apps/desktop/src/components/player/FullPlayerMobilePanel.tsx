@@ -1,5 +1,9 @@
 import { Show, createEffect, createMemo, createSignal, type Component, type JSX } from "solid-js";
 import { CoverArt } from "../CoverArt";
+import {
+  FullPlayerActionButton,
+  FullPlayerTimeButton
+} from "./FullPlayerInteractions";
 import { FullPlayerVinylNeedle } from "./FullPlayerPrimaryPanel";
 import {
   IconChevronDown,
@@ -7,6 +11,7 @@ import {
   IconHeartBit,
   IconHeartFilled,
   IconPause,
+  IconPlaylist,
   IconPlay,
   IconShuffle,
   IconSkipNext,
@@ -29,8 +34,11 @@ interface FullPlayerMobileMetaProps {
 interface FullPlayerMobileActionsProps {
   showLike: boolean;
   isLiked: boolean;
+  showAddToPlaylist: boolean;
+  canAddToPlaylist: boolean;
   onClose: () => void;
   onToggleLike?: () => void;
+  onAddToPlaylist?: () => void;
 }
 
 interface FullPlayerMobileTransportProps {
@@ -50,11 +58,13 @@ interface FullPlayerMobileTransportProps {
   progress: number;
   timeLeft: string;
   timeRight: string;
+  timeToggleLabel: string;
   onToggleShuffle: () => void;
   onSkipPrev: () => void;
   onPlayPause: () => void;
   onSkipNext: () => void;
   onCycleRepeat: () => void;
+  onCycleTimeFormat: () => void;
   onProgressClick: (event: MouseEvent) => void;
   onProgressKeyDown: (event: KeyboardEvent) => void;
 }
@@ -62,6 +72,7 @@ interface FullPlayerMobileTransportProps {
 interface FullPlayerMobileLabelsProps {
   close: string;
   favorite: string;
+  addToPlaylist: string;
   transport: string;
   prev: string;
   next: string;
@@ -144,15 +155,14 @@ export function FullPlayerMobilePanel(props: FullPlayerMobilePanelProps) {
   return (
     <section class="full-player-mobile">
       <div class="full-player-mobile-topbar">
-        <button
-          type="button"
+        <FullPlayerActionButton
           class="full-player-mobile-topbar-button"
           onClick={props.actions.onClose}
-          aria-label={props.labels.close}
+          label={props.labels.close}
           title={props.labels.close}
         >
           <IconChevronDown />
-        </button>
+        </FullPlayerActionButton>
       </div>
 
       <div
@@ -185,25 +195,42 @@ export function FullPlayerMobilePanel(props: FullPlayerMobilePanelProps) {
               </div>
               <div class="full-player-mobile-info-actions">
                 <Show when={props.actions.showLike}>
-                  <button
-                    type="button"
-                    class={`full-player-mobile-action-button${props.actions.isLiked ? " is-active" : ""}`}
+                  <FullPlayerActionButton
+                    class="full-player-mobile-action-button"
                     onClick={() => props.actions.onToggleLike?.()}
                     disabled={!props.actions.onToggleLike}
-                    aria-label={props.labels.favorite}
-                    aria-pressed={props.actions.isLiked}
+                    label={props.labels.favorite}
+                    pressed={props.actions.isLiked}
                     title={props.labels.favorite}
+                    active={props.actions.isLiked}
                   >
                     <Show when={props.actions.isLiked} fallback={<IconHeart />}>
                       <IconHeartFilled />
                     </Show>
-                  </button>
+                  </FullPlayerActionButton>
+                </Show>
+                <Show when={props.actions.showAddToPlaylist}>
+                  <FullPlayerActionButton
+                    class="full-player-mobile-action-button"
+                    onClick={() => props.actions.onAddToPlaylist?.()}
+                    disabled={!props.actions.canAddToPlaylist || !props.actions.onAddToPlaylist}
+                    label={props.labels.addToPlaylist}
+                    title={props.labels.addToPlaylist}
+                  >
+                    <IconPlaylist />
+                  </FullPlayerActionButton>
                 </Show>
               </div>
             </div>
 
             <div class="full-player-mobile-progress-section">
-              <span class="full-player-mobile-time">{props.transport.timeLeft}</span>
+              <FullPlayerTimeButton
+                class="full-player-mobile-time"
+                onClick={props.transport.onCycleTimeFormat}
+                label={props.transport.timeToggleLabel}
+              >
+                {props.transport.timeLeft}
+              </FullPlayerTimeButton>
               <div
                 class={`full-player-mobile-progress${props.transport.canSeek ? " is-interactive" : ""}`}
                 role={props.transport.canSeek ? "slider" : "presentation"}
@@ -220,66 +247,69 @@ export function FullPlayerMobilePanel(props: FullPlayerMobilePanelProps) {
                   style={{ width: `${props.transport.progress * 100}%` }}
                 />
               </div>
-              <span class="full-player-mobile-time">{props.transport.timeRight}</span>
+              <FullPlayerTimeButton
+                class="full-player-mobile-time"
+                onClick={props.transport.onCycleTimeFormat}
+                label={props.transport.timeToggleLabel}
+              >
+                {props.transport.timeRight}
+              </FullPlayerTimeButton>
             </div>
 
             <div class="full-player-mobile-control-section" role="group" aria-label={props.labels.transport}>
-              <button
-                type="button"
-                class={`full-player-mobile-mode-button${props.transport.shuffleActive ? " is-active" : ""}`}
+              <FullPlayerActionButton
+                class="full-player-mobile-mode-button"
                 onClick={props.transport.onToggleShuffle}
-                aria-label={props.transport.shuffleLabel}
-                aria-pressed={props.transport.shuffleActive}
+                label={props.transport.shuffleLabel}
+                pressed={props.transport.shuffleActive}
                 title={props.transport.shuffleLabel}
+                active={props.transport.shuffleActive}
               >
                 <Show when={props.transport.isHeartbeat} fallback={<IconShuffle />}>
                   <IconHeartBit />
                 </Show>
-              </button>
-              <button
-                type="button"
+              </FullPlayerActionButton>
+              <FullPlayerActionButton
                 class="full-player-mobile-control-button"
                 onClick={props.transport.onSkipPrev}
                 disabled={!props.transport.canSkipPrev}
-                aria-label={props.labels.prev}
+                label={props.labels.prev}
                 title={props.labels.prev}
               >
                 <IconSkipPrev />
-              </button>
-              <button
-                type="button"
+              </FullPlayerActionButton>
+              <FullPlayerActionButton
                 class="full-player-mobile-play-button"
                 onClick={props.transport.onPlayPause}
-                aria-label={props.transport.playPauseLabel}
+                label={props.transport.playPauseLabel}
                 title={props.transport.playPauseLabel}
               >
                 <Show when={props.transport.isPlaying} fallback={<IconPlay />}>
                   <IconPause />
                 </Show>
-              </button>
-              <button
-                type="button"
+              </FullPlayerActionButton>
+              <FullPlayerActionButton
                 class="full-player-mobile-control-button"
                 onClick={props.transport.onSkipNext}
                 disabled={!props.transport.canSkipNext}
-                aria-label={props.labels.next}
+                label={props.labels.next}
                 title={props.labels.next}
               >
                 <IconSkipNext />
-              </button>
-              <button
-                type="button"
-                class={`full-player-mobile-mode-button${props.transport.repeatActive ? " is-active" : ""}`}
+              </FullPlayerActionButton>
+              <FullPlayerActionButton
+                class="full-player-mobile-mode-button"
                 onClick={props.transport.onCycleRepeat}
-                aria-label={props.transport.repeatLabel}
-                aria-pressed={props.transport.repeatActive}
+                label={props.transport.repeatLabel}
+                pressed={props.transport.repeatActive}
                 title={props.transport.repeatLabel}
+                active={props.transport.repeatActive}
               >
                 {(() => {
                   const Icon = RepeatIcon();
                   return <Icon />;
                 })()}
-              </button>
+              </FullPlayerActionButton>
             </div>
           </div>
         </div>
@@ -295,19 +325,19 @@ export function FullPlayerMobilePanel(props: FullPlayerMobilePanelProps) {
                 <div class="full-player-mobile-lyric-subtitle">{props.meta.subtitle}</div>
               </div>
               <Show when={props.actions.showLike}>
-                <button
-                  type="button"
-                  class={`full-player-mobile-action-button${props.actions.isLiked ? " is-active" : ""}`}
+                <FullPlayerActionButton
+                  class="full-player-mobile-action-button"
                   onClick={() => props.actions.onToggleLike?.()}
                   disabled={!props.actions.onToggleLike}
-                  aria-label={props.labels.favorite}
-                  aria-pressed={props.actions.isLiked}
+                  label={props.labels.favorite}
+                  pressed={props.actions.isLiked}
                   title={props.labels.favorite}
+                  active={props.actions.isLiked}
                 >
                   <Show when={props.actions.isLiked} fallback={<IconHeart />}>
                     <IconHeartFilled />
                   </Show>
-                </button>
+                </FullPlayerActionButton>
               </Show>
             </div>
             <div class="full-player-mobile-lyric-main">{props.lyrics()}</div>

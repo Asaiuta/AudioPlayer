@@ -1,4 +1,5 @@
   .full-player-lyric-panel {
+    position: relative;
     display: flex;
     width: 100%;
     min-height: 0;
@@ -199,4 +200,159 @@
   .full-player-lyric-line.is-active .full-player-lyric-translation,
   .full-player-lyric-line.is-active .full-player-lyric-romanization {
     color: var(--full-player-ink-soft);
+  }
+
+  .full-player-lyric-menu {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: flex;
+    width: 80px;
+    height: 100%;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-between;
+    padding: 20% 0;
+    box-sizing: border-box;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s var(--ease-standard);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .full-player-lyric-panel:hover .full-player-lyric-menu.show {
+      opacity: 0.6;
+      pointer-events: auto;
+    }
+  }
+
+  .full-player-lyric-menu-divider {
+    width: 40px;
+    height: 2px;
+    background: var(--full-player-cover-color-12);
+  }
+
+  .full-player-lyric-menu-time {
+    appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    color: var(--full-player-ink);
+    background: transparent;
+    cursor: pointer;
+    transition:
+      background-color 0.3s var(--ease-standard),
+      transform 0.3s var(--ease-standard),
+      opacity 0.3s var(--ease-standard);
+  }
+
+  .full-player-lyric-menu-icon {
+    --full-player-button-size: 42px;
+    --full-player-button-icon-size: 30px;
+    --full-player-button-radius: var(--radius-sm);
+    --full-player-button-hover-scale: 1.1;
+    --full-player-button-hover-bg: var(--full-player-cover-color-14);
+  }
+
+  .full-player-lyric-menu-time {
+    width: 40px;
+    min-height: 28px;
+    margin: 8px 0;
+    padding: 4px 0;
+    border: 1px solid var(--full-player-cover-color-12);
+    background: var(--full-player-cover-color-14);
+    backdrop-filter: blur(10px);
+    font-size: 12px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .full-player-lyric-menu-time::after {
+    content: "s";
+    margin-left: 2px;
+  }
+
+  .full-player-lyric-menu-time:hover:not(:disabled) {
+    transform: scale(1.1);
+  }
+
+  .full-player-lyric-menu-time:hover:not(:disabled) {
+    background: var(--full-player-cover-color-28);
+  }
+
+  .full-player-lyric-menu-time:active:not(:disabled) {
+    transform: scale(1);
+  }
+
+  .full-player-lyric-menu-time:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .full-player-lyric-offset-trigger {
+    display: inline-flex;
+  }
+
+  .n-popover.n-popover-shared.full-player-lyric-offset-popover {
+    --n-color: var(--full-player-cover-color-20);
+    --n-text-color: var(--full-player-cover-color-82);
+    --n-padding: 8px;
+    --n-border-radius: var(--radius-sm);
+    --n-box-shadow:
+      0 3px 6px -4px rgb(0 0 0 / 0.24),
+      0 6px 12px 0 rgb(0 0 0 / 0.16),
+      0 9px 18px 8px rgb(0 0 0 / 0.1);
+    background-color: var(--n-color);
+    color: var(--n-text-color);
+  }
+
+  .full-player-lyric-offset-menu {
+    display: flex;
+    width: 180px;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .full-player-lyric-offset-menu .title {
+    font-size: 14px;
+    line-height: normal;
+  }
+
+  .full-player-lyric-offset-menu .tip {
+    font-size: 12px;
+    opacity: 0.6;
+  }
+
+  .full-player-lyric-offset-menu .offset-input .naive-input.n-input,
+  .full-player-lyric-offset-menu .offset-input .naive-input-number-input.n-input {
+    --n-caret-color: var(--full-player-ink);
+    --n-color: var(--full-player-cover-color-10);
+    --n-color-focus: var(--full-player-cover-color-10);
+    --n-text-color: var(--full-player-ink);
+    --n-border-hover: 1px solid var(--full-player-cover-color-28);
+    --n-border-focus: 1px solid var(--full-player-cover-color-28);
+    --n-suffix-text-color: var(--full-player-ink);
+    --n-box-shadow-focus: 0 0 8px 0 var(--full-player-cover-color-30);
+  }
+
+  .full-player-lyric-offset-menu .offset-input input::selection {
+    background: var(--full-player-ink);
+  }
+
+  .full-player-lyric-offset-menu .naive-button.player {
+    min-height: 28px;
+    justify-content: center;
+    border-radius: var(--radius-sm);
+    color: var(--full-player-ink);
+    background: var(--full-player-cover-color-10);
+    transition:
+      background-color 0.3s var(--ease-standard),
+      opacity 0.3s var(--ease-standard);
+  }
+
+  .full-player-lyric-offset-menu .naive-button.player:hover:not(:disabled) {
+    background: var(--full-player-cover-color-28);
   }

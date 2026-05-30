@@ -16,8 +16,8 @@ import {
   type NaiveSidebarPopselectOption,
   type NaiveSidebarIconComponent
 } from "../shared/ui/naive";
-import { CreatePlaylistModal } from "./CreatePlaylistModal";
-import { SImage } from "./SImage";
+import { CreatePlaylistModal } from "../components/CreatePlaylistModal";
+import { SImage } from "../components/SImage";
 import type { OnlinePlaylistSummary, UserPlaylistMode } from "../features/online/ncmPlaylistSummary";
 import {
   loadNcmUserPlaylistGroupsCached,
@@ -48,7 +48,7 @@ import {
   IconSPlayerRadio,
   IconSPlayerRecord,
   IconSPlayerStar
-} from "./icons";
+} from "../components/icons";
 
 type IconComponent = NaiveSidebarIconComponent;
 

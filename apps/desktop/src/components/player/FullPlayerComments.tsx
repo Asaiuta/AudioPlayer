@@ -4,7 +4,7 @@ import type { NcmSongComment } from "../../shared/api/ncm/comment";
 import { NaiveH3, NaiveP } from "../../shared/ui/naive";
 import { SImage } from "../SImage";
 import { CoverArt } from "../CoverArt";
-import { IconPlay } from "../icons";
+import { IconFire, IconMessage, IconMusic, IconTag } from "../icons";
 
 interface FullPlayerCommentsSongProps {
   className: string;
@@ -13,6 +13,8 @@ interface FullPlayerCommentsSongProps {
   title: string;
   subtitle: string;
   coverAlt: string;
+  filterLabel: string;
+  filterUnavailableLabel: string;
   backLabel: string;
   showCover: Accessor<boolean>;
   onClose: () => void;
@@ -46,15 +48,26 @@ export function FullPlayerComments(props: FullPlayerCommentsProps) {
           <span class="full-player-comment-song-title">{props.song.title}</span>
           <span class="full-player-comment-song-artist">{props.song.subtitle}</span>
         </div>
-        <button
-          type="button"
-          class="full-player-comment-close"
-          onClick={props.song.onClose}
-          aria-label={props.song.backLabel}
-          title={props.song.backLabel}
-        >
-          <IconPlay />
-        </button>
+        <div class="full-player-comment-actions">
+          <button
+            type="button"
+            class="full-player-comment-action"
+            disabled
+            aria-label={props.song.filterLabel}
+            title={props.song.filterUnavailableLabel}
+          >
+            <IconTag />
+          </button>
+          <button
+            type="button"
+            class="full-player-comment-action"
+            onClick={props.song.onClose}
+            aria-label={props.song.backLabel}
+            title={props.song.backLabel}
+          >
+            <IconMusic />
+          </button>
+        </div>
       </div>
 
       <div class="full-player-comment-scroll">
@@ -69,7 +82,10 @@ export function FullPlayerComments(props: FullPlayerCommentsProps) {
         </Show>
         <Show when={props.content.hotComments.length > 0}>
           <section class="full-player-comment-section">
-            <NaiveH3>{props.content.hotLabel}</NaiveH3>
+            <NaiveH3>
+              <IconFire />
+              <span class="full-player-comment-section-title">{props.content.hotLabel}</span>
+            </NaiveH3>
             <For each={props.content.hotComments}>
               {(comment) => <CommentItem comment={comment} />}
             </For>
@@ -78,9 +94,10 @@ export function FullPlayerComments(props: FullPlayerCommentsProps) {
         <Show when={props.content.comments.length > 0}>
           <section class="full-player-comment-section">
             <NaiveH3>
-              {props.content.allLabel}
+              <IconMessage />
+              <span class="full-player-comment-section-title">{props.content.allLabel}</span>
               <Show when={props.content.commentCount > 0}>
-                <span>{props.content.commentCount}</span>
+                <span class="full-player-comment-section-count">{props.content.commentCount}</span>
               </Show>
             </NaiveH3>
             <For each={props.content.comments}>

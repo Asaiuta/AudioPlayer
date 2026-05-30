@@ -1,4 +1,3 @@
-import { createEffect, createSignal } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { PlayerState, RequestState } from "../../shared/api/types";
 import type { TranslationKey, TranslationParams } from "../../shared/i18n";
@@ -17,21 +16,13 @@ interface UsePlayerBarDisplayOptions {
 }
 
 export function usePlayerBarDisplay(options: UsePlayerBarDisplayOptions) {
-  const [hasEverHadTrack, setHasEverHadTrack] = createSignal(false);
-
   const player = () => {
     const request = options.request();
     return request.status === "success" ? request.data : null;
   };
   const hasTrack = () => Boolean(player()?.file_path || player()?.media_id);
 
-  createEffect(() => {
-    if (hasTrack()) {
-      setHasEverHadTrack(true);
-    }
-  });
-
-  const isBarVisible = () => hasEverHadTrack() || options.request().status === "success";
+  const isBarVisible = () => hasTrack();
 
   const fallbackTitle = () => {
     const request = options.request();

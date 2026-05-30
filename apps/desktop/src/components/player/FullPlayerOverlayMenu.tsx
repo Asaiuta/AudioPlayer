@@ -5,6 +5,7 @@ import {
   IconRestore,
   IconTextPlay
 } from "../icons";
+import { FullPlayerActionButton } from "./FullPlayerInteractions";
 
 interface FullPlayerOverlayMenuState {
   visible: boolean;
@@ -42,16 +43,16 @@ export function FullPlayerOverlayMenu(props: FullPlayerOverlayMenuProps) {
         onMouseLeave={props.onMouseLeave}
       >
         <Show when={props.state.canShowPureLyrics}>
-          <button
-            type="button"
-            class={`full-player-menu-icon${props.state.pureLyricMode ? " is-active" : ""}`}
+          <FullPlayerActionButton
+            class="full-player-menu-icon"
             onClick={props.actions.onTogglePureLyricMode}
-            aria-label={props.labels.pureLyric}
-            aria-pressed={props.state.pureLyricMode}
+            label={props.labels.pureLyric}
+            pressed={props.state.pureLyricMode}
             title={props.labels.pureLyric}
+            active={props.state.pureLyricMode}
           >
             <IconTextPlay />
-          </button>
+          </FullPlayerActionButton>
         </Show>
       </div>
       <div class="full-player-overlay-drag" aria-hidden="true" />
@@ -60,27 +61,25 @@ export function FullPlayerOverlayMenu(props: FullPlayerOverlayMenuProps) {
         onMouseEnter={props.onMouseEnter}
         onMouseLeave={props.onMouseLeave}
       >
-        <button
-          type="button"
+        <FullPlayerActionButton
           class="full-player-menu-icon"
           onClick={props.actions.onToggleFullscreen}
-          aria-label={props.labels.fullscreen}
+          label={props.labels.fullscreen}
           title={props.labels.fullscreen}
         >
           <Show when={props.state.isFullscreen} fallback={<IconMaximize />}>
             <IconRestore />
           </Show>
-        </button>
+        </FullPlayerActionButton>
         <Show when={!props.state.isFullscreen}>
-          <button
-            type="button"
+          <FullPlayerActionButton
             class="full-player-menu-icon"
             onClick={props.actions.onClose}
-            aria-label={props.labels.close}
+            label={props.labels.close}
             title={props.labels.close}
           >
             <IconChevronDown />
-          </button>
+          </FullPlayerActionButton>
         </Show>
       </div>
     </div>

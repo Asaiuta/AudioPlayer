@@ -20,12 +20,6 @@ export interface FullPlayerLayoutSettings {
 
 const clampPlayerStyleRatio = (value: number) => Math.min(70, Math.max(30, value));
 
-const clampBackgroundFlowSpeed = (value: number) => Math.min(10, Math.max(0.1, value));
-
-const clampBackgroundFps = (value: number) => Math.min(256, Math.max(24, value));
-
-const clampBackgroundRenderScale = (value: number) => Math.min(3, Math.max(0.1, value));
-
 const getLayoutRatios = (settings: FullPlayerLayoutSettings) => {
   const leftRatio = settings.playerType === "fullscreen" ? 50 : clampPlayerStyleRatio(settings.playerStyleRatio);
   return {
@@ -57,25 +51,13 @@ export const getLyricTransformOrigin = (align: string): string => {
 
 export const getRootStyle = (
   settings: FullPlayerLayoutSettings,
-  bgBlur: number,
-  lowFrequencyEnergy: number
+  bgBlur: number
 ): JSX.CSSProperties => {
-  const duration = Math.max(4, 24 / clampBackgroundFlowSpeed(settings.playerBackgroundFlowSpeed));
-  const renderScale = clampBackgroundRenderScale(settings.playerBackgroundRenderScale);
-  const frameCount = Math.max(1, Math.round(duration * clampBackgroundFps(settings.playerBackgroundFps)));
-  const fluidScale = 1.04 + lowFrequencyEnergy * 0.045;
-  const fluidInset = -(8 + renderScale * 12);
   const backgroundBlur = Math.max(0, bgBlur);
   return {
     ...getLayoutRatioVars(settings),
-    "--full-player-fluid-duration": `${duration}s`,
-    "--full-player-fluid-frames": String(frameCount),
-    "--full-player-fluid-scale": String(fluidScale),
-    "--full-player-fluid-inset": `${fluidInset}%`,
-    "--full-player-fluid-render-scale": String(renderScale),
     "--full-player-fullscreen-gradient": `${Math.min(100, Math.max(0, settings.playerFullscreenGradient))}%`,
-    "--full-player-background-blur": `${backgroundBlur}px`,
-    "--full-player-background-color-blur": `${backgroundBlur * 1.35}px`,
+    "--full-player-background-blur": `${Math.max(80, backgroundBlur)}px`,
     "--full-player-surface-blur": `${Math.max(6, Math.round(backgroundBlur * 0.75))}px`
   };
 };
@@ -119,7 +101,6 @@ export const getCommentPanelClassName = (
 export const getFullPlayerRootClassName = (
   settings: FullPlayerLayoutSettings,
   isOpen: boolean,
-  isPlaying: boolean,
   showComment: boolean,
   metaVisible: boolean
 ): string =>
@@ -132,8 +113,6 @@ export const getFullPlayerRootClassName = (
     `background-mode-${settings.playerBackgroundType}`,
     `expand-animation-${settings.playerExpandAnimation === "flow" ? "flow" : "up"}`,
     settings.playerType === "record" ? "cover-mode-record" : "cover-mode-normal",
-    settings.playerBackgroundPause && !isPlaying ? "is-background-paused" : "",
-    settings.playerBackgroundLowFreqVolume ? "has-background-pulse" : "",
     showComment && settings.fullPlayerCommentMode === "fullscreen" ? "is-fullscreen-comment" : ""
   ]
     .filter(Boolean)

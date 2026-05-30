@@ -10,14 +10,11 @@ import {
   type NcmSearchSuggestionItem,
   type NcmSearchSuggestionType
 } from "../shared/api/ncmSearchEntryParsers";
-import { userSubcount, type NcmUserSubcountData } from "../shared/api/ncm/user";
 import { useTranslation } from "../shared/i18n";
-import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useUISearch } from "../shared/state/UISearchContext";
 import { useUISettings } from "../shared/state/useUISettings";
-import { useDismissibleOverlay } from "../shared/ui/useDismissibleOverlay";
 import { isSearchEnabledPage, type ActivePage } from "../shared/ui/navigation";
-import { SImage } from "./SImage";
+import { TopNavAccountMenu, type TopNavAccountCollectionTab } from "./TopNavAccountMenu";
 import {
   searchFallbackKeyword,
   shouldLoadDefaultKeyword,
@@ -31,16 +28,12 @@ import {
   IconAlbum,
   IconChevronLeft,
   IconChevronRight,
-  IconChevronDown,
   IconChat,
   IconClose,
   IconMusic,
   IconSearch,
   IconSettings,
-  IconPlus,
   IconPlaylist,
-  IconPower,
-  IconRefresh,
   IconSparkle,
   IconVideo
 } from "./icons";
@@ -53,16 +46,12 @@ interface TopNavProps {
   onGoForward: () => void;
   onOpenSettings: () => void;
   onRequireNcmLogin: (options?: { disableUid?: boolean }) => void;
-  onNavigateToLikedCollectionTab: (tab: "playlists" | "albums" | "artists") => void;
+  onNavigateToLikedCollectionTab: (tab: TopNavAccountCollectionTab) => void;
   windowControls?: JSX.Element;
 }
 
-const MAX_NCM_ACCOUNTS = 3;
 const TOP_NAV_HOT_LIMIT = 8;
 const TOP_NAV_SUGGESTION_DEBOUNCE_MS = 180;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const isNcmSearchEntryPage = (page: ActivePage): page is "recommend" | "discover" =>
   page === "recommend" || page === "discover";
@@ -88,19 +77,6 @@ const loadNcmSuggestionItems = async (
   }
 };
 
-const readPositiveCount = (value: unknown): number => {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 0;
-  return Math.round(value);
-};
-
-const hasVipType = (vipType: number | null | undefined): boolean =>
-  typeof vipType === "number" && vipType !== 0;
-
-const readSubcountData = (payload: unknown): NcmUserSubcountData => {
-  if (!isRecord(payload)) return {};
-  return (isRecord(payload.data) ? payload.data : payload) as NcmUserSubcountData;
-};
-
 /**
  * TopNav - search input wired to UISearchContext, settings action, and
  * window-controls slot for frameless mode.
@@ -109,7 +85,6 @@ export function TopNav(props: TopNavProps) {
   const { t, td } = useTranslation();
   const suggestionTypeLabel = (type: NcmSearchSuggestionType) =>
     td(`nav.search.suggestion.${type}`);
-  const accountStore = useNcmAccount();
   const uiSettings = useUISettings();
   const { query, setQuery, activePage: searchPage, submitSearch, history, selectHistoryItem, clearHistory } =
     useUISearch();
@@ -129,27 +104,12 @@ export function TopNav(props: TopNavProps) {
         return t("nav.search.scope.disabled");
     }
   });
-  const account = createMemo(() => accountStore.activeAccount());
-  const accountName = createMemo(() => account()?.nickname ?? t("nav.account.guest"));
-  const accountAvatar = createMemo(() => account()?.avatarUrl ?? null);
-  const isUidMode = createMemo(() => {
-    const current = account();
-    return current !== null && !current.hasCookie;
-  });
-  const [accountMenuOpen, setAccountMenuOpen] = createSignal(false);
-  const [accountMenuFeedback, setAccountMenuFeedback] = createSignal<string | null>(null);
-  const [accountStats, setAccountStats] = createSignal<NcmUserSubcountData>({});
-  const [accountStatsUserId, setAccountStatsUserId] = createSignal<number | null>(null);
-  const [isLoadingAccountStats, setIsLoadingAccountStats] = createSignal(false);
-  const [validatedAccountUserId, setValidatedAccountUserId] = createSignal<number | null>(null);
   const [defaultKeyword, setDefaultKeyword] = createSignal<NcmSearchDefaultKeyword | null>(null);
   const [hotSearches, setHotSearches] = createSignal<readonly NcmSearchHotItem[]>([]);
   const [isSearchEntryLoading, setIsSearchEntryLoading] = createSignal(false);
   const [suggestions, setSuggestions] = createSignal<readonly NcmSearchSuggestionItem[]>([]);
   const [isSuggestionLoading, setIsSuggestionLoading] = createSignal(false);
   const [searchPanelOpen, setSearchPanelOpen] = createSignal(false);
-  let accountMenuRef: HTMLDivElement | undefined;
-  let accountTriggerRef: HTMLButtonElement | undefined;
   let searchInputRef: HTMLInputElement | undefined;
 
   const searchClassName = () => `top-nav-search${searchEnabled() ? "" : " is-disabled"}`;
@@ -190,38 +150,6 @@ export function TopNav(props: TopNavProps) {
       panelOpen: searchPanelOpen(),
       query: trimmedSearchQuery()
     });
-
-  const accountOtherAccounts = createMemo(() => {
-    const currentId = account()?.userId ?? null;
-    return accountStore.userList().filter((item) => item.userId !== currentId);
-  });
-
-  const accountStatItems = createMemo(() => {
-    const stats = accountStats();
-    const playlistCount =
-      readPositiveCount(stats.playlistCount) ||
-      readPositiveCount(stats.createdPlaylistCount) + readPositiveCount(stats.subPlaylistCount);
-    return [
-      {
-        key: "playlists" as const,
-        label: t("ncm.collection.tabs.playlists"),
-        value: playlistCount,
-        icon: IconPlaylist
-      },
-      {
-        key: "albums" as const,
-        label: t("ncm.collection.tabs.albums"),
-        value: readPositiveCount(stats.albumCount),
-        icon: IconAlbum
-      },
-      {
-        key: "artists" as const,
-        label: t("ncm.collection.tabs.artists"),
-        value: readPositiveCount(stats.artistCount),
-        icon: IconArtist
-      }
-    ];
-  });
 
   const handleSearchInput = (event: InputEvent) => {
     const target = event.currentTarget;
@@ -289,144 +217,6 @@ export function TopNav(props: TopNavProps) {
       }
     }
   };
-
-  const loadAccountStats = async () => {
-    const current = account();
-    if (!current || !current.hasCookie || accountStatsUserId() === current.userId) return;
-    setIsLoadingAccountStats(true);
-    try {
-      setAccountStats(readSubcountData(await userSubcount()));
-      setAccountStatsUserId(current.userId);
-    } catch (error) {
-      console.warn("[TopNav] failed to load account stats", error);
-      setAccountStats({});
-      setAccountStatsUserId(current.userId);
-    } finally {
-      setIsLoadingAccountStats(false);
-    }
-  };
-
-  const handleExpiredActiveLogin = () => {
-    setAccountStats({});
-    setAccountStatsUserId(null);
-    setAccountMenuOpen(false);
-    setAccountMenuFeedback(t("nav.account.expired"));
-    props.onRequireNcmLogin();
-  };
-
-  const validateActiveLogin = async (): Promise<boolean> => {
-    const current = account();
-    if (!current || !current.hasCookie) return true;
-    const ok = await accountStore.ensureActiveLoginValid();
-    if (!ok) {
-      handleExpiredActiveLogin();
-    }
-    return ok;
-  };
-
-  const handleAccountClick = async () => {
-    if (account() === null) {
-      props.onRequireNcmLogin();
-      return;
-    }
-    if (!(await validateActiveLogin())) return;
-    setAccountMenuFeedback(null);
-    setAccountMenuOpen((open) => !open);
-  };
-
-  const handleNavigateToCollectionTab = (tab: "playlists" | "albums" | "artists") => {
-    setAccountMenuOpen(false);
-    props.onNavigateToLikedCollectionTab(tab);
-  };
-
-  const handleSwitchAccount = async (userId: number) => {
-    setAccountMenuFeedback(null);
-    try {
-      await accountStore.switchActive(userId);
-      setAccountStats({});
-      setAccountStatsUserId(null);
-      setAccountMenuOpen(false);
-    } catch (error) {
-      setAccountMenuFeedback(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const handleRemoveAccount = async (userId: number) => {
-    setAccountMenuFeedback(null);
-    try {
-      await accountStore.removeAccount(userId);
-    } catch (error) {
-      setAccountMenuFeedback(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const handleAddAccount = () => {
-    if (accountStore.userList().length >= MAX_NCM_ACCOUNTS) {
-      setAccountMenuFeedback(t("nav.account.maxAccounts", { count: MAX_NCM_ACCOUNTS }));
-      return;
-    }
-    setAccountMenuOpen(false);
-    props.onRequireNcmLogin({ disableUid: true });
-  };
-
-  const handleRefreshAccount = async () => {
-    setAccountMenuFeedback(null);
-    try {
-      await accountStore.refreshActive();
-      setAccountStats({});
-      setAccountStatsUserId(null);
-      void loadAccountStats();
-    } catch (error) {
-      setAccountMenuFeedback(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const handleLogout = async () => {
-    const current = account();
-    if (!current) {
-      props.onRequireNcmLogin();
-      return;
-    }
-    if (typeof window !== "undefined" && !window.confirm(t("nav.account.logoutConfirm"))) {
-      return;
-    }
-    setAccountMenuFeedback(null);
-    try {
-      await accountStore.logoutActive();
-      setAccountStats({});
-      setAccountStatsUserId(null);
-      setAccountMenuOpen(false);
-    } catch (error) {
-      setAccountMenuFeedback(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  createEffect(() => {
-    if (!accountMenuOpen()) return;
-    void loadAccountStats();
-  });
-
-  createEffect(() => {
-    const current = account();
-    if (!current || !current.hasCookie) {
-      setValidatedAccountUserId(null);
-      return;
-    }
-    if (validatedAccountUserId() === current.userId) return;
-    setValidatedAccountUserId(current.userId);
-    void validateActiveLogin();
-  });
-
-  createEffect(() => {
-    const currentId = account()?.userId ?? null;
-    if (accountStatsUserId() !== null && accountStatsUserId() !== currentId) {
-      setAccountStats({});
-      setAccountStatsUserId(null);
-    }
-    if (currentId === null) {
-      setAccountMenuOpen(false);
-    }
-  });
 
   createEffect(() => {
     const loadDefaultKeyword = shouldLoadDefaultKeyword({
@@ -536,12 +326,6 @@ export function TopNav(props: TopNavProps) {
     setSearchPanelOpen(false);
     setSuggestions([]);
     setIsSuggestionLoading(false);
-  });
-
-  useDismissibleOverlay(accountMenuOpen, {
-    isInside: (target) => !!accountMenuRef && accountMenuRef.contains(target),
-    onDismiss: () => setAccountMenuOpen(false),
-    onEscapeDismiss: () => accountTriggerRef?.focus()
   });
 
   return (
@@ -754,157 +538,10 @@ export function TopNav(props: TopNavProps) {
       </div>
 
       <div class="top-nav-group top-nav-actions" data-no-drag>
-        <div class="top-nav-account-wrap" ref={accountMenuRef}>
-          <button
-            ref={accountTriggerRef}
-            type="button"
-            class={`top-nav-account${accountMenuOpen() ? " is-open" : ""}`}
-            data-no-drag
-            aria-haspopup="menu"
-            aria-expanded={accountMenuOpen()}
-            aria-label={t("nav.account.aria", { name: accountName() })}
-            onClick={handleAccountClick}
-          >
-            <span class="top-nav-account-avatar" aria-hidden="true">
-              <Show when={accountAvatar()} fallback={<IconArtist />}>
-                {(avatar) => <SImage src={avatar()} alt="" observeVisibility={false} shape="circle" aspect="square" />}
-              </Show>
-            </span>
-            <span class="top-nav-account-copy">
-              <span class="top-nav-account-name">{accountName()}</span>
-            </span>
-            <Show when={hasVipType(account()?.vipType)}>
-              <span class="top-nav-account-vip">VIP</span>
-            </Show>
-            <span class="top-nav-account-badge">
-              <IconChevronDown />
-            </span>
-          </button>
-          <Show when={accountMenuOpen() && account()}>
-            {(current) => (
-              <div class="top-nav-account-menu" role="menu" data-no-drag>
-                <section class="top-nav-account-menu-profile">
-                  <span class="top-nav-account-menu-name">{current().nickname ?? t("nav.account.unknown")}</span>
-                  <div class="top-nav-account-menu-tags">
-                    <span class="top-nav-account-menu-level">Lv.{current().level ?? 0}</span>
-                    <Show when={hasVipType(current().vipType)}>
-                      <span class="top-nav-account-menu-vip">VIP</span>
-                    </Show>
-                  </div>
-                </section>
-
-                <div class="top-nav-account-menu-divider" />
-
-                <Show
-                  when={!isUidMode()}
-                  fallback={
-                    <section class="top-nav-account-uid-note">
-                      <strong>{t("nav.account.uidMode")}</strong>
-                      <span>{t("nav.account.uidModeHint")}</span>
-                    </section>
-                  }
-                >
-                  <section class="top-nav-account-stats" aria-label={t("nav.account.stats")}>
-                    <For each={accountStatItems()}>
-                      {(item) => {
-                        const Icon = item.icon;
-                        return (
-                          <button
-                            type="button"
-                            class="top-nav-account-stat"
-                            onClick={() => handleNavigateToCollectionTab(item.key)}
-                            disabled={isLoadingAccountStats()}
-                          >
-                            <Icon />
-                            <strong>{item.value}</strong>
-                            <span>{item.label}</span>
-                          </button>
-                        );
-                      }}
-                    </For>
-                  </section>
-                </Show>
-
-                <Show when={!isUidMode()}>
-                  <div class="top-nav-account-menu-divider" />
-                  <section class="top-nav-account-switch">
-                    <span class="top-nav-account-section-title">{t("nav.account.switchTitle")}</span>
-                    <Show
-                      when={accountOtherAccounts().length > 0}
-                      fallback={<span class="top-nav-account-empty">{t("nav.account.noOtherAccounts")}</span>}
-                    >
-                      <For each={accountOtherAccounts()}>
-                        {(item) => (
-                          <div class="top-nav-account-switch-item">
-                            <button
-                              type="button"
-                              class="top-nav-account-switch-main"
-                              onClick={() => void handleSwitchAccount(item.userId)}
-                              disabled={accountStore.isBusy()}
-                            >
-                              <span class="top-nav-account-switch-avatar" aria-hidden="true">
-                                <Show when={item.avatarUrl} fallback={<IconArtist />}>
-                                  {(avatar) => <SImage src={avatar()} alt="" observeVisibility={false} shape="circle" aspect="square" />}
-                                </Show>
-                              </span>
-                              <span class="top-nav-account-switch-name">{item.nickname ?? item.userId}</span>
-                            </button>
-                            <button
-                              type="button"
-                              class="top-nav-account-delete"
-                              aria-label={t("nav.account.removeAccount", {
-                                name: item.nickname ?? item.userId
-                              })}
-                              onClick={() => void handleRemoveAccount(item.userId)}
-                              disabled={accountStore.isBusy()}
-                            >
-                              <IconClose />
-                            </button>
-                          </div>
-                        )}
-                      </For>
-                    </Show>
-                    <button
-                      type="button"
-                      class="top-nav-account-add"
-                      onClick={handleAddAccount}
-                      disabled={accountStore.isBusy()}
-                    >
-                      <IconPlus />
-                      {t("nav.account.addAccount")}
-                    </button>
-                  </section>
-                </Show>
-
-                <Show when={accountMenuFeedback()}>
-                  {(message) => <div class="top-nav-account-feedback">{message()}</div>}
-                </Show>
-
-                <div class="top-nav-account-menu-divider" />
-                <div class="top-nav-account-actions">
-                  <button
-                    type="button"
-                    class="top-nav-account-action"
-                    onClick={() => void handleRefreshAccount()}
-                    disabled={accountStore.isBusy() || isUidMode()}
-                  >
-                    <IconRefresh />
-                    {t("nav.account.refresh")}
-                  </button>
-                  <button
-                    type="button"
-                    class="top-nav-account-action is-danger"
-                    onClick={() => void handleLogout()}
-                    disabled={accountStore.isBusy()}
-                  >
-                    <IconPower />
-                    {t("ncm.login.action.logout")}
-                  </button>
-                </div>
-              </div>
-            )}
-          </Show>
-        </div>
+        <TopNavAccountMenu
+          onRequireNcmLogin={props.onRequireNcmLogin}
+          onNavigateToLikedCollectionTab={props.onNavigateToLikedCollectionTab}
+        />
         <button
           type="button"
           class="top-nav-icon-button"

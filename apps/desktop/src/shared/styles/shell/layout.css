@@ -1892,6 +1892,10 @@
   }
 
   @media (max-width: 720px) {
+    .content-area {
+      padding-inline: 20px;
+    }
+
     .app-main {
       padding: 0;
     }

@@ -1,6 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { Accessor } from "solid-js";
-import { snapSeekPositionToLyrics, type NcmLyricLine } from "../../features/online/ncmPlayback";
+import { snapSeekPositionToLyrics, type LyricLine } from "../../shared/media/lyrics";
 import { clamp01 } from "./time";
 
 interface ProgressGeometry {
@@ -11,7 +11,7 @@ interface ProgressGeometry {
 interface UsePlayerBarProgressOptions {
   duration: Accessor<number>;
   currentTime: Accessor<number>;
-  lyrics: Accessor<readonly NcmLyricLine[]>;
+  lyrics: Accessor<readonly LyricLine[]>;
   progressAdjustLyric: Accessor<boolean>;
   progressLyricShow: Accessor<boolean>;
   onSeek: (position: number) => void;

@@ -14,7 +14,6 @@ import { AppearanceLayer } from "../components/AppearanceLayer";
 import { PageTransition } from "../components/PageTransition";
 import { PanelErrorBoundary } from "../components/PanelErrorBoundary";
 import { PlayerBar } from "../components/PlayerBar";
-import { Sidebar } from "../components/Sidebar";
 import { TopNav } from "../components/TopNav";
 import { WindowControls } from "../components/WindowControls";
 import { ListSkeleton, Skeleton } from "../components/page/Skeleton";
@@ -28,6 +27,7 @@ import { UISearchProvider } from "../shared/state/UISearchContext";
 import { NaiveFeedbackProvider } from "../shared/ui/naive";
 import "../shared/styles/components/pages.css";
 import { useAppController } from "./useAppController";
+import { Sidebar } from "./Sidebar";
 
 const api = createApiClient();
 
@@ -131,6 +131,47 @@ function AppContent() {
   const openSettings = (category?: SettingsCategoryKey) => {
     setSettingsInitialCategory(category);
     controller.setSettingsOpen(true);
+  };
+  const fullPlayerAlbumLink = () => {
+    const supplement = controller.currentNcmSupplement();
+    const albumId = supplement?.albumId ?? null;
+    const title = controller.fullPlayerAlbum();
+    if (albumId === null || !title) {
+      return null;
+    }
+    return {
+      id: albumId,
+      title,
+      subtitle: controller.fullPlayerArtist(),
+      coverUrl: controller.currentNcmCoverUrl()
+    };
+  };
+  const handleFullPlayerArtistSelect = (artist: { id: number; name: string }) => {
+    controller.setFullPlayerOpen(false);
+    controller.handleNavigateToArtistDetail({
+      id: artist.id,
+      title: artist.name,
+      subtitle: null,
+      coverUrl: controller.currentNcmCoverUrl(),
+      playCount: null,
+      description: null
+    });
+  };
+  const handleFullPlayerAlbumSelect = (album: {
+    id: number;
+    title: string;
+    subtitle: string | null;
+    coverUrl: string | null;
+  }) => {
+    controller.setFullPlayerOpen(false);
+    controller.handleNavigateToAlbumDetail({
+      id: album.id,
+      title: album.title,
+      subtitle: album.subtitle,
+      coverUrl: album.coverUrl,
+      playCount: null,
+      description: null
+    });
   };
 
   createEffect(() => {
@@ -382,6 +423,10 @@ function AppContent() {
               coverUrl={controller.resolvedCoverUrl()}
               title={controller.fullPlayerTitle()}
               subtitle={controller.fullPlayerSubtitle()}
+              artist={controller.fullPlayerArtist()}
+              album={controller.fullPlayerAlbum()}
+              artistLinks={controller.currentNcmSupplement()?.artists ?? []}
+              albumLink={fullPlayerAlbumLink()}
               detail={controller.fullPlayerDetail()}
               currentSongId={controller.currentNcmSongId()}
               currentMediaId={controller.currentMediaId()}
@@ -408,6 +453,8 @@ function AppContent() {
               onCycleRepeat={controller.handleCycleRepeat}
               onToggleShuffle={controller.handleToggleShuffle}
               onOpenQueue={controller.handleOpenQueueFromFullPlayer}
+              onSelectArtist={handleFullPlayerArtistSelect}
+              onSelectAlbum={handleFullPlayerAlbumSelect}
               isLiked={controller.currentIsLiked()}
               onToggleLike={controller.handleToggleLike}
               onOpenLyricSettings={() => openSettings("lyrics")}

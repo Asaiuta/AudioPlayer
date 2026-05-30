@@ -43,14 +43,7 @@
     height: 4px;
   }
 
-  .full-player-progress-fill {
-    position: absolute;
-    inset: 0 auto 0 0;
-    border-radius: inherit;
-  }
-
-  .player-progress-edge-fill,
-  .full-player-progress-fill {
+  .player-progress-edge-fill {
     background: var(--player-bar-accent);
     box-shadow: none;
     transition: width 0.3s var(--ease-standard);
@@ -85,8 +78,7 @@
     height: 4px;
   }
 
-  .player-progress-edge.is-dragging .player-progress-edge-fill,
-  .player-progress-edge.is-dragging .full-player-progress-fill {
+  .player-progress-edge.is-dragging .player-progress-edge-fill {
     transition: none;
   }
 

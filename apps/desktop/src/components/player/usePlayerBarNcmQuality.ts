@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal } from "solid-js";
 import type { Accessor } from "solid-js";
 import { songMusicDetail } from "../../shared/api/ncm/search";
 import type { TranslationKey, TranslationParams } from "../../shared/i18n";
+import { isNumber, isRecord } from "../../shared/jsonReaders";
 
 export interface PlayerBarNcmQualityOption {
   key: string;
@@ -34,11 +35,8 @@ const QUALITY_LEVELS: readonly Omit<PlayerBarNcmQualityOption, "detail">[] = [
   { key: "jm", level: "jymaster", label: "Master", shortLabel: "Master" }
 ];
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
+const readQualityNumber = (value: unknown): number | null =>
+  isNumber(value) ? value : null;
 
 const formatSize = (bytes: number): string => {
   if (bytes < 1024) return `${bytes} B`;
@@ -62,8 +60,8 @@ const parseQualityOptions = (data: unknown): PlayerBarNcmQualityOption[] => {
     if (!isRecord(item)) {
       return [];
     }
-    const size = readNumber(item.size);
-    const br = readNumber(item.br);
+    const size = readQualityNumber(item.size);
+    const br = readQualityNumber(item.br);
     const detail = size !== null ? formatSize(size) : br !== null ? `${Math.round(br / 1000)} kbps` : null;
     return [{ ...quality, detail }];
   });

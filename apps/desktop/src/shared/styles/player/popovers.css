@@ -43,6 +43,12 @@
     white-space: nowrap;
   }
 
+  @media (max-width: 720px) {
+    .volume-slider {
+      width: 88px;
+    }
+  }
+
   .player-quality-tag {
     height: 26px;
     cursor: pointer;
@@ -215,7 +221,7 @@
     border-radius: 8px;
     background: var(--floating-surface);
     box-shadow: var(--floating-shadow);
-    animation: floating-layer-enter var(--duration-fast) var(--ease-standard);
+    animation: settings-search-fade-down 0.15s ease;
     max-height: calc(75vh - 280px);
   }
 

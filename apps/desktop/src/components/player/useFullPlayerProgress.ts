@@ -1,12 +1,11 @@
-import { snapSeekPositionToLyrics, type NcmLyricLine } from "../../features/online/ncmPlayback";
-import { clamp01, formatTime } from "./time";
+import { snapSeekPositionToLyrics, type LyricLine } from "../../shared/media/lyrics";
+import { clamp01 } from "./time";
 import type { Accessor } from "solid-js";
 
 interface UseFullPlayerProgressOptions {
   duration: Accessor<number>;
   currentTime: Accessor<number>;
-  lyrics: Accessor<readonly NcmLyricLine[]>;
-  timeFormat: Accessor<string>;
+  lyrics: Accessor<readonly LyricLine[]>;
   progressAdjustLyric: Accessor<boolean>;
   onSeek: (position: number) => void;
 }
@@ -15,15 +14,6 @@ export function useFullPlayerProgress(options: UseFullPlayerProgressOptions) {
   const canSeek = () => options.duration() > 0;
   const progress = () =>
     options.duration() > 0 ? clamp01(options.currentTime() / options.duration()) : 0;
-  const remainingTime = () => Math.max(0, options.duration() - options.currentTime());
-  const timeLeft = () =>
-    options.timeFormat() === "remaining-total"
-      ? `-${formatTime(remainingTime())}`
-      : formatTime(options.currentTime());
-  const timeRight = () =>
-    options.timeFormat() === "current-remaining"
-      ? `-${formatTime(remainingTime())}`
-      : formatTime(options.duration());
 
   const snapSeek = (value: number): number =>
     options.progressAdjustLyric() ? snapSeekPositionToLyrics(options.lyrics(), value) : value;
@@ -34,7 +24,7 @@ export function useFullPlayerProgress(options: UseFullPlayerProgressOptions) {
     options.onSeek(snapSeek(ratio * options.duration()));
   };
 
-  const handleLyricSeek = (line: NcmLyricLine) => {
+  const handleLyricSeek = (line: LyricLine) => {
     if (!canSeek()) return;
     if (!Number.isFinite(line.time) || line.time < 0) return;
     options.onSeek(Math.min(options.duration(), Math.max(0, line.time)));
@@ -68,8 +58,6 @@ export function useFullPlayerProgress(options: UseFullPlayerProgressOptions) {
   return {
     canSeek,
     progress,
-    timeLeft,
-    timeRight,
     handleLyricSeek,
     handleProgressClick,
     handleProgressKeyDown

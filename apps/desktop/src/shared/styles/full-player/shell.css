@@ -1,29 +1,36 @@
   .full-player {
-    --full-player-cover-color: var(--color-primary);
-    --full-player-cover-color-08: var(--color-primary-tonal-08);
-    --full-player-cover-color-12: var(--color-primary-tonal-12);
-    --full-player-cover-color-14: color-mix(in oklch, var(--full-player-cover-color) 14%, transparent);
-    --full-player-cover-color-20: var(--color-primary-tonal-20);
-    --full-player-cover-color-28: var(--color-primary-tonal-28);
-    --full-player-cover-color-58: var(--color-primary-tonal-58);
+    --full-player-cover-color: var(--player-cover-color, var(--color-primary));
+    --full-player-cover-color-08: color-mix(in srgb, var(--full-player-cover-color) 8%, transparent);
+    --full-player-cover-color-09: color-mix(in srgb, var(--full-player-cover-color) 9%, transparent);
+    --full-player-cover-color-10: color-mix(in srgb, var(--full-player-cover-color) 10%, transparent);
+    --full-player-cover-color-12: color-mix(in srgb, var(--full-player-cover-color) 12%, transparent);
+    --full-player-cover-color-14: color-mix(in srgb, var(--full-player-cover-color) 14%, transparent);
+    --full-player-cover-color-18: color-mix(in srgb, var(--full-player-cover-color) 18%, transparent);
+    --full-player-cover-color-20: color-mix(in srgb, var(--full-player-cover-color) 20%, transparent);
+    --full-player-cover-color-22: color-mix(in srgb, var(--full-player-cover-color) 22%, transparent);
+    --full-player-cover-color-28: color-mix(in srgb, var(--full-player-cover-color) 28%, transparent);
+    --full-player-cover-color-30: color-mix(in srgb, var(--full-player-cover-color) 30%, transparent);
+    --full-player-cover-color-52: color-mix(in srgb, var(--full-player-cover-color) 52%, transparent);
+    --full-player-cover-color-58: color-mix(in srgb, var(--full-player-cover-color) 58%, transparent);
+    --full-player-cover-color-82: color-mix(in srgb, var(--full-player-cover-color) 82%, transparent);
+    --full-player-cover-color-90: color-mix(in srgb, var(--full-player-cover-color) 90%, transparent);
     --full-player-ink: var(--full-player-cover-color);
-    --full-player-ink-strong: color-mix(in oklch, var(--full-player-cover-color) 82%, white 18%);
-    --full-player-ink-soft: color-mix(in oklch, var(--full-player-cover-color) 52%, transparent);
-    --full-player-ink-muted: color-mix(in oklch, var(--full-player-cover-color) 28%, transparent);
+    --full-player-ink-strong: var(--full-player-cover-color);
+    --full-player-ink-soft: var(--full-player-cover-color-52);
+    --full-player-ink-muted: var(--full-player-cover-color-28);
     --full-player-ink-active: var(--full-player-cover-color);
     --full-player-glass: var(--full-player-cover-color-08);
     --full-player-glass-strong: var(--full-player-cover-color-14);
-    --full-player-shadow: oklch(0 0 0 / 0.46);
-    --full-player-scrim: oklch(0.035 0.012 86 / 0.68);
-    --full-player-border: color-mix(in oklch, var(--full-player-cover-color) 10%, transparent);
-    --full-player-border-strong: color-mix(in oklch, var(--full-player-cover-color) 22%, transparent);
+
+    --full-player-border: var(--full-player-cover-color-10);
+    --full-player-border-strong: var(--full-player-cover-color-22);
     --full-player-surface: var(--full-player-cover-color-08);
-    --full-player-progress-rail: color-mix(in oklch, var(--full-player-cover-color) 18%, transparent);
-    --full-player-fluid-duration: 20s;
-    --full-player-fluid-frames: 600;
-    --full-player-fluid-scale: 1.04;
-    --full-player-fluid-inset: -14%;
-    --full-player-fluid-render-scale: 0.5;
+    --full-player-progress-rail: var(--full-player-cover-color-20);
+    --full-player-naive-surface: var(--full-player-cover-color-20);
+    --full-player-naive-hover: var(--full-player-cover-color-09);
+    --full-player-naive-text: var(--full-player-cover-color-82);
+    --full-player-naive-text-muted: var(--full-player-ink-soft);
+
     --full-player-fullscreen-gradient: 15%;
     position: fixed;
     inset: 0;
@@ -32,17 +39,15 @@
     min-height: 0;
     height: auto;
     padding: 0;
-    background:
-      radial-gradient(980px 620px at 28% 46%, var(--color-primary-tonal-28), transparent 64%),
-      radial-gradient(880px 560px at 78% 24%, var(--color-primary-tonal-16), transparent 68%),
-      oklch(0.055 0.014 92);
+    background: oklch(0 0 0 / 0.38);
+    backdrop-filter: blur(80px);
     opacity: 0;
     pointer-events: none;
-    transform: translateY(28px);
+    transform: translateY(100%);
     transform-origin: 50% 50%;
     transition:
-      opacity 300ms var(--ease-bounce),
-      transform 300ms var(--ease-bounce);
+      opacity 500ms cubic-bezier(0.65, 0.05, 0.36, 1),
+      transform 500ms cubic-bezier(0.65, 0.05, 0.36, 1);
     overflow: hidden;
   }
 
@@ -57,11 +62,19 @@
   }
 
   .full-player.expand-animation-flow {
-    transform: scale(0.96);
+    opacity: 0;
+    transform: scale(0.92) translateY(30px);
+    filter: blur(10px);
+    transition:
+      opacity 500ms cubic-bezier(0.2, 0, 0.2, 1),
+      transform 500ms cubic-bezier(0.2, 0, 0.2, 1),
+      filter 500ms cubic-bezier(0.2, 0, 0.2, 1);
   }
 
   .full-player.expand-animation-flow.is-open {
-    transform: scale(1);
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0);
   }
 
   .full-player:not(.is-open) .full-player-overlay-menu,

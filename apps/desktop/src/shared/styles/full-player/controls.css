@@ -18,20 +18,29 @@
 
   .full-player-time {
     min-width: 40px;
-    color: var(--full-player-ink-soft);
+    color: var(--full-player-ink);
     font-size: 12px;
     font-variant-numeric: tabular-nums;
+    line-height: 1;
     text-align: center;
     opacity: 0.6;
+    cursor: pointer;
+    transition: opacity 0.3s var(--ease-standard);
+  }
+
+  .full-player-time:hover {
+    opacity: 1;
   }
 
   .full-player-progress {
     position: relative;
     height: 4px;
     border-radius: var(--radius-pill);
-    overflow: hidden;
+    overflow: visible;
     background: var(--full-player-progress-rail);
     box-shadow: inset 0 1px 2px oklch(0 0 0 / 0.18);
+    cursor: pointer;
+    transition: background-color 0.3s var(--ease-standard);
   }
 
   .full-player-progress.is-interactive {
@@ -39,8 +48,39 @@
   }
 
   .full-player-progress-fill {
+    position: absolute;
+    inset: 0 auto 0 0;
+    border-radius: var(--radius-pill);
     background: var(--full-player-ink-active);
     box-shadow: 0 0 18px var(--full-player-cover-color-28);
+    min-width: 0;
+    transition: width 0.3s var(--ease-standard);
+  }
+
+  .full-player-progress-fill::after {
+    content: "";
+    position: absolute;
+    right: -6px;
+    top: 50%;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--full-player-ink-active);
+    box-shadow:
+      0 0 0 2px var(--full-player-cover-color-08),
+      0 2px 8px oklch(0 0 0 / 0.3);
+    opacity: 0;
+    transform: translateY(-50%) scale(0.6);
+    transition:
+      opacity 0.2s var(--ease-standard),
+      transform 0.2s var(--ease-standard);
+    pointer-events: none;
+  }
+
+  .full-player-progress:hover .full-player-progress-fill::after,
+  .full-player-progress:focus-visible .full-player-progress-fill::after {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
   }
 
   .full-player-transport {
@@ -49,58 +89,45 @@
     gap: 0;
     padding: 0;
     border-radius: 0;
-    background: transparent;
+    background-color: transparent;
     border: 0;
   }
 
   .full-player-transport .transport-button {
-    width: 38px;
-    height: 38px;
-    background: transparent;
+    --full-player-button-size: 38px;
+    --full-player-button-hover-scale: 1.1;
+    --full-player-button-icon-size: 26px;
     border-color: transparent;
     color: var(--full-player-ink-strong);
     box-shadow: none;
     margin: 0 4px;
-    transition:
-      background-color 0.3s var(--ease-standard),
-      color 0.3s var(--ease-standard),
-      transform 0.3s var(--ease-standard);
   }
 
   .full-player-transport .transport-button.mode-button:not(.is-active) {
     color: var(--full-player-ink-strong);
   }
 
-  .full-player-transport .transport-button:hover:not(:disabled),
   .full-player-transport .transport-button.is-active {
     color: var(--full-player-ink-active);
-    background: var(--full-player-cover-color-14);
-    border-color: transparent;
-  }
-
-  .full-player-transport .transport-button:hover:not(:disabled) {
-    transform: scale(1.1);
-  }
-
-  .full-player-transport .transport-button:active:not(:disabled) {
-    transform: scale(1);
   }
 
   .full-player-transport .transport-primary {
-    width: 44px;
-    height: 44px;
+    --full-player-button-size: 44px;
+    --full-player-button-icon-size: 28px;
     margin: 0 12px;
     color: var(--full-player-ink-active);
-    background: var(--full-player-cover-color-14);
-    border-color: var(--full-player-border);
-    box-shadow:
-      0 10px 24px oklch(0 0 0 / 0.18),
-      0 0 0 6px var(--full-player-cover-color-08);
+    background-color: var(--full-player-cover-color-14);
+    border-color: transparent;
+    box-shadow: none;
   }
 
   .full-player-transport .transport-primary:hover:not(:disabled) {
     color: var(--full-player-ink-active);
-    background: var(--full-player-cover-color-20);
+    background-color: var(--full-player-cover-color-20);
+  }
+
+  .full-player-transport .transport-primary:active:not(:disabled) {
+    background-color: var(--full-player-cover-color-12);
   }
 
   .full-player-quality-tag {
@@ -108,15 +135,29 @@
     align-items: center;
     min-height: 26px;
     padding: 0 8px;
-    border: 1px solid var(--full-player-border);
+    border: 1px solid var(--full-player-cover-color-10);
     border-radius: var(--radius-sm);
-    color: var(--full-player-ink-soft);
+    color: var(--full-player-ink);
+    background: transparent;
     font-size: 12px;
     white-space: nowrap;
   }
 
   .full-player-volume {
     position: relative;
+  }
+
+  .n-popover.n-popover-shared.full-player-volume-popover {
+    --full-player-popover-cover-color: var(--color-primary);
+    --n-color: var(--full-player-naive-surface);
+    --n-text-color: var(--full-player-naive-text);
+    --n-suffix-color: var(--full-player-naive-text);
+    --full-player-naive-surface: color-mix(in srgb, var(--full-player-popover-cover-color) 20%, transparent);
+    --full-player-naive-text: color-mix(in srgb, var(--full-player-popover-cover-color) 82%, transparent);
+    --full-player-cover-color-20: color-mix(in srgb, var(--full-player-popover-cover-color) 20%, transparent);
+    --full-player-cover-color-28: color-mix(in srgb, var(--full-player-popover-cover-color) 28%, transparent);
+    --full-player-cover-color-90: color-mix(in srgb, var(--full-player-popover-cover-color) 90%, transparent);
+    background-color: var(--n-color);
   }
 
   .full-player-volume-popover {
@@ -134,26 +175,26 @@
   }
 
   .full-player-volume-popover .naive-slider.n-slider.volume-slider {
-    --n-fill-color: var(--full-player-ink-active);
-    --n-fill-color-hover: var(--full-player-ink-active);
-    --n-handle-color: var(--full-player-ink-active);
+    --n-fill-color: var(--full-player-cover-color-90);
+    --n-fill-color-hover: var(--full-player-cover-color-90);
+    --n-handle-color: var(--full-player-cover-color-90);
     --n-handle-size: 18px;
     --n-rail-width-vertical: 4px;
-    --n-rail-color: color-mix(in srgb, var(--full-player-ink-active) 20%, transparent);
-    --n-rail-color-hover: color-mix(in srgb, var(--full-player-ink-active) 30%, transparent);
+    --n-rail-color: var(--full-player-cover-color-20);
+    --n-rail-color-hover: var(--full-player-cover-color-28);
     --n-handle-box-shadow:
       0 1px 4px 0 rgb(0 0 0 / 0.3),
       inset 0 0 1px 0 rgb(0 0 0 / 0.05);
     --n-handle-box-shadow-hover: var(--n-handle-box-shadow);
     flex: 1;
-    width: var(--n-rail-width-vertical);
+    width: var(--n-handle-size);
     height: 100%;
     min-height: 0;
     margin: 0;
     accent-color: var(--full-player-ink-active);
   }
 
-  .full-player-volume-popover span {
+  .full-player-volume-popover .volume-value {
     color: var(--n-suffix-color, var(--n-text-color));
     font-size: 13px;
     white-space: nowrap;

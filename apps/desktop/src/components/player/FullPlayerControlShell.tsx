@@ -1,12 +1,14 @@
 import { Show } from "solid-js";
 import type { Component, JSX } from "solid-js";
+import {
+  FullPlayerActionButton,
+  FullPlayerTimeButton,
+  FullPlayerTransportButton
+} from "./FullPlayerInteractions";
 import { PlayerVolumePopover } from "./PlayerVolumePopover";
 import {
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
   IconControls,
-  IconCopy,
   IconDesktopLyric,
   IconDownload,
   IconHeart,
@@ -26,9 +28,6 @@ interface FullPlayerShellLabels {
   favorite: string;
   addToPlaylist: string;
   download: string;
-  copyLyric: string;
-  lyricOffset: string;
-  lyricSettings: string;
   comment: string;
   transport: string;
   prev: string;
@@ -46,13 +45,9 @@ interface FullPlayerShellActionsSection {
   showLike: boolean;
   isLiked: boolean;
   showAddToPlaylist: boolean;
+  canAddToPlaylist: boolean;
   showDownload: boolean;
-  showCopyLyric: boolean;
-  canCopyLyric: boolean;
-  showLyricOffset: boolean;
-  canAdjustLyricOffset: boolean;
-  lyricOffsetValue: string;
-  showLyricSettings: boolean;
+  canDownload: boolean;
   showComments: boolean;
   showCommentCount: boolean;
   commentCount: number;
@@ -60,11 +55,8 @@ interface FullPlayerShellActionsSection {
   commentsEnabled: boolean;
   onClose: () => void;
   onToggleLike?: () => void;
-  onCopyLyric: () => void;
-  onDecreaseLyricOffset: () => void;
-  onIncreaseLyricOffset: () => void;
-  onResetLyricOffset: () => void;
-  onOpenLyricSettings?: () => void;
+  onAddToPlaylist?: () => void;
+  onDownload?: () => void;
   onToggleComment: () => void;
 }
 
@@ -85,11 +77,13 @@ interface FullPlayerShellTransportSection {
   progress: number;
   timeLeft: string;
   timeRight: string;
+  timeToggleLabel: string;
   onToggleShuffle: () => void;
   onSkipPrev: () => void;
   onPlayPause: () => void;
   onSkipNext: () => void;
   onCycleRepeat: () => void;
+  onCycleTimeFormat: () => void;
   onProgressClick: (event: MouseEvent) => void;
   onProgressKeyDown: (event: KeyboardEvent) => void;
 }
@@ -130,117 +124,60 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
       onMouseLeave={props.onMouseLeave}
     >
       <div class="full-player-control-side">
-        <button
-          type="button"
+        <FullPlayerActionButton
           class="full-player-menu-icon"
           onClick={props.actions.onClose}
-          aria-label={props.labels.close}
+          label={props.labels.close}
           title={props.labels.close}
         >
           <IconChevronDown />
-        </button>
+        </FullPlayerActionButton>
         <Show when={props.actions.showLike}>
-          <button
-            type="button"
-            class={`full-player-menu-icon${props.actions.isLiked ? " is-active" : ""}`}
+          <FullPlayerActionButton
+            class="full-player-menu-icon"
             onClick={() => props.actions.onToggleLike?.()}
             disabled={!props.actions.onToggleLike}
-            aria-label={props.labels.favorite}
-            aria-pressed={props.actions.isLiked}
+            label={props.labels.favorite}
+            pressed={props.actions.isLiked}
             title={props.labels.favorite}
+            active={props.actions.isLiked}
           >
             <Show when={props.actions.isLiked} fallback={<IconHeart />}>
               <IconHeartFilled />
             </Show>
-          </button>
+          </FullPlayerActionButton>
         </Show>
         <Show when={props.actions.showAddToPlaylist}>
-          <button
-            type="button"
+          <FullPlayerActionButton
             class="full-player-menu-icon"
-            aria-label={props.labels.addToPlaylist}
+            onClick={() => props.actions.onAddToPlaylist?.()}
+            disabled={!props.actions.canAddToPlaylist || !props.actions.onAddToPlaylist}
+            label={props.labels.addToPlaylist}
             title={props.labels.addToPlaylist}
           >
             <IconPlaylist />
-          </button>
+          </FullPlayerActionButton>
         </Show>
         <Show when={props.actions.showDownload}>
-          <button
-            type="button"
+          <FullPlayerActionButton
             class="full-player-menu-icon"
-            aria-label={props.labels.download}
+            onClick={() => props.actions.onDownload?.()}
+            disabled={!props.actions.canDownload || !props.actions.onDownload}
+            label={props.labels.download}
             title={props.labels.download}
           >
             <IconDownload />
-          </button>
-        </Show>
-        <Show when={props.actions.showCopyLyric}>
-          <button
-            type="button"
-            class="full-player-menu-icon"
-            onClick={props.actions.onCopyLyric}
-            disabled={!props.actions.canCopyLyric}
-            aria-label={props.labels.copyLyric}
-            title={props.labels.copyLyric}
-          >
-            <IconCopy />
-          </button>
-        </Show>
-        <Show when={props.actions.showLyricOffset}>
-          <div class="full-player-lyric-offset-control" role="group" aria-label={props.labels.lyricOffset}>
-            <button
-              type="button"
-              class="full-player-menu-icon"
-              onClick={props.actions.onDecreaseLyricOffset}
-              disabled={!props.actions.canAdjustLyricOffset}
-              aria-label={`${props.labels.lyricOffset} -500ms`}
-              title={`${props.labels.lyricOffset} -500ms`}
-            >
-              <IconChevronLeft />
-            </button>
-            <button
-              type="button"
-              class="full-player-lyric-offset-value"
-              onClick={props.actions.onResetLyricOffset}
-              disabled={!props.actions.canAdjustLyricOffset || props.actions.lyricOffsetValue === "0s"}
-              aria-label={`${props.labels.lyricOffset} ${props.actions.lyricOffsetValue}`}
-              title={props.labels.lyricOffset}
-            >
-              {props.actions.lyricOffsetValue}
-            </button>
-            <button
-              type="button"
-              class="full-player-menu-icon"
-              onClick={props.actions.onIncreaseLyricOffset}
-              disabled={!props.actions.canAdjustLyricOffset}
-              aria-label={`${props.labels.lyricOffset} +500ms`}
-              title={`${props.labels.lyricOffset} +500ms`}
-            >
-              <IconChevronRight />
-            </button>
-          </div>
-        </Show>
-        <Show when={props.actions.showLyricSettings}>
-          <button
-            type="button"
-            class="full-player-menu-icon"
-            onClick={() => props.actions.onOpenLyricSettings?.()}
-            aria-label={props.labels.lyricSettings}
-            title={props.labels.lyricSettings}
-            disabled={!props.actions.onOpenLyricSettings}
-          >
-            <IconControls />
-          </button>
+          </FullPlayerActionButton>
         </Show>
         <Show when={props.actions.showComments}>
-          <button
-            type="button"
-            class={`full-player-menu-icon${props.actions.commentActive ? " is-active" : ""}`}
+          <FullPlayerActionButton
+            class="full-player-menu-icon"
             onClick={props.actions.onToggleComment}
             disabled={!props.actions.commentsEnabled}
-            aria-label={props.labels.comment}
-            aria-pressed={props.actions.commentActive}
+            label={props.labels.comment}
+            pressed={props.actions.commentActive}
             title={props.labels.comment}
+            active={props.actions.commentActive}
           >
             <IconMessage />
             <Show when={props.actions.showCommentCount && props.actions.commentCount > 0}>
@@ -248,72 +185,73 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
                 {props.actions.commentCount > 999 ? "999+" : props.actions.commentCount}
               </span>
             </Show>
-          </button>
+          </FullPlayerActionButton>
         </Show>
       </div>
 
       <div class="full-player-control-center">
         <div class="full-player-transport" role="group" aria-label={props.labels.transport}>
-          <button
-            type="button"
-            class={`transport-button mode-button${props.transport.shuffleActive ? " is-active" : ""}`}
+          <FullPlayerTransportButton
+            mode
             onClick={props.transport.onToggleShuffle}
-            aria-label={props.transport.shuffleLabel}
-            aria-pressed={props.transport.shuffleActive}
+            label={props.transport.shuffleLabel}
+            pressed={props.transport.shuffleActive}
             title={props.transport.shuffleLabel}
+            active={props.transport.shuffleActive}
           >
             <Show when={props.transport.isHeartbeat} fallback={<IconShuffle />}>
               <IconHeartBit />
             </Show>
-          </button>
-          <button
-            type="button"
-            class="transport-button"
+          </FullPlayerTransportButton>
+          <FullPlayerTransportButton
             onClick={props.transport.onSkipPrev}
             disabled={!props.transport.canSkipPrev}
-            aria-label={props.labels.prev}
+            label={props.labels.prev}
             title={props.labels.prev}
           >
             <IconSkipPrev />
-          </button>
-          <button
-            type="button"
-            class="transport-button transport-primary"
+          </FullPlayerTransportButton>
+          <FullPlayerTransportButton
+            primary
             onClick={props.transport.onPlayPause}
-            aria-label={props.transport.playPauseLabel}
+            label={props.transport.playPauseLabel}
             title={props.transport.playPauseLabel}
           >
             <Show when={props.transport.isPlaying} fallback={<IconPlay />}>
               <IconPause />
             </Show>
-          </button>
-          <button
-            type="button"
-            class="transport-button"
+          </FullPlayerTransportButton>
+          <FullPlayerTransportButton
             onClick={props.transport.onSkipNext}
             disabled={!props.transport.canSkipNext}
-            aria-label={props.labels.next}
+            label={props.labels.next}
             title={props.labels.next}
           >
             <IconSkipNext />
-          </button>
-          <button
-            type="button"
-            class={`transport-button mode-button${props.transport.repeatActive ? " is-active" : ""}`}
+          </FullPlayerTransportButton>
+          <FullPlayerTransportButton
+            mode
             onClick={props.transport.onCycleRepeat}
-            aria-label={props.transport.repeatLabel}
-            aria-pressed={props.transport.repeatActive}
+            label={props.transport.repeatLabel}
+            pressed={props.transport.repeatActive}
             title={props.transport.repeatLabel}
+            active={props.transport.repeatActive}
           >
             {(() => {
               const Icon = RepeatIcon();
               return <Icon />;
             })()}
-          </button>
+          </FullPlayerTransportButton>
         </div>
 
         <div class="full-player-progress-wrap">
-          <span class="full-player-time">{props.transport.timeLeft}</span>
+          <FullPlayerTimeButton
+            class="full-player-time"
+            onClick={props.transport.onCycleTimeFormat}
+            label={props.transport.timeToggleLabel}
+          >
+            {props.transport.timeLeft}
+          </FullPlayerTimeButton>
           <div
             class={`full-player-progress${props.transport.canSeek ? " is-interactive" : ""}`}
             role={props.transport.canSeek ? "slider" : "presentation"}
@@ -327,7 +265,13 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
           >
             <div class="full-player-progress-fill" style={{ width: `${props.transport.progress * 100}%` }} />
           </div>
-          <span class="full-player-time">{props.transport.timeRight}</span>
+          <FullPlayerTimeButton
+            class="full-player-time"
+            onClick={props.transport.onCycleTimeFormat}
+            label={props.transport.timeToggleLabel}
+          >
+            {props.transport.timeRight}
+          </FullPlayerTimeButton>
         </div>
       </div>
 
@@ -336,33 +280,31 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
           <span class="full-player-quality-tag">{props.labels.qualityTag}</span>
         </Show>
         <Show when={props.utility.showDesktopLyric}>
-          <button
-            type="button"
-            class="full-player-menu-icon full-player-utility-disabled"
-            aria-label={props.labels.desktopLyric}
+          <FullPlayerActionButton
+            class="full-player-menu-icon"
+            label={props.labels.desktopLyric}
             title={props.labels.desktopLyric}
             disabled
           >
             <IconDesktopLyric />
-          </button>
+          </FullPlayerActionButton>
         </Show>
         <Show when={props.utility.showMoreSettings}>
-          <button
-            type="button"
-            class="full-player-menu-icon full-player-utility-disabled"
-            aria-label={props.labels.more}
+          <FullPlayerActionButton
+            class="full-player-menu-icon"
+            label={props.labels.more}
             title={props.labels.more}
             disabled
           >
             <IconControls />
-          </button>
+          </FullPlayerActionButton>
         </Show>
         <div class="full-player-volume">
           <PlayerVolumePopover
             open={props.utility.volumeOpen}
             value={props.utility.volumeValue}
             icon={VolumeIcon()}
-            buttonClass="full-player-menu-icon"
+            buttonClass="full-player-action-button full-player-menu-icon"
             popoverClass="full-player-volume-popover"
             buttonLabel={props.labels.volumeButton}
             dialogLabel={props.labels.volumeDialog}
@@ -370,19 +312,20 @@ export function FullPlayerControlShell(props: FullPlayerControlShellProps) {
             onOpenChange={props.utility.onVolumeOpenChange}
             onValuePreview={props.utility.onVolumePreview}
             onValueChange={props.utility.onVolumeChange}
+            valueClass="volume-value"
+            triggerRootStyle={{ width: "40px", height: "40px" }}
             onButtonClick={props.utility.onToggleMute}
             onButtonWheel={props.utility.onVolumeWheel}
           />
         </div>
-        <button
-          type="button"
+        <FullPlayerActionButton
           class="full-player-menu-icon"
           onClick={props.utility.onOpenQueue}
-          aria-label={props.labels.queue}
+          label={props.labels.queue}
           title={props.labels.queue}
         >
           <IconPlaylist />
-        </button>
+        </FullPlayerActionButton>
       </div>
     </div>
   );

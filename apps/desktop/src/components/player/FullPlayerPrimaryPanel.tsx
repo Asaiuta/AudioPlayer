@@ -1,5 +1,20 @@
-import { Show } from "solid-js";
+import { For, Show, createMemo } from "solid-js";
 import { CoverArt } from "../CoverArt";
+import { IconAlbum, IconArtist } from "../icons";
+import { FullPlayerMetaText } from "./FullPlayerInteractions";
+import { splitArtists } from "./metadata";
+
+export interface FullPlayerArtistLink {
+  id: number;
+  name: string;
+}
+
+export interface FullPlayerAlbumLink {
+  id: number;
+  title: string;
+  subtitle: string | null;
+  coverUrl: string | null;
+}
 
 interface FullPlayerPrimaryCoverProps {
   showCover: boolean;
@@ -13,7 +28,15 @@ interface FullPlayerPrimaryMetaProps {
   showMeta: boolean;
   title: string;
   subtitle: string;
+  artist?: string | null;
+  album?: string | null;
   detail?: string | null;
+  artistFallback: string;
+  albumFallback: string;
+  artistLinks?: readonly FullPlayerArtistLink[];
+  albumLink?: FullPlayerAlbumLink | null;
+  onSelectArtist?: (artist: FullPlayerArtistLink) => void;
+  onSelectAlbum?: (album: FullPlayerAlbumLink) => void;
 }
 
 interface FullPlayerPrimaryPanelProps {
@@ -49,7 +72,16 @@ export function FullPlayerVinylNeedle() {
   );
 }
 
+const normalizeName = (value: string): string => value.trim().toLowerCase();
+
 export function FullPlayerPrimaryPanel(props: FullPlayerPrimaryPanelProps) {
+  const artistNames = createMemo(() => {
+    const artists = splitArtists(props.meta.artist);
+    return artists.length > 0 ? artists : [props.meta.artistFallback];
+  });
+  const albumName = () => props.meta.album?.trim() || props.meta.albumFallback;
+  const canSelectAlbum = () => Boolean(props.meta.albumLink && props.meta.onSelectAlbum);
+
   return (
     <div class="full-player-primary full-player-content-left">
       <Show when={props.cover.showCover}>
@@ -63,11 +95,62 @@ export function FullPlayerPrimaryPanel(props: FullPlayerPrimaryPanelProps) {
 
       <Show when={props.meta.showMeta}>
         <div class="full-player-meta">
-          <div class="full-player-title">{props.meta.title}</div>
-          <div class="full-player-subtitle">{props.meta.subtitle}</div>
+          <div class="full-player-name">
+            <span class="full-player-title">{props.meta.title}</span>
+          </div>
           <Show when={props.meta.detail}>
-            {(detail) => <div class="full-player-detail">{detail()}</div>}
+            {(detail) => (
+              <div class="full-player-play-meta">
+                <span class="full-player-meta-item full-player-detail">{detail()}</span>
+              </div>
+            )}
           </Show>
+          <div class="full-player-artists">
+            <IconArtist />
+            <div class="full-player-artist-list">
+              <For each={artistNames()}>
+                {(artist) => {
+                  const linkedArtist = () =>
+                    props.meta.artistLinks?.find(
+                      (item) => normalizeName(item.name) === normalizeName(artist)
+                    ) ?? null;
+                  const canSelectArtist = () => Boolean(linkedArtist() && props.meta.onSelectArtist);
+                  const handleArtistClick = () => {
+                    const link = linkedArtist();
+                    if (link) {
+                      props.meta.onSelectArtist?.(link);
+                    }
+                  };
+                  return (
+                    <FullPlayerMetaText
+                      class="full-player-artist"
+                      onClick={canSelectArtist() ? handleArtistClick : undefined}
+                    >
+                      {artist}
+                    </FullPlayerMetaText>
+                  );
+                }}
+              </For>
+            </div>
+          </div>
+          <div class="full-player-album">
+            <IconAlbum />
+            <FullPlayerMetaText
+              class="full-player-album-name"
+              onClick={
+                canSelectAlbum()
+                  ? () => {
+                    const album = props.meta.albumLink;
+                    if (album) {
+                      props.meta.onSelectAlbum?.(album);
+                    }
+                  }
+                  : undefined
+              }
+            >
+              {albumName()}
+            </FullPlayerMetaText>
+          </div>
         </div>
       </Show>
     </div>

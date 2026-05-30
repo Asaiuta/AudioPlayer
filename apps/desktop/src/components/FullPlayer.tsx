@@ -1,10 +1,12 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
+import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import type { JSX } from "solid-js";
 import type { RepeatMode, ShuffleMode } from "../shared/api/types";
 import { useTranslation } from "../shared/i18n";
-import { findActiveLyricIndex, type NcmLyricLine } from "../features/online/ncmPlayback";
-import { SpectrumCanvas } from "../features/playback/SpectrumCanvas";
+import type { NcmArtistSummary } from "../shared/api/ncmDomainTypes";
+import { findActiveLyricIndex, type LyricLine } from "../shared/media/lyrics";
+import { SpectrumCanvas } from "./player/SpectrumCanvas";
 import { FullPlayerComments } from "./player/FullPlayerComments";
+import { FullPlayerBackground } from "./player/FullPlayerBackground";
 import { FullPlayerControlShell } from "./player/FullPlayerControlShell";
 import { FullPlayerLyrics } from "./player/FullPlayerLyrics";
 import {
@@ -17,14 +19,19 @@ import {
   getRootStyle,
 } from "./player/fullPlayerLayout";
 import { FullPlayerOverlayMenu } from "./player/FullPlayerOverlayMenu";
-import { FullPlayerPrimaryPanel } from "./player/FullPlayerPrimaryPanel";
+import {
+  FullPlayerPrimaryPanel,
+  type FullPlayerAlbumLink
+} from "./player/FullPlayerPrimaryPanel";
 import { FullPlayerMobilePanel } from "./player/FullPlayerMobilePanel";
+import { CopyLyricsModal } from "./player/CopyLyricsModal";
 import { stripBracketedContent } from "./player/metadata";
 import { useFullPlayerComments } from "./player/useFullPlayerComments";
 import { useFullPlayerLyricAutoFocus } from "./player/useFullPlayerLyricAutoFocus";
 import { useFullPlayerMetaVisibility } from "./player/useFullPlayerMetaVisibility";
 import { useFullPlayerModes } from "./player/useFullPlayerModes";
 import { useFullPlayerProgress } from "./player/useFullPlayerProgress";
+import { usePlayerBarTimeFormat } from "./player/usePlayerBarTimeFormat";
 import { clamp01 } from "./player/time";
 import {
   IconRepeat,
@@ -42,6 +49,10 @@ interface FullPlayerProps {
   coverUrl: string | null;
   title: string;
   subtitle: string;
+  artist?: string | null;
+  album?: string | null;
+  artistLinks?: readonly NcmArtistSummary[];
+  albumLink?: FullPlayerAlbumLink | null;
   detail?: string | null;
   currentSongId: number | null;
   currentMediaId?: string | null;
@@ -50,7 +61,7 @@ interface FullPlayerProps {
   isPlaying: boolean;
   volume: number;
   spectrum: number[];
-  lyrics?: readonly NcmLyricLine[];
+  lyrics?: readonly LyricLine[];
   lyricStatus?: "idle" | "loading" | "ready" | "error";
   lyricError?: string | null;
   repeatMode: RepeatMode;
@@ -67,6 +78,10 @@ interface FullPlayerProps {
   onCycleRepeat: () => void;
   onToggleShuffle: () => void;
   onOpenQueue: () => void;
+  onAddToPlaylist?: () => void;
+  onDownload?: () => void;
+  onSelectArtist?: (artist: NcmArtistSummary) => void;
+  onSelectAlbum?: (album: FullPlayerAlbumLink) => void;
   bgBlur: number;
   isLiked?: boolean;
   onToggleLike?: () => void;
@@ -117,19 +132,13 @@ export function FullPlayer(props: FullPlayerProps) {
   const [volumePopoverOpen, setVolumePopoverOpen] = createSignal(false);
   const [lastAudibleVolume, setLastAudibleVolume] = createSignal(0.7);
   const [closePresence, setClosePresence] = createSignal<boolean>(props.isOpen);
-  const [backgroundLayers, setBackgroundLayers] = createSignal<readonly string[]>([]);
   const [lyricOffsets, setLyricOffsets] = createSignal<Record<string, number>>(readLyricOffsetMap());
   const [isMobileFullPlayer, setIsMobileFullPlayer] = createSignal<boolean>(false);
+  const [copyLyricsOpen, setCopyLyricsOpen] = createSignal<boolean>(false);
   let lyricListRef: HTMLDivElement | undefined;
   let rootRef: HTMLDivElement | undefined;
-  let backgroundTimer: number | undefined;
   let closePresenceTimer: number | undefined;
 
-  const clearBackgroundTimer = () => {
-    if (backgroundTimer === undefined) return;
-    window.clearTimeout(backgroundTimer);
-    backgroundTimer = undefined;
-  };
   const clearClosePresenceTimer = () => {
     if (closePresenceTimer === undefined) return;
     window.clearTimeout(closePresenceTimer);
@@ -223,6 +232,14 @@ export function FullPlayer(props: FullPlayerProps) {
     uiSettings.hideBracketedContent ? stripBracketedContent(props.title) : props.title;
   const displaySubtitle = () =>
     uiSettings.hideBracketedContent ? stripBracketedContent(props.subtitle) : props.subtitle;
+  const displayArtist = () => {
+    const artist = props.artist?.trim() || null;
+    return artist && uiSettings.hideBracketedContent ? stripBracketedContent(artist) : artist;
+  };
+  const displayAlbum = () => {
+    const album = props.album?.trim() || null;
+    return album && uiSettings.hideBracketedContent ? stripBracketedContent(album) : album;
+  };
   const playPauseLabel = () => (props.isPlaying ? t("player.aria.pause") : t("player.aria.play"));
   const {
     pureLyricMode,
@@ -270,7 +287,7 @@ export function FullPlayer(props: FullPlayerProps) {
     return clamp01(average);
   });
   const rootStyle = createMemo(() => {
-    return getRootStyle(layoutSettings(), props.bgBlur, lowFrequencyEnergy());
+    return getRootStyle(layoutSettings(), props.bgBlur);
   });
   const handlePlayPauseClick = () => {
     if (props.isPlaying) {
@@ -316,6 +333,12 @@ export function FullPlayer(props: FullPlayerProps) {
       translation: uiSettings.showLyricTranslation ? line.translatedText ?? null : null
     };
   });
+  const showFullscreenCover = () =>
+    renderActive() &&
+    !isMobileFullPlayer() &&
+    uiSettings.playerType === "fullscreen" &&
+    !pureLyricMode() &&
+    !showComment();
   const layoutClassName = createMemo(() => {
     return getLayoutClassName(layoutSettings(), pureLyricMode(), showComment(), !hasLyrics());
   });
@@ -323,13 +346,13 @@ export function FullPlayer(props: FullPlayerProps) {
     return getCommentPanelClassName(layoutSettings(), showComment());
   });
   const fullPlayerRootClassName = createMemo(() => {
-    return getFullPlayerRootClassName(
+    const rootClassName = getFullPlayerRootClassName(
       layoutSettings(),
       props.isOpen,
-      props.isPlaying,
       showComment(),
       metaVisible()
     );
+    return showFullscreenCover() ? `${rootClassName} has-fullscreen-cover` : rootClassName;
   });
   const fullscreenLabel = () =>
     isFullscreen() ? t("fullPlayer.action.fullscreenExit") : t("fullPlayer.action.fullscreenEnter");
@@ -354,8 +377,6 @@ export function FullPlayer(props: FullPlayerProps) {
   const {
     canSeek,
     progress,
-    timeLeft,
-    timeRight,
     handleLyricSeek,
     handleProgressClick,
     handleProgressKeyDown
@@ -363,9 +384,15 @@ export function FullPlayer(props: FullPlayerProps) {
     duration: () => props.duration,
     currentTime: () => (renderActive() ? props.currentTime : 0),
     lyrics,
-    timeFormat: () => uiSettings.timeFormat,
     progressAdjustLyric: () => uiSettings.progressAdjustLyric,
     onSeek: props.onSeek
+  });
+  const displayTime = () => (renderActive() ? props.currentTime : 0);
+  const { timeLeft, timeRight, timeToggleLabel, cycleTimeFormat } = usePlayerBarTimeFormat({
+    timeFormat: () => uiSettings.timeFormat,
+    duration: () => props.duration,
+    displayTime,
+    t
   });
   useFullPlayerLyricAutoFocus({
     isOpen: () => props.isOpen,
@@ -376,34 +403,7 @@ export function FullPlayer(props: FullPlayerProps) {
     lyricListRef: () => lyricListRef
   });
 
-  createEffect(() => {
-    if (!renderActive()) {
-      setBackgroundLayers([]);
-      clearBackgroundTimer();
-      return;
-    }
-
-    const nextCoverUrl = props.coverUrl;
-    if (!nextCoverUrl) {
-      setBackgroundLayers([]);
-      clearBackgroundTimer();
-      return;
-    }
-
-    setBackgroundLayers((layers) => {
-      if (layers[0] === nextCoverUrl) return layers;
-      return [nextCoverUrl, ...layers.slice(0, 1)];
-    });
-
-    clearBackgroundTimer();
-    backgroundTimer = window.setTimeout(() => {
-      setBackgroundLayers((layers) => layers.slice(0, 1));
-      backgroundTimer = undefined;
-    }, 540);
-  });
-
   onCleanup(() => {
-    clearBackgroundTimer();
     clearClosePresenceTimer();
   });
 
@@ -414,20 +414,12 @@ export function FullPlayer(props: FullPlayerProps) {
     if (lyricStatus() === "error") return lyricError() ?? t("fullPlayer.lyric.error");
     return t("fullPlayer.lyric.placeholder");
   };
-  const copyCurrentLyric = () => {
-    const current = compactLyric()?.trim();
-    if (!current || typeof navigator === "undefined" || !navigator.clipboard) {
-      return;
-    }
-    void navigator.clipboard.writeText(current).catch((error) => {
-      console.warn("[FullPlayer] clipboard writeText failed", error);
-    });
-  };
+  const openCopyLyrics = () => setCopyLyricsOpen(true);
   const formatLyricOffset = () => {
     const offset = lyricOffsetMs();
-    if (offset === 0) return "0s";
+    if (offset === 0) return "0";
     const seconds = Number((offset / 1000).toFixed(2));
-    return offset > 0 ? `+${seconds}s` : `${seconds}s`;
+    return offset > 0 ? `+${seconds}` : `${seconds}`;
   };
   const setCurrentLyricOffset = (nextOffset: number) => {
     const key = lyricOffsetKey();
@@ -452,9 +444,6 @@ export function FullPlayer(props: FullPlayerProps) {
     favorite: t("player.aria.favorite"),
     addToPlaylist: t("fullPlayer.action.addToPlaylist"),
     download: t("fullPlayer.action.download"),
-    copyLyric: t("fullPlayer.action.copyLyric"),
-    lyricOffset: t("fullPlayer.action.lyricOffset"),
-    lyricSettings: t("fullPlayer.action.lyricSettings"),
     comment: t("fullPlayer.comment.toggle"),
     transport: t("player.aria.transport"),
     prev: t("player.aria.prev"),
@@ -471,13 +460,9 @@ export function FullPlayer(props: FullPlayerProps) {
     showLike: uiSettings.fullPlayerShowLike,
     isLiked: Boolean(props.isLiked),
     showAddToPlaylist: uiSettings.fullPlayerShowAddToPlaylist,
+    canAddToPlaylist: Boolean(props.onAddToPlaylist),
     showDownload: uiSettings.fullPlayerShowDownload,
-    showCopyLyric: uiSettings.fullPlayerShowCopyLyric,
-    canCopyLyric: Boolean(compactLyric()?.trim()),
-    showLyricOffset: uiSettings.fullPlayerShowLyricOffset,
-    canAdjustLyricOffset: Boolean(lyricOffsetKey()) && hasLyrics(),
-    lyricOffsetValue: formatLyricOffset(),
-    showLyricSettings: uiSettings.fullPlayerShowLyricSettings,
+    canDownload: Boolean(props.onDownload),
     showComments: canShowComments() || showComment(),
     showCommentCount: uiSettings.fullPlayerShowCommentCount,
     commentCount: commentCount(),
@@ -485,11 +470,8 @@ export function FullPlayer(props: FullPlayerProps) {
     commentsEnabled: canShowComments(),
     onClose: props.onClose,
     onToggleLike: props.onToggleLike,
-    onCopyLyric: copyCurrentLyric,
-    onDecreaseLyricOffset: () => changeLyricOffset(-LYRIC_OFFSET_STEP_MS),
-    onIncreaseLyricOffset: () => changeLyricOffset(LYRIC_OFFSET_STEP_MS),
-    onResetLyricOffset: () => setCurrentLyricOffset(0),
-    onOpenLyricSettings: props.onOpenLyricSettings,
+    onAddToPlaylist: props.onAddToPlaylist,
+    onDownload: props.onDownload,
     onToggleComment: toggleComment
   });
   const controlShellTransport = () => ({
@@ -509,11 +491,13 @@ export function FullPlayer(props: FullPlayerProps) {
     progress: renderActive() ? progress() : 0,
     timeLeft: renderActive() ? timeLeft() : "0:00",
     timeRight: renderActive() ? timeRight() : "0:00",
+    timeToggleLabel: timeToggleLabel(),
     onToggleShuffle: props.onToggleShuffle,
     onSkipPrev: props.onSkipPrev,
     onPlayPause: handlePlayPauseClick,
     onSkipNext: props.onSkipNext,
     onCycleRepeat: props.onCycleRepeat,
+    onCycleTimeFormat: cycleTimeFormat,
     onProgressClick: handleProgressClick,
     onProgressKeyDown: handleProgressKeyDown
   });
@@ -558,6 +542,14 @@ export function FullPlayer(props: FullPlayerProps) {
     showMeta: uiSettings.showPlayMeta,
     title: displayTitle(),
     subtitle: displaySubtitle() || t("player.subtitle.empty"),
+    artist: displayArtist(),
+    album: displayAlbum(),
+    artistFallback: t("library.group.unknownArtist"),
+    albumFallback: t("library.group.unknownAlbum"),
+    artistLinks: props.artistLinks,
+    albumLink: props.albumLink ?? null,
+    onSelectArtist: props.onSelectArtist,
+    onSelectAlbum: props.onSelectAlbum,
     detail: props.detail
   });
   const commentsSong = () => ({
@@ -567,6 +559,8 @@ export function FullPlayer(props: FullPlayerProps) {
     title: props.title || t("player.fallback.empty"),
     subtitle: props.subtitle || t("player.subtitle.empty"),
     coverAlt: props.title || t("cover.alt"),
+    filterLabel: t("fullPlayer.comment.exclude"),
+    filterUnavailableLabel: t("fullPlayer.comment.excludeUnavailable"),
     backLabel: t("fullPlayer.comment.backToMusic"),
     showCover: () => !uiSettings.hiddenCovers.player,
     onClose: closeComment
@@ -613,16 +607,41 @@ export function FullPlayer(props: FullPlayerProps) {
       "--lyric-blend-mode": uiSettings.lyricsBlendMode
     }
   });
+  const lyricsMenu = () => ({
+    visible: metaVisible,
+    labels: {
+      copyLyric: t("fullPlayer.action.copyLyric"),
+      lyricOffset: t("fullPlayer.action.lyricOffset"),
+      lyricOffsetTip: t("fullPlayer.action.lyricOffsetTip"),
+      lyricOffsetReset: t("fullPlayer.action.lyricOffsetReset"),
+      lyricSettings: t("fullPlayer.action.lyricSettings")
+    },
+    showCopyLyric: uiSettings.fullPlayerShowCopyLyric,
+    canCopyLyric: hasLyrics(),
+    showLyricOffset: uiSettings.fullPlayerShowLyricOffset,
+    canAdjustLyricOffset: Boolean(lyricOffsetKey()) && hasLyrics(),
+    lyricOffsetValue: formatLyricOffset(),
+    lyricOffsetMilliseconds: lyricOffsetMs(),
+    showLyricSettings: uiSettings.fullPlayerShowLyricSettings,
+    onCopyLyric: openCopyLyrics,
+    onDecreaseLyricOffset: () => changeLyricOffset(-LYRIC_OFFSET_STEP_MS),
+    onIncreaseLyricOffset: () => changeLyricOffset(LYRIC_OFFSET_STEP_MS),
+    onResetLyricOffset: () => setCurrentLyricOffset(0),
+    onSetLyricOffset: setCurrentLyricOffset,
+    onOpenLyricSettings: props.onOpenLyricSettings
+  });
   const lyricsElement = () => (
     <FullPlayerLyrics
       display={lyricsDisplay()}
       settings={lyricsSettings()}
       interaction={lyricsInteraction()}
+      menu={lyricsMenu()}
     />
   );
   const mobileLabels = () => ({
     close: t("fullPlayer.aria.close"),
     favorite: t("player.aria.favorite"),
+    addToPlaylist: t("fullPlayer.action.addToPlaylist"),
     transport: t("player.aria.transport"),
     prev: t("player.aria.prev"),
     next: t("player.aria.next"),
@@ -641,22 +660,28 @@ export function FullPlayer(props: FullPlayerProps) {
       onClick={handleSurfaceMove}
       onMouseLeave={handleSurfaceLeave}
     >
-      <Show when={renderActive() && backgroundLayers().length > 0}>
-        <div class="full-player-background" aria-hidden="true">
-          <For each={backgroundLayers()}>
-            {(url, index) => (
-              <SImage
-                src={url}
-                alt=""
-                class={`full-player-fluid${index() === 0 ? " is-current" : " is-previous"}`}
-                mediaClass="full-player-fluid-media"
-                observeVisibility={false}
-                shape="rect"
-                ariaHidden="true"
-              />
-            )}
-          </For>
-        </div>
+      <FullPlayerBackground
+        coverUrl={props.coverUrl}
+        renderActive={renderActive()}
+        backgroundType={uiSettings.playerBackgroundType}
+        fps={uiSettings.playerBackgroundFps}
+        flowSpeed={uiSettings.playerBackgroundFlowSpeed}
+        renderScale={uiSettings.playerBackgroundRenderScale}
+        paused={uiSettings.playerBackgroundPause && !props.isPlaying}
+        lowFrequencyEnergy={lowFrequencyEnergy()}
+      />
+      <Show when={showFullscreenCover() && props.coverUrl}>
+        {(coverUrl) => (
+          <SImage
+            src={coverUrl()}
+            alt={props.title || t("cover.alt")}
+            class="full-player-fullscreen-cover"
+            mediaClass="full-player-fullscreen-cover-media"
+            observeVisibility={false}
+            shape="rect"
+            ariaHidden="true"
+          />
+        )}
       </Show>
       <div class="full-player-vignette" aria-hidden="true" />
       <Show when={renderActive() && !isMobileFullPlayer() && showInstantLyric() && instantLyric()}>
@@ -731,6 +756,13 @@ export function FullPlayer(props: FullPlayerProps) {
           <SpectrumCanvas data={props.spectrum} active={props.isPlaying} />
         </div>
       </Show>
+      <CopyLyricsModal
+        open={copyLyricsOpen()}
+        lyrics={lyrics()}
+        title={props.title}
+        artist={props.artist}
+        onClose={() => setCopyLyricsOpen(false)}
+      />
     </div>
   );
 }

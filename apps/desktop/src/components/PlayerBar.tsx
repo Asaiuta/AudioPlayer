@@ -5,8 +5,10 @@ import { ncmSongShareUrl } from "../shared/api/ncm/urls";
 import { useTranslation } from "../shared/i18n";
 import { useUISearch } from "../shared/state/UISearchContext";
 import { useUISettings } from "../shared/state/useUISettings";
+import { copyToClipboard } from "../shared/utils/clipboard";
 import type { ActivePage } from "../shared/ui/navigation";
-import type { NcmArtistSummary, NcmLyricLine } from "../features/online/ncmPlayback";
+import type { NcmArtistSummary } from "../shared/api/ncmDomainTypes";
+import type { LyricLine } from "../shared/media/lyrics";
 import { PlayerBarInfoPanel } from "./player/PlayerBarInfoPanel";
 import { PlayerBarUtilityPanel } from "./player/PlayerBarUtilityPanel";
 import { PlayerProgressEdge } from "./player/PlayerProgressEdge";
@@ -46,7 +48,7 @@ interface PlayerBarProps {
   queueOpen: boolean;
   repeatMode: RepeatMode;
   shuffleMode: ShuffleMode;
-  lyrics?: readonly NcmLyricLine[];
+  lyrics?: readonly LyricLine[];
   artistLinks?: readonly NcmArtistSummary[];
   isPlayLoading?: boolean;
   onPlay: () => void;
@@ -209,26 +211,19 @@ export function PlayerBar(props: PlayerBarProps) {
     }
     return artistFallback();
   };
-  const copyToClipboard = async (value: string, _feedbackMessage: string) => {
+  const copyTextToClipboard = (value: string) => {
     const trimmed = value.trim();
     if (!trimmed) {
       return;
     }
-    if (typeof navigator === "undefined" || !navigator.clipboard) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(trimmed);
-    } catch (error) {
-      console.warn("[PlayerBar] clipboard writeText failed", error);
-    }
+    void copyToClipboard(trimmed);
   };
   const handleCopyTitle = () => {
-    void copyToClipboard(title(), t("player.feedback.copiedTitle"));
+    copyTextToClipboard(title());
     closeMore();
   };
   const handleCopyArtist = () => {
-    void copyToClipboard(metadataText(), t("player.feedback.copiedArtist"));
+    copyTextToClipboard(metadataText());
     closeMore();
   };
   const handleSearch = () => {
@@ -252,7 +247,7 @@ export function PlayerBar(props: PlayerBarProps) {
       closeMore();
       return;
     }
-    void copyToClipboard(shareUrl, t("player.feedback.copiedShareLink"));
+    void copyToClipboard(shareUrl);
     closeMore();
   };
   const handleSelectArtist = (artistId: number) => {
