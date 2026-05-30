@@ -1,4 +1,12 @@
 import type { PersistentSettings, PersistentSettingsUpdate } from "./types";
+import {
+  isBoolean,
+  isInteger,
+  isNullableInteger,
+  isNumber,
+  isRecord,
+  isString
+} from "./ncmParserUtils";
 
 export interface SettingsApiClient {
   getSettings: () => Promise<PersistentSettings>;
@@ -10,22 +18,6 @@ export type SettingsRequestJson = (path: string, init?: RequestInit) => Promise<
 export interface SettingsApiTransport {
   requestJson: SettingsRequestJson;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
-
-const isNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
-const isInteger = (value: unknown): value is number =>
-  isNumber(value) && Number.isInteger(value);
-
-const isString = (value: unknown): value is string => typeof value === "string";
-
-const isNullableInteger = (value: unknown): value is number | null =>
-  value === null || isInteger(value);
 
 const isNumberRecord = (value: unknown): value is Record<string, number> => {
   if (!isRecord(value)) {

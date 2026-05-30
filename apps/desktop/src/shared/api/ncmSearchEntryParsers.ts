@@ -1,5 +1,6 @@
 import type { NcmResponseEnvelope } from "./ncm/base";
 import { isRecord } from "./ncmParserUtils";
+import { readArray, readNumber, readString } from "../jsonReaders";
 
 export type NcmSearchSuggestionType = "song" | "artist" | "album" | "playlist" | "video" | "radio";
 
@@ -22,21 +23,6 @@ export interface NcmSearchSuggestionItem {
 }
 
 const SUGGESTION_LIMIT = 8;
-
-const readArray = (value: unknown): unknown[] =>
-  Array.isArray(value) ? value : [];
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
-
-const readNumber = (value: unknown): number | null => {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-};
 
 const readPayloadData = (payload: NcmResponseEnvelope): Record<string, unknown> | null => {
   if (isRecord(payload.data)) return payload.data;

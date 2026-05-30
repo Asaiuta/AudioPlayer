@@ -7,6 +7,7 @@ import {
   getLoginQrKey,
   ncmQrLoginUrl
 } from "../../shared/api/ncm";
+import { isNumber, isRecord, isString } from "../../shared/jsonReaders";
 
 export type QrSessionPhase = "waiting" | "scanned" | "confirmed";
 
@@ -34,14 +35,11 @@ export interface UseQrLoginSessionOptions {
 
 const QR_POLL_INTERVAL_MS = 1000;
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const readQrNumber = (value: unknown): number | null =>
+  isNumber(value) ? value : null;
 
-const readNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" ? value : null;
+const readQrString = (value: unknown): string | null =>
+  isString(value) ? value : null;
 
 const readErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -66,12 +64,12 @@ export const resolveLoginQrImageUrl = async (
   key: string,
   data: Record<string, unknown> | null
 ): Promise<string> => {
-  const imageUrl = readString(data?.qrimg)?.trim();
+  const imageUrl = readQrString(data?.qrimg)?.trim();
   if (imageUrl) {
     return imageUrl;
   }
 
-  const qrValue = readString(data?.qrurl)?.trim() || buildNeteaseQrLoginUrl(key);
+  const qrValue = readQrString(data?.qrurl)?.trim() || buildNeteaseQrLoginUrl(key);
   return createQrImageDataUrl(qrValue);
 };
 
@@ -108,8 +106,8 @@ export function useQrLoginSession(options: UseQrLoginSessionOptions) {
     try {
       const keyResponse = await getLoginQrKey();
       const key =
-        readString(isRecord(keyResponse.data) ? keyResponse.data.unikey : null) ??
-        readString(keyResponse.unikey);
+        readQrString(isRecord(keyResponse.data) ? keyResponse.data.unikey : null) ??
+        readQrString(keyResponse.unikey);
       if (!key) {
         throw new Error(options.missingQrMessage);
       }
@@ -141,7 +139,7 @@ export function useQrLoginSession(options: UseQrLoginSessionOptions) {
         const response = await checkLoginQr(current.key, abortController.signal);
         if (cancelled) return;
 
-        const code = readNumber(response.code);
+        const code = readQrNumber(response.code);
         if (code === 800) {
           setSession(null);
           options.onFeedback({ tone: "error", message: options.expiredMessage });
@@ -152,15 +150,15 @@ export function useQrLoginSession(options: UseQrLoginSessionOptions) {
           return;
         }
         if (code === 802) {
-          const nickname = readString(response.nickname);
-          const avatarUrl = readString(response.avatarUrl);
+          const nickname = readQrString(response.nickname);
+          const avatarUrl = readQrString(response.avatarUrl);
           setSession((prev) =>
             prev ? { ...prev, phase: "scanned", nickname, avatarUrl } : prev
           );
           return;
         }
         if (code === 803) {
-          const cookie = readString(response.cookie) ?? "";
+          const cookie = readQrString(response.cookie) ?? "";
           if (!cookie) {
             throw new Error(options.missingQrMessage);
           }

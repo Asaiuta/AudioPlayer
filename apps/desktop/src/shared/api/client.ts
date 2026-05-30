@@ -1,16 +1,13 @@
 import type {
   ApiEnvelope,
-  ApiStatus,
-  AudioDeviceInfo,
-  DevicesResponse,
   PlaybackHistoryEntry,
-  PlayerState,
   WebDavBrowseEntry,
   WebDavSource
 } from "./types";
 import { peekApiToken, resolveApiToken, resolveBaseUrl } from "./env";
 import {
   getCurrentLyrics as requestCurrentLyrics,
+  type CurrentLyricsInput,
   type CurrentLyricsResponse
 } from "./lyrics";
 import {
@@ -45,16 +42,19 @@ import {
   type NcmApiTransport
 } from "./ncmClient";
 import {
-  isBoolean,
-  isInteger,
-  isNullableInteger,
-  isNullableNumber,
-  isNullableString,
-  isNumber,
+  parseDevicesResponse,
+  parsePlaybackHistoryEntry,
+  parsePlayerState,
+  parseWebDavBrowseEntry,
+  parseWebDavSource
+} from "./apiBoundaryParsers";
+import {
+  parseArray,
+  parseStatus,
   isRecord,
   isString
 } from "./ncmParserUtils";
-export type { CurrentLyricsResponse, LyricLine, LyricWord } from "./lyrics";
+export type { CurrentLyricsInput, CurrentLyricsResponse, LyricLine, LyricWord } from "./lyrics";
 export type { LoadOptions, PlaybackApiClient } from "./playback";
 export type { PlayQueueOptions, QueueAdjacent, QueueApiClient } from "./queue";
 export type { SettingsApiClient } from "./settings";
@@ -144,160 +144,11 @@ export interface ApiClient extends PlaybackApiClient, QueueApiClient, SettingsAp
   browseWebDav: (path?: string) => Promise<{ path: string; entries: WebDavBrowseEntry[] }>;
   // Playback History
   getPlaybackHistory: (limit?: number) => Promise<PlaybackHistoryEntry[]>;
-  getCurrentLyrics: () => Promise<CurrentLyricsResponse>;
+  getCurrentLyrics: (input?: CurrentLyricsInput) => Promise<CurrentLyricsResponse>;
   // Cover Art
   getCoverArtUrl: (mediaId: string) => string;
   getLibraryTrackCoverArtUrl: (trackKey: number) => string;
 }
-
-const hasFields = <T extends string>(
-  value: Record<string, unknown>,
-  fields: readonly T[],
-  predicate: (candidate: unknown) => boolean
-) => fields.every((field) => predicate(value[field]));
-
-const parseStatus = (value: unknown): ApiStatus => {
-  if (value === "success" || value === "error") {
-    return value;
-  }
-  throw new Error("Invalid response status");
-};
-
-const audioDeviceBooleanFields = ["is_default"] as const;
-const audioDeviceIntegerFields = ["id"] as const;
-const audioDeviceNullableIntegerFields = ["sample_rate"] as const;
-const audioDeviceStringFields = ["name"] as const;
-
-const parseAudioDeviceInfo = (value: unknown): AudioDeviceInfo | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-  if (
-    !hasFields(value, audioDeviceBooleanFields, isBoolean) ||
-    !hasFields(value, audioDeviceIntegerFields, isInteger) ||
-    !hasFields(value, audioDeviceNullableIntegerFields, isNullableInteger) ||
-    !hasFields(value, audioDeviceStringFields, isString)
-  ) {
-    return null;
-  }
-
-  return value as unknown as AudioDeviceInfo;
-};
-
-const parseDevicesResponse = (value: unknown): DevicesResponse | null => {
-  if (!isRecord(value) || !isString(value.preferred_name)) {
-    return null;
-  }
-
-  const preferred = Array.isArray(value.preferred)
-    ? value.preferred.map(parseAudioDeviceInfo)
-    : null;
-  const other = Array.isArray(value.other)
-    ? value.other.map(parseAudioDeviceInfo)
-    : null;
-
-  if (
-    !preferred ||
-    !other ||
-    preferred.some((device) => device === null) ||
-    other.some((device) => device === null)
-  ) {
-    return null;
-  }
-
-  return {
-    preferred: preferred as AudioDeviceInfo[],
-    other: other as AudioDeviceInfo[],
-    preferred_name: value.preferred_name
-  };
-};
-
-const playerStateBooleanFields = [
-  "is_playing",
-  "is_paused",
-  "is_loading",
-  "exclusive_mode",
-  "dither_enabled",
-  "replaygain_enabled",
-  "loudness_enabled",
-  "saturation_enabled",
-  "crossfeed_enabled",
-  "dynamic_loudness_enabled",
-  "use_cache",
-  "preemptive_resample",
-  "has_cover_art"
-] as const;
-
-const playerStateNumberFields = [
-  "duration",
-  "current_time",
-  "volume",
-  "target_lufs",
-  "preamp_db",
-  "saturation_drive",
-  "saturation_mix",
-  "crossfeed_mix",
-  "dynamic_loudness_strength",
-  "dynamic_loudness_factor"
-] as const;
-
-const playerStateIntegerFields = ["output_bits"] as const;
-
-const playerStateNullableIntegerFields = [
-  "device_id",
-  "ncm_song_id",
-  "target_samplerate",
-  "track_number",
-  "disc_number",
-  "year"
-] as const;
-
-const playerStateNullableNumberFields = [
-  "rg_track_gain",
-  "rg_album_gain",
-  "rg_track_peak",
-  "rg_album_peak"
-] as const;
-
-const playerStateStringFields = [
-  "eq_type",
-  "loudness_mode",
-  "noise_shaper_curve",
-  "resample_quality",
-  "repeat_mode",
-  "shuffle_mode"
-] as const;
-
-const playerStateNullableStringFields = [
-  "file_path",
-  "title",
-  "artist",
-  "album",
-  "genre",
-  "media_id",
-  "ncm_source_page_url",
-  "external_artwork_url"
-] as const;
-
-const parsePlayerState = (value: unknown): PlayerState | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  if (
-    !hasFields(value, playerStateBooleanFields, isBoolean) ||
-    !hasFields(value, playerStateNumberFields, isNumber) ||
-    !hasFields(value, playerStateIntegerFields, isInteger) ||
-    !hasFields(value, playerStateNullableIntegerFields, isNullableInteger) ||
-    !hasFields(value, playerStateNullableNumberFields, isNullableNumber) ||
-    !hasFields(value, playerStateStringFields, isString) ||
-    !hasFields(value, playerStateNullableStringFields, isNullableString)
-  ) {
-    return null;
-  }
-
-  return value as unknown as PlayerState;
-};
 
 const parseEnvelope = (value: unknown): ApiEnvelope => {
   if (!isRecord(value)) {
@@ -371,7 +222,7 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.sources)) {
       throw new Error("Invalid WebDAV sources response");
     }
-    return json.sources as WebDavSource[];
+    return parseArray(json.sources, parseWebDavSource, "Invalid WebDAV sources response");
   },
   upsertWebDavSource: async (sourceKey: string, displayName: string, baseUrl_: string, username?: string, password?: string, isDefault?: boolean) => {
     const json = await requestJson(baseUrl, "/domain/webdav/sources", {
@@ -388,7 +239,11 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     if (!isRecord(json) || json.status !== "success") {
       throw new Error(typeof json === "object" && json !== null && "message" in json ? String(json.message) : "Failed to save WebDAV source");
     }
-    return json.source as WebDavSource;
+    const source = parseWebDavSource(json.source);
+    if (!source) {
+      throw new Error("Invalid WebDAV source payload");
+    }
+    return source;
   },
   setDefaultWebDavSource: async (sourceKey: string) => {
     const json = await requestJson(baseUrl, "/domain/webdav/sources/default", {
@@ -398,7 +253,11 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
     if (!isRecord(json) || json.status !== "success") {
       throw new Error("Failed to set default WebDAV source");
     }
-    return json.source as WebDavSource;
+    const source = parseWebDavSource(json.source);
+    if (!source) {
+      throw new Error("Invalid WebDAV source payload");
+    }
+    return source;
   },
   deleteWebDavSource: async (sourceKey: string) => {
     const json = await requestJson(baseUrl, `/domain/webdav/sources/${encodeURIComponent(sourceKey)}`, {
@@ -411,20 +270,23 @@ export const createApiClient = (baseUrl = resolveBaseUrl()): ApiClient => {
   browseWebDav: async (path?: string) => {
     const query = path ? `?path=${encodeURIComponent(path)}` : "";
     const json = await requestJson(baseUrl, `/webdav/browse${query}`);
-    if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.entries)) {
+    if (!isRecord(json) || json.status !== "success" || !isString(json.path) || !Array.isArray(json.entries)) {
       throw new Error(typeof json === "object" && json !== null && "message" in json ? String(json.message) : "Failed to browse WebDAV");
     }
-    return { path: json.path as string, entries: json.entries as WebDavBrowseEntry[] };
+    return {
+      path: json.path,
+      entries: parseArray(json.entries, parseWebDavBrowseEntry, "Invalid WebDAV browse payload")
+    };
   },
   getPlaybackHistory: async (limit = 50) => {
     const json = await requestJson(baseUrl, `/domain/playback_history?limit=${limit}`);
     if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.history)) {
       throw new Error("Invalid playback history response");
     }
-    return json.history as PlaybackHistoryEntry[];
+    return parseArray(json.history, parsePlaybackHistoryEntry, "Invalid playback history response");
   },
-  getCurrentLyrics: async () => {
-    return requestCurrentLyrics((path, init) => requestJson(baseUrl, path, init));
+  getCurrentLyrics: async (input?: CurrentLyricsInput) => {
+    return requestCurrentLyrics((path, init) => requestJson(baseUrl, path, init), input);
   },
   getCoverArtUrl: (mediaId: string) => {
     const token = peekApiToken();

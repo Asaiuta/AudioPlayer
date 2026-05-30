@@ -1,5 +1,6 @@
 import { invalidateApiToken, resolveApiToken, resolveBaseUrl } from "../env";
 import { fetchWithTimeout } from "../fetchWithTimeout";
+import { isRecord } from "../ncmParserUtils";
 
 export interface NcmRequestOptions {
   method?: "GET" | "POST";
@@ -26,9 +27,6 @@ export interface NcmResponseEnvelope<T = unknown> {
 
 const NCM_BASE_PATH = "/api/netease";
 const SUPPRESS_ACTIVE_COOKIE_KEY = "_ncm_no_active_cookie";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const appendParams = (
   search: URLSearchParams,

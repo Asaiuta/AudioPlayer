@@ -18,6 +18,7 @@ import {
   type NcmAccountInfo,
   type NcmResponseEnvelope
 } from "../api/ncm";
+import { isNumber, isRecord, isString } from "../jsonReaders";
 
 const LEGACY_STORAGE_KEY = "audio.ncm.accounts.v1";
 
@@ -68,14 +69,11 @@ interface LegacyPersistedState {
 const accountApi = createApiClient();
 const NcmAccountContext = createContext<NcmAccountContextValue | null>(null);
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const readStatusNumber = (value: unknown): number | null =>
+  isNumber(value) ? value : null;
 
-const readNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" ? value : null;
+const readStatusString = (value: unknown): string | null =>
+  isString(value) ? value : null;
 
 const readProfileSnapshot = (
   envelope: NcmResponseEnvelope<NcmAccountInfo> | unknown
@@ -86,14 +84,14 @@ const readProfileSnapshot = (
   const profile = isRecord(data.profile) ? data.profile : null;
   const account = isRecord(data.account) ? data.account : null;
 
-  const userId = readNumber(profile?.userId) ?? readNumber(account?.id);
+  const userId = readStatusNumber(profile?.userId) ?? readStatusNumber(account?.id);
   if (userId === null) return null;
 
   return {
     userId,
-    nickname: readString(profile?.nickname) ?? readString(account?.userName),
-    avatarUrl: readString(profile?.avatarUrl),
-    vipType: readNumber(profile?.vipType) ?? readNumber(account?.vipType)
+    nickname: readStatusString(profile?.nickname) ?? readStatusString(account?.userName),
+    avatarUrl: readStatusString(profile?.avatarUrl),
+    vipType: readStatusNumber(profile?.vipType) ?? readStatusNumber(account?.vipType)
   };
 };
 

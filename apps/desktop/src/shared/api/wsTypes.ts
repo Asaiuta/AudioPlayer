@@ -2,6 +2,8 @@
 // (`event_type::*` / `KNOWN_EVENT_TYPES`). Adding a new event requires
 // updating both sides; `parseWsEvent` returns `null` for unknown types
 // so older frontends remain forward-compatible.
+import { isNumber, isRecord, isString } from "../jsonReaders";
+
 export type WsEvent =
   | { type: "loading_progress"; progress: number }
   | { type: "load_complete"; file_path: string | null; duration: number }
@@ -30,26 +32,23 @@ export type WsEvent =
   | { type: "position"; position: number; timestamp: number }
   | { type: "playback_history_updated"; timestamp: number };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const readEventNumber = (value: unknown): number | null =>
+  isNumber(value) ? value : null;
 
-const readNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" ? value : null;
+const readEventString = (value: unknown): string | null =>
+  isString(value) ? value : null;
 
 const readNullableString = (value: unknown): string | null =>
-  value === null ? null : readString(value);
+  value === null ? null : readEventString(value);
 
 const readNullableNumber = (value: unknown): number | null =>
-  value === null ? null : readNumber(value);
+  value === null ? null : readEventNumber(value);
 
 const readNumberArray = (value: unknown): number[] | null => {
   if (!Array.isArray(value)) {
     return null;
   }
-  const numbers = value.filter((item) => typeof item === "number" && Number.isFinite(item));
+  const numbers = value.filter(isNumber);
   return numbers.length === value.length ? numbers : null;
 };
 
@@ -58,31 +57,31 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
     return null;
   }
 
-  const eventType = readString(raw.type);
+  const eventType = readEventString(raw.type);
   if (!eventType) {
     return null;
   }
 
   switch (eventType) {
     case "loading_progress": {
-      const progress = readNumber(raw.progress);
+      const progress = readEventNumber(raw.progress);
       return progress === null ? null : { type: eventType, progress };
     }
     case "load_complete": {
       const filePath = readNullableString(raw.file_path);
-      const duration = readNumber(raw.duration);
+      const duration = readEventNumber(raw.duration);
       if (duration === null) {
         return null;
       }
       return { type: eventType, file_path: filePath, duration };
     }
     case "load_error": {
-      const error = readString(raw.error);
+      const error = readEventString(raw.error);
       return error ? { type: eventType, error } : null;
     }
     case "track_changed": {
       const filePath = readNullableString(raw.file_path);
-      const duration = readNumber(raw.duration);
+      const duration = readEventNumber(raw.duration);
       if (duration === null) {
         return null;
       }
@@ -101,11 +100,11 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
       };
     }
     case "playback_ended": {
-      const position = readNumber(raw.position) ?? 0;
+      const position = readEventNumber(raw.position) ?? 0;
       return { type: eventType, position };
     }
     case "needs_preload": {
-      const remaining = readNumber(raw.remaining_secs);
+      const remaining = readEventNumber(raw.remaining_secs);
       return remaining === null ? null : { type: eventType, remaining_secs: remaining };
     }
     case "spectrum_data": {
@@ -113,22 +112,22 @@ export const parseWsEvent = (raw: unknown): WsEvent | null => {
       return data ? { type: eventType, data } : null;
     }
     case "queue_updated": {
-      return { type: eventType, queueLength: readNumber(raw.queue_length) };
+      return { type: eventType, queueLength: readEventNumber(raw.queue_length) };
     }
     case "play":
     case "pause":
     case "stop":
     case "seek":
     case "position": {
-      const position = readNumber(raw.position);
-      const timestamp = readNumber(raw.timestamp);
+      const position = readEventNumber(raw.position);
+      const timestamp = readEventNumber(raw.timestamp);
       if (position === null || timestamp === null) {
         return null;
       }
       return { type: eventType, position, timestamp };
     }
     case "playback_history_updated": {
-      const timestamp = readNumber(raw.timestamp);
+      const timestamp = readEventNumber(raw.timestamp);
       return timestamp === null ? null : { type: eventType, timestamp };
     }
     default:

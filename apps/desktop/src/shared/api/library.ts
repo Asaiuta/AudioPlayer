@@ -24,6 +24,13 @@ import {
   isRecord,
   isString
 } from "./ncmParserUtils";
+import {
+  parseLibraryScanTask,
+  parseMediaItem,
+  parsePlayerState,
+  parseQueueEntries,
+  parseScanResult
+} from "./apiBoundaryParsers";
 
 export interface LibraryQueueMediaIdsInput {
   mediaIds: string[];
@@ -336,12 +343,13 @@ const parseLibraryTrackDetailResponse = (value: unknown): LibraryTrackDetail => 
   if (status === "error") {
     throw new Error(typeof value.message === "string" ? value.message : "Failed to load library track");
   }
-  if (!isInteger(value.track_key) || !isRecord(value.item)) {
+  const item = parseMediaItem(value.item);
+  if (!isInteger(value.track_key) || !item) {
     throw new Error("Invalid library track detail payload");
   }
   return {
     track_key: value.track_key,
-    item: value.item as unknown as MediaItem
+    item
   };
 };
 
@@ -353,11 +361,12 @@ const parseLibraryQueuePlaybackResponse = (value: unknown): LibraryQueuePlayback
   if (status === "error") {
     throw new Error(typeof value.message === "string" ? value.message : "Failed to play library tracks");
   }
-  if (!isRecord(value.state) || !isInteger(value.queued_count)) {
+  const state = parsePlayerState(value.state);
+  if (!state || !isInteger(value.queued_count)) {
     throw new Error("Invalid library queue payload");
   }
   return {
-    state: value.state as unknown as PlayerState,
+    state,
     queuedCount: value.queued_count
   };
 };
@@ -373,7 +382,7 @@ const parseLibraryQueueEntriesResponse = (value: unknown, errorMessage: string):
   if (!Array.isArray(value.queue)) {
     throw new Error(errorMessage);
   }
-  return value.queue as QueueEntry[];
+  return parseQueueEntries(value.queue, errorMessage);
 };
 
 const parseLocalPlaylistsResponse = (value: unknown): LocalPlaylist[] => {
@@ -421,9 +430,13 @@ const parseLocalPlaylistDetailResponse = (value: unknown): LocalPlaylistDetail =
   if (!playlist || !Array.isArray(value.items)) {
     throw new Error("Invalid local playlist detail payload");
   }
+  const items = value.items.map(parseMediaItem);
+  if (items.some((item) => item === null)) {
+    throw new Error("Invalid local playlist detail payload");
+  }
   return {
     playlist,
-    items: value.items as MediaItem[]
+    items: items as MediaItem[]
   };
 };
 
@@ -445,15 +458,11 @@ export const createLibraryApiClient = (transport: LibraryApiTransport): LibraryA
     if (displayName) body.display_name = displayName;
     if (sourceKey) body.source_key = sourceKey;
     const json = await transport.requestJson("/domain/library/scan", postJson(body));
-    if (!isRecord(json) || json.status !== "success") {
+    const scanResult = parseScanResult(json);
+    if (!isRecord(json) || json.status !== "success" || !scanResult) {
       throw new Error(typeof json === "object" && json !== null && "message" in json ? String(json.message) : "Failed to scan library");
     }
-    return {
-      root_id: json.root_id as number,
-      task_id: json.task_id as number,
-      scanned_files: json.scanned_files as number,
-      indexed_files: json.indexed_files as number
-    };
+    return scanResult;
   },
   deleteLibraryRoot: async (rootId) => {
     const json = await transport.requestJson(`/domain/library/roots/${rootId}`, {
@@ -466,10 +475,11 @@ export const createLibraryApiClient = (transport: LibraryApiTransport): LibraryA
   },
   getLibraryScanTask: async (taskId) => {
     const json = await transport.requestJson(`/domain/library/scan_tasks/${taskId}`);
-    if (!isRecord(json) || json.status !== "success" || !isRecord(json.task)) {
+    const task = isRecord(json) ? parseLibraryScanTask(json.task) : null;
+    if (!isRecord(json) || json.status !== "success" || !task) {
       throw new Error("Invalid library scan task response");
     }
-    return json.task as unknown as LibraryScanTask;
+    return task;
   },
   getMediaItems: async (limit = 100, all = false) => {
     const query = all ? "all=true" : `limit=${limit}`;
@@ -477,7 +487,11 @@ export const createLibraryApiClient = (transport: LibraryApiTransport): LibraryA
     if (!isRecord(json) || json.status !== "success" || !Array.isArray(json.media_items)) {
       throw new Error("Invalid media items response");
     }
-    return json.media_items as MediaItem[];
+    const mediaItems = json.media_items.map(parseMediaItem);
+    if (mediaItems.some((item) => item === null)) {
+      throw new Error("Invalid media items response");
+    }
+    return mediaItems as MediaItem[];
   },
   getLibraryTrackSummaries: async () =>
     parseLibraryTrackSummariesResponse(await transport.requestJson("/domain/library/track_summaries")),

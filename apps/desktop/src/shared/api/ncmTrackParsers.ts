@@ -19,7 +19,8 @@ import {
   isString,
   parseStatus
 } from "./ncmParserUtils";
-import type { PlayerState, QueueEntry } from "./types";
+import type { PlayerState } from "./types";
+import { parseQueueEntries } from "./apiBoundaryParsers";
 
 const parseResolvedNcmTrack = (value: unknown, errorMessage: string): ResolvedNcmTrack => {
   if (!isRecord(value)) {
@@ -101,7 +102,7 @@ export const parseNcmTrackQueueResponse = (value: unknown): NcmTrackQueueResult 
     throw new Error("Invalid NCM queue payload");
   }
 
-  return { track, queue: value.queue as QueueEntry[] };
+  return { track, queue: parseQueueEntries(value.queue, "Invalid NCM queue payload") };
 };
 
 export const parseResolvedNcmTrackSupplementResponse = (value: unknown): ResolvedNcmTrackSupplement => {

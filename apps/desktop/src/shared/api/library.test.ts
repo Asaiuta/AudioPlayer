@@ -1,6 +1,97 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createLibraryApiClient } from "./library";
+import type { PlayerState, QueueEntry } from "./types";
+
+const playerState = (overrides: Partial<PlayerState> = {}): PlayerState => ({
+  is_playing: false,
+  is_paused: true,
+  is_loading: false,
+  duration: 240,
+  current_time: 0,
+  file_path: "C:/Music/song.flac",
+  ncm_song_id: null,
+  ncm_source_page_url: null,
+  volume: 0.8,
+  device_id: null,
+  exclusive_mode: false,
+  eq_type: "flat",
+  dither_enabled: false,
+  replaygain_enabled: false,
+  loudness_enabled: false,
+  loudness_mode: "off",
+  target_lufs: -16,
+  preamp_db: 0,
+  rg_track_gain: null,
+  rg_album_gain: null,
+  rg_track_peak: null,
+  rg_album_peak: null,
+  saturation_enabled: false,
+  saturation_drive: 0,
+  saturation_mix: 0,
+  crossfeed_enabled: false,
+  crossfeed_mix: 0,
+  dynamic_loudness_enabled: false,
+  dynamic_loudness_strength: 0,
+  dynamic_loudness_factor: 0,
+  output_bits: 24,
+  noise_shaper_curve: "none",
+  target_samplerate: null,
+  resample_quality: "medium",
+  use_cache: true,
+  preemptive_resample: false,
+  title: null,
+  artist: null,
+  album: null,
+  track_number: null,
+  disc_number: null,
+  genre: null,
+  year: null,
+  has_cover_art: false,
+  external_artwork_url: null,
+  media_id: null,
+  repeat_mode: "off",
+  shuffle_mode: "off",
+  ...overrides
+});
+
+const queueEntry = (overrides: Partial<QueueEntry> = {}): QueueEntry => ({
+  queue_id: "queue",
+  entry_id: 1,
+  position_index: 0,
+  source_path: "C:/Music/song.flac",
+  media_id: "c:/music/song.flac",
+  status: "ready",
+  added_at_epoch_secs: 10,
+  updated_at_epoch_secs: 20,
+  title: "Song",
+  artist: null,
+  album: null,
+  duration_secs: 240,
+  has_cover_art: false,
+  external_artwork_url: null,
+  ...overrides
+});
+
+const assertRejects = async (
+  action: () => Promise<unknown>,
+  messagePattern: RegExp
+): Promise<void> => {
+  let rejected = false;
+  try {
+    await action();
+  } catch (error) {
+    rejected = true;
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    assert.equal(error instanceof Error, true, "expected rejection to be an Error");
+    assert.equal(
+      messagePattern.test(errorMessage),
+      true,
+      `expected error message to match ${messagePattern}, got ${errorMessage}`
+    );
+  }
+  assert.equal(rejected, true, "expected action to reject");
+};
 
 test("replaceQueueFromMediaIds posts displayed media ids and requested start media id", async () => {
   const calls: Array<{ path: string; body: unknown }> = [];
@@ -12,7 +103,7 @@ test("replaceQueueFromMediaIds posts displayed media ids and requested start med
       });
       return {
         status: "success",
-        state: {},
+        state: playerState(),
         queued_count: 3
       };
     }
@@ -33,6 +124,62 @@ test("replaceQueueFromMediaIds posts displayed media ids and requested start med
     }
   ]);
   assert.equal(result.queuedCount, 3);
+});
+
+test("replaceQueueFromMediaIds rejects malformed player state payload", async () => {
+  const api = createLibraryApiClient({
+    requestJson: async () => ({
+      status: "success",
+      state: {},
+      queued_count: 3
+    })
+  });
+
+  await assertRejects(
+    () =>
+      api.replaceQueueFromMediaIds({
+        mediaIds: ["media-a"],
+        startMediaId: "media-a"
+      }),
+    /Invalid library queue payload/
+  );
+});
+
+test("enqueueQueueFromMediaIds rejects malformed queue entries", async () => {
+  const api = createLibraryApiClient({
+    requestJson: async () => ({
+      status: "success",
+      queue: [
+        {
+          ...queueEntry(),
+          entry_id: "1"
+        }
+      ]
+    })
+  });
+
+  await assertRejects(
+    () =>
+      api.enqueueQueueFromMediaIds({
+        mediaIds: ["media-a"],
+        startMediaId: "media-a"
+      }),
+    /Invalid library queue enqueue response/
+  );
+});
+
+test("scanLibraryRoot rejects malformed scan result", async () => {
+  const api = createLibraryApiClient({
+    requestJson: async () => ({
+      status: "success",
+      root_id: "1",
+      task_id: 2,
+      scanned_files: 3,
+      indexed_files: 4
+    })
+  });
+
+  await assertRejects(() => api.scanLibraryRoot("D:/Music"), /Failed to scan library/);
 });
 
 test("getLibraryTrackView posts view query and parses lightweight response", async () => {

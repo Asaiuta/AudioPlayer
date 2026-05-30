@@ -1,3 +1,11 @@
+import {
+  isNullableNumber,
+  isNullableString,
+  isNumber,
+  isRecord,
+  isString
+} from "./ncmParserUtils";
+
 export interface LyricWord {
   startTime: number;
   endTime: number;
@@ -18,21 +26,12 @@ export interface CurrentLyricsResponse {
   source: string | null;
 }
 
+export interface CurrentLyricsInput {
+  songId: number;
+  lyricDirs: readonly string[];
+}
+
 export type ApiRequestJson = (path: string, init?: RequestInit) => Promise<unknown>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const isNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
-const isString = (value: unknown): value is string => typeof value === "string";
-
-const isNullableString = (value: unknown): value is string | null =>
-  value === null || isString(value);
-
-const isNullableNumber = (value: unknown): value is number | null =>
-  value === null || isNumber(value);
 
 const parseStatus = (value: unknown): "success" | "error" => {
   if (value === "success" || value === "error") {
@@ -121,16 +120,51 @@ export const parseCurrentLyricsResponse = (value: unknown): CurrentLyricsRespons
 };
 
 let currentLyricsInFlight: Promise<CurrentLyricsResponse> | null = null;
+let currentLyricsInFlightKey: string | null = null;
 
-export const getCurrentLyrics = async (requestJson: ApiRequestJson): Promise<CurrentLyricsResponse> => {
-  if (currentLyricsInFlight) return currentLyricsInFlight;
-  const request = requestJson("/domain/current_lyrics")
+const normalizeCurrentLyricsInput = (input?: CurrentLyricsInput) => {
+  const songId = typeof input?.songId === "number" && Number.isFinite(input.songId)
+    ? Math.trunc(input.songId)
+    : null;
+  const lyricDirs = Array.from(
+    new Set(
+      (input?.lyricDirs ?? [])
+        .map((dir) => dir.trim())
+        .filter((dir) => dir.length > 0)
+    )
+  );
+
+  return { songId, lyricDirs };
+};
+
+const currentLyricsRequestKey = (input: ReturnType<typeof normalizeCurrentLyricsInput>) =>
+  JSON.stringify(input);
+
+export const getCurrentLyrics = async (
+  requestJson: ApiRequestJson,
+  input?: CurrentLyricsInput
+): Promise<CurrentLyricsResponse> => {
+  const normalized = normalizeCurrentLyricsInput(input);
+  const requestKey = currentLyricsRequestKey(normalized);
+  if (currentLyricsInFlight && currentLyricsInFlightKey === requestKey) {
+    return currentLyricsInFlight;
+  }
+
+  const request = requestJson("/domain/current_lyrics", {
+    method: "POST",
+    body: JSON.stringify({
+      songId: normalized.songId,
+      lyricDirs: normalized.lyricDirs
+    })
+  })
     .then(parseCurrentLyricsResponse)
     .finally(() => {
       if (currentLyricsInFlight === request) {
         currentLyricsInFlight = null;
+        currentLyricsInFlightKey = null;
       }
     });
   currentLyricsInFlight = request;
+  currentLyricsInFlightKey = requestKey;
   return request;
 };

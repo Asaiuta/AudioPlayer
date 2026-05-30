@@ -1,4 +1,5 @@
 import { requestNcm, type NcmRequestOptions, type NcmResponseEnvelope } from "./base";
+import { isNumber, isRecord, readBoolean } from "../../jsonReaders";
 
 export interface NcmSongComment {
   commentId: number;
@@ -45,17 +46,11 @@ export interface NcmCommentHugListPayload {
   hugComments: readonly unknown[];
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const readString = (value: unknown): string | null =>
+const readCommentString = (value: unknown): string | null =>
   typeof value === "string" && value.trim() !== "" ? value : null;
 
-const readNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const readBoolean = (value: unknown): boolean | null =>
-  typeof value === "boolean" ? value : null;
+const readCommentNumber = (value: unknown): number | null =>
+  isNumber(value) ? value : null;
 
 const readCommentContainer = (envelope: NcmResponseEnvelope): Record<string, unknown> => {
   if (isRecord(envelope.data)) return envelope.data;
@@ -65,16 +60,16 @@ const readCommentContainer = (envelope: NcmResponseEnvelope): Record<string, unk
 const readCommentReply = (value: unknown): NcmSongCommentReply | null => {
   const reply = Array.isArray(value) ? value.find(isRecord) : null;
   if (!reply) return null;
-  const content = readString(reply.content);
+  const content = readCommentString(reply.content);
   if (content === null) return null;
 
   const user = isRecord(reply.user) ? reply.user : null;
   return {
     content,
     user: {
-      userId: readNumber(user?.userId),
-      nickname: readString(user?.nickname) ?? "-",
-      avatarUrl: readString(user?.avatarUrl)
+      userId: readCommentNumber(user?.userId),
+      nickname: readCommentString(user?.nickname) ?? "-",
+      avatarUrl: readCommentString(user?.avatarUrl)
     }
   };
 };
@@ -83,11 +78,11 @@ const readCommentIp = (
   value: Record<string, unknown>
 ): NcmSongComment["ip"] => {
   const ipLocation = isRecord(value.ipLocation) ? value.ipLocation : null;
-  const raw = readString(value.ip);
+  const raw = readCommentString(value.ip);
   const location =
-    readString(value.location) ??
-    readString(ipLocation?.location) ??
-    readString(ipLocation?.ipLocation);
+    readCommentString(value.location) ??
+    readCommentString(ipLocation?.location) ??
+    readCommentString(ipLocation?.ipLocation);
   if (raw === null && location === null) return null;
   return { raw, location };
 };
@@ -98,8 +93,8 @@ const readComment = (value: unknown): NcmSongComment | null => {
   }
 
   const user = isRecord(value.user) ? value.user : null;
-  const commentId = readNumber(value.commentId);
-  const content = readString(value.content);
+  const commentId = readCommentNumber(value.commentId);
+  const content = readCommentString(value.content);
   if (commentId === null || content === null) {
     return null;
   }
@@ -107,15 +102,15 @@ const readComment = (value: unknown): NcmSongComment | null => {
   return {
     commentId,
     content,
-    time: readNumber(value.time),
-    likedCount: readNumber(value.likedCount) ?? 0,
+    time: readCommentNumber(value.time),
+    likedCount: readCommentNumber(value.likedCount) ?? 0,
     liked: readBoolean(value.liked) ?? false,
     beReplied: readCommentReply(value.beReplied),
     ip: readCommentIp(value),
     user: {
-      userId: readNumber(user?.userId),
-      nickname: readString(user?.nickname) ?? "-",
-      avatarUrl: readString(user?.avatarUrl)
+      userId: readCommentNumber(user?.userId),
+      nickname: readCommentString(user?.nickname) ?? "-",
+      avatarUrl: readCommentString(user?.avatarUrl)
     }
   };
 };
@@ -128,7 +123,7 @@ const readComments = (value: unknown): NcmSongComment[] =>
 export const readSongCommentsPayload = (
   envelope: NcmResponseEnvelope
 ): NcmSongCommentsPayload => ({
-  total: readNumber(envelope.total) ?? 0,
+  total: readCommentNumber(envelope.total) ?? 0,
   hotComments: readComments(envelope.hotComments),
   comments: readComments(envelope.comments),
   hasMore: readBoolean(envelope.more) ?? readBoolean(envelope.hasMore) ?? false
@@ -141,7 +136,11 @@ export const readResourceCommentsPayload = (
   const hotComments = readComments(data.hotComments);
   const comments = readComments(data.comments);
   return {
-    total: readNumber(data.total) ?? readNumber(data.totalCount) ?? readNumber(envelope.total) ?? 0,
+    total:
+      readCommentNumber(data.total) ??
+      readCommentNumber(data.totalCount) ??
+      readCommentNumber(envelope.total) ??
+      0,
     hotComments: hotComments.length > 0 ? hotComments : readComments(envelope.hotComments),
     comments: comments.length > 0 ? comments : readComments(envelope.comments),
     hasMore: readBoolean(data.more) ?? readBoolean(data.hasMore) ?? false
@@ -154,8 +153,8 @@ export const readCommentHugListPayload = (
   const data = readCommentContainer(envelope);
   const hugComments = Array.isArray(data.hugComments) ? data.hugComments : [];
   return {
-    total: readNumber(data.total) ?? 0,
-    count: readNumber(data.count) ?? 0,
+    total: readCommentNumber(data.total) ?? 0,
+    count: readCommentNumber(data.count) ?? 0,
     hugComments
   };
 };

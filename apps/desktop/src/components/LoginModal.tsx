@@ -22,6 +22,7 @@ import {
 import { useTranslation } from "../shared/i18n";
 import { completeNcmLogin } from "../shared/state/ncmLoginCompletion";
 import { useQrLoginSession } from "./login/useQrLoginSession";
+import { isNumber, isRecord, isString } from "../shared/jsonReaders";
 
 type LoginTab = "qr" | "phone";
 type SpecialLoginMode = "uid" | "cookie" | null;
@@ -67,14 +68,11 @@ const buildDefaultFormState = (): LoginModalFormState => ({
   isSubmittingCookie: false
 });
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
+const readLoginNumber = (value: unknown): number | null =>
+  isNumber(value) ? value : null;
 
-const readNumber = (value: unknown): number | null =>
-  typeof value === "number" && Number.isFinite(value) ? value : null;
-
-const readString = (value: unknown): string | null =>
-  typeof value === "string" ? value : null;
+const readLoginString = (value: unknown): string | null =>
+  isString(value) ? value : null;
 
 const readErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -205,7 +203,7 @@ export function LoginModal(props: LoginModalProps) {
           ? { captcha: form.phoneCaptcha.trim() }
           : { password: form.phonePassword })
       });
-      const cookie = readString(response.cookie) ?? "";
+      const cookie = readLoginString(response.cookie) ?? "";
       if (!cookie) {
         // Backend should always mirror Set-Cookie pairs into body.cookie via
         // build_success_response. If we still got nothing, the upstream login
@@ -234,18 +232,18 @@ export function LoginModal(props: LoginModalProps) {
       // explicitly opts out of the global active cookie.
       const detail = await userDetail(uid, { suppressActiveCookie: true });
       const profile = isRecord(detail.profile) ? detail.profile : null;
-      const userId = readNumber(profile?.userId);
+      const userId = readLoginNumber(profile?.userId);
       if (userId === null) {
         setSpecialFeedback({ tone: "error", message: t("ncm.loginModal.error.uidNotFound") });
         return;
       }
       const account: NcmAccountInput = {
         userId,
-        nickname: readString(profile?.nickname),
-        avatarUrl: readString(profile?.avatarUrl),
+        nickname: readLoginString(profile?.nickname),
+        avatarUrl: readLoginString(profile?.avatarUrl),
         cookie: "", // Read-only: anonymous proxy access.
-        vipType: readNumber(profile?.vipType),
-        level: readNumber(profile?.level),
+        vipType: readLoginNumber(profile?.vipType),
+        level: readLoginNumber(profile?.level),
         signinAt: null
       };
       await accountStore.upsertAccount(account);

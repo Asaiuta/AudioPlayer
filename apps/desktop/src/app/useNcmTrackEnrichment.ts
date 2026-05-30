@@ -1,11 +1,11 @@
 import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from "solid-js";
 import {
-  findCurrentLyricLine,
   mergeNcmTrackReference,
   type NcmLyricLine,
   type NcmTrackReference,
   type NcmTrackSupplement
 } from "../features/online/ncmPlayback";
+import { findCurrentLyricLine } from "../shared/media/lyrics";
 import { likeSong } from "../shared/api/ncm/user";
 import { ncmSongPageUrl } from "../shared/api/ncm/urls";
 import type { ApiClient } from "../shared/api/client";
@@ -43,6 +43,7 @@ interface NcmTrackEnrichmentDeps {
   livePosition: Accessor<number | null>;
   coverUrl: Accessor<string | null>;
   dynamicCoverEnabled?: Accessor<boolean>;
+  localLyricDirectories?: Accessor<readonly string[]>;
 }
 
 interface SupplementRequest {
@@ -53,6 +54,7 @@ interface SupplementRequest {
   album: string | null;
   coverUrl: string | null;
   dynamicCover: boolean;
+  lyricDirs: readonly string[];
 }
 
 type CurrentNcmSupplement = NcmTrackSupplement & {
@@ -76,6 +78,7 @@ const sameSupplementRequest = (
 export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnrichment {
   const { api, player, livePosition, coverUrl } = deps;
   const dynamicCoverEnabled = deps.dynamicCoverEnabled ?? (() => false);
+  const localLyricDirectories = deps.localLyricDirectories ?? (() => []);
   const accountStore = useNcmAccount();
 
   const [ncmTrackRefs, setNcmTrackRefs] = createSignal<Record<string, NcmTrackReference>>({});
@@ -120,6 +123,15 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
     };
   });
   const currentNcmSongId = createMemo(() => currentTrackRef()?.songId ?? null);
+  const normalizedLocalLyricDirectories = createMemo(() =>
+    Array.from(
+      new Set(
+        localLyricDirectories()
+          .map((dir) => dir.trim())
+          .filter((dir) => dir.length > 0)
+      )
+    )
+  );
 
   const registerNcmPlayback = (track: NcmTrackReference) => {
     const normalizedKey = mediaKeyForPath(track.streamUrl);
@@ -146,9 +158,11 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
       const album = firstNonEmpty(trackRef?.album, currentPlayerAlbum());
       const requestCoverUrl = firstNonEmpty(trackRef?.coverUrl, currentPlayerCoverUrl());
       const dynamicCover = Boolean(trackRef) && dynamicCoverEnabled();
+      const lyricDirs = trackRef ? normalizedLocalLyricDirectories() : [];
       const key = [
         trackRef ? `ncm:${trackRef.songId}` : `media:${mediaKey}`,
         dynamicCover ? "dynamic-cover" : "static-cover",
+        `lyrics:${lyricDirs.join("\u0000")}`,
         currentPlayerIsLoading() ? "loading" : "ready",
         title ?? "",
         artist ?? "",
@@ -163,7 +177,8 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
         artist,
         album,
         coverUrl: requestCoverUrl,
-        dynamicCover
+        dynamicCover,
+        lyricDirs
       };
     },
     null,
@@ -263,7 +278,10 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
           api.resolveNcmTrackSupplement(request.trackRef.songId, {
             dynamicCover: request.dynamicCover
           }),
-          api.getCurrentLyrics()
+          api.getCurrentLyrics({
+            songId: request.trackRef.songId,
+            lyricDirs: request.lyricDirs
+          })
         ])
       : Promise.allSettled([api.getCurrentLyrics()]);
 
@@ -286,7 +304,16 @@ export function useNcmTrackEnrichment(deps: NcmTrackEnrichmentDeps): NcmTrackEnr
           localLyricResult.status === "fulfilled"
             ? localLyricResult.value.lyrics
             : [];
-        const lyrics = onlineLyrics.length > 0 ? onlineLyrics : localLyrics;
+        const localOverrideLyrics =
+          localLyricResult.status === "fulfilled" &&
+          localLyricResult.value.source?.startsWith("local-override:")
+            ? localLyrics
+            : [];
+        const lyrics = localOverrideLyrics.length > 0
+          ? localOverrideLyrics
+          : onlineLyrics.length > 0
+            ? onlineLyrics
+            : localLyrics;
         const error =
           supplementResult.status === "rejected"
             ? readErrorMessage(supplementResult.reason)

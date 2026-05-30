@@ -1,4 +1,11 @@
 import type { ApiEnvelope, PlayerState, QueueEntry, QueueStatus } from "./types";
+import { parseQueueEntries } from "./apiBoundaryParsers";
+import {
+  isBoolean,
+  isInteger,
+  isNullableString,
+  isRecord
+} from "./ncmParserUtils";
 
 export interface PlayQueueOptions {
   entryId?: number;
@@ -33,20 +40,6 @@ export interface QueueApiTransport {
   requestJson: QueueRequestJson;
   requestEnvelope: QueueRequestEnvelope;
 }
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-const isBoolean = (value: unknown): value is boolean => typeof value === "boolean";
-
-const isNumber = (value: unknown): value is number =>
-  typeof value === "number" && Number.isFinite(value);
-
-const isInteger = (value: unknown): value is number =>
-  isNumber(value) && Number.isInteger(value);
-
-const isNullableString = (value: unknown): value is string | null =>
-  value === null || typeof value === "string";
 
 const parseStatus = (value: unknown): "success" | "error" => {
   if (value === "success" || value === "error") {
@@ -120,7 +113,7 @@ const parseQueueResponse = (value: unknown, errorMessage: string): QueueEntry[] 
   if (!isRecord(value) || value.status !== "success" || !Array.isArray(value.queue)) {
     throw new Error(errorMessage);
   }
-  return value.queue as QueueEntry[];
+  return parseQueueEntries(value.queue, errorMessage);
 };
 
 const requireEnvelopeSuccess = (envelope: ApiEnvelope, fallback: string): void => {

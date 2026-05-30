@@ -45,7 +45,8 @@ test("parses hot search detail items", () => {
         },
         {
           first: "fallback keyword",
-          second: "legacy text"
+          second: "legacy text",
+          score: ""
         },
         {
           searchWord: ""
