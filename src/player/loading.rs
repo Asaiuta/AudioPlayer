@@ -5,6 +5,11 @@ use std::sync::Arc;
 
 use cpal::traits::{DeviceTrait, HostTrait};
 
+use super::buffer_budget::{
+    decoded_buffer_estimate, ensure_cache_file_fits_budget, ensure_decoded_samples_fit_budget,
+    published_decoded_samples, record_budget_rejection, reserve_decoded_buffer_capacity,
+    DecodedBufferKind,
+};
 use super::cache::{
     configured_cache_max_bytes, load_cache_with_header, prune_cache_dir_to_limit,
     save_cache_with_header,
@@ -13,30 +18,6 @@ use super::state::{self, LoadResult, SharedState};
 use crate::config::{EngineSettings, ResampleQuality};
 use crate::decoder::{DecodeCancelToken, StreamingDecoder};
 use crate::processor::{LoudnessDatabase, StreamingResampler};
-
-const RESAMPLER_OUTPUT_FRAME_RESERVE: usize = 64;
-
-pub(super) fn estimated_output_sample_capacity(
-    input_frames: u64,
-    input_sample_rate: u32,
-    output_sample_rate: u32,
-    channels: usize,
-    needs_resample: bool,
-) -> usize {
-    if input_frames == 0 || channels == 0 {
-        return 0;
-    }
-
-    let output_frames = if needs_resample && input_sample_rate > 0 {
-        ((input_frames as f64 * output_sample_rate as f64 / input_sample_rate as f64).ceil()
-            as usize)
-            .saturating_add(RESAMPLER_OUTPUT_FRAME_RESERVE)
-    } else {
-        input_frames as usize
-    };
-
-    output_frames.saturating_mul(channels)
-}
 
 pub(super) fn cached_loudness_from_db(
     db: Option<&LoudnessDatabase>,
@@ -142,11 +123,33 @@ pub(super) fn decode_file_internal(
         None
     };
 
+    let existing_decoded_samples = published_decoded_samples(shared_state);
+
     if let Some(ref cp) = cache_path {
         if cp.exists() {
+            if let Ok(metadata) = std::fs::metadata(cp) {
+                record_budget_rejection(
+                    shared_state,
+                    ensure_cache_file_fits_budget(
+                        DecodedBufferKind::ResampleCache,
+                        path,
+                        metadata.len(),
+                        existing_decoded_samples,
+                    ),
+                )?;
+            }
             if let Some(cached_samples) =
                 load_cache_with_header(cp, final_target_sr, channels as u32)
             {
+                record_budget_rejection(
+                    shared_state,
+                    ensure_decoded_samples_fit_budget(
+                        DecodedBufferKind::ResampleCache,
+                        path,
+                        cached_samples.len(),
+                        existing_decoded_samples,
+                    ),
+                )?;
                 let total_frames = cached_samples.len() / channels;
                 log::info!("Loaded from cache: {} frames", total_frames);
                 return Ok(LoadResult {
@@ -172,13 +175,20 @@ pub(super) fn decode_file_internal(
         );
     }
 
-    let mut samples = Vec::with_capacity(estimated_output_sample_capacity(
-        info.total_frames.unwrap_or(0),
-        original_sr,
-        final_target_sr,
-        channels,
-        final_need_resample,
-    ));
+    let output_sample_capacity = record_budget_rejection(
+        shared_state,
+        reserve_decoded_buffer_capacity(
+            DecodedBufferKind::CurrentTrack,
+            path,
+            info.total_frames.unwrap_or(0),
+            original_sr,
+            final_target_sr,
+            channels,
+            final_need_resample,
+            existing_decoded_samples,
+        ),
+    )?;
+    let mut samples = Vec::with_capacity(output_sample_capacity);
 
     let mut resampler = if final_need_resample {
         match StreamingResampler::with_quality(
@@ -215,10 +225,48 @@ pub(super) fn decode_file_internal(
         }
         decoded_frames += (decoded_chunk.len() / channels) as u64;
         if let Some(ref mut rs) = resampler {
+            let chunk_input_frames = (decoded_chunk.len() / channels) as u64;
+            let chunk_estimate = record_budget_rejection(
+                shared_state,
+                decoded_buffer_estimate(
+                    chunk_input_frames,
+                    original_sr,
+                    final_target_sr,
+                    channels,
+                    true,
+                ),
+            )?;
+            record_budget_rejection(
+                shared_state,
+                ensure_decoded_samples_fit_budget(
+                    DecodedBufferKind::CurrentTrack,
+                    path,
+                    samples.len().saturating_add(chunk_estimate.samples),
+                    existing_decoded_samples,
+                ),
+            )?;
             rs.process_chunk_append(&decoded_chunk, &mut samples);
         } else {
+            record_budget_rejection(
+                shared_state,
+                ensure_decoded_samples_fit_budget(
+                    DecodedBufferKind::CurrentTrack,
+                    path,
+                    samples.len().saturating_add(decoded_chunk.len()),
+                    existing_decoded_samples,
+                ),
+            )?;
             samples.extend_from_slice(&decoded_chunk);
         }
+        record_budget_rejection(
+            shared_state,
+            ensure_decoded_samples_fit_budget(
+                DecodedBufferKind::CurrentTrack,
+                path,
+                samples.len(),
+                existing_decoded_samples,
+            ),
+        )?;
         decoded_chunk.clear();
         chunk_count += 1;
 
@@ -239,6 +287,15 @@ pub(super) fn decode_file_internal(
 
     if let Some(ref mut rs) = resampler {
         rs.flush_into(&mut samples);
+        record_budget_rejection(
+            shared_state,
+            ensure_decoded_samples_fit_budget(
+                DecodedBufferKind::CurrentTrack,
+                path,
+                samples.len(),
+                existing_decoded_samples,
+            ),
+        )?;
     }
 
     shared_state.load_progress.store(100, Ordering::Relaxed);

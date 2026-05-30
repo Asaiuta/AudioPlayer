@@ -14,7 +14,7 @@ use cpal::Stream;
 use super::callback::LockfreeDspContext;
 use super::output_stream::DspParamRefs;
 use super::state::{
-    AudioCommand, LoadResult, PlayerState, SharedState, EVENT_LOAD_COMPLETE,
+    AudioCommand, LoadResult, PlayerState, SharedState, EVENT_LOAD_COMPLETE, EVENT_LOAD_ERROR,
     EVENT_PLAYBACK_STARTED, EVENT_TRACK_CHANGED,
 };
 use super::track_loudness::{apply_loaded_track_loudness, refresh_loaded_loudness};
@@ -279,6 +279,9 @@ fn handle_load_error_command(shared_state: &Arc<SharedState>, generation: u64, m
     }
     log::error!("Async load failed: {}", message);
     shared_state.state.store(PlayerState::Stopped);
+    shared_state
+        .event_flags
+        .fetch_or(EVENT_LOAD_ERROR, Ordering::Release);
 }
 
 fn rebuild_pending_dsp_chain(

@@ -1,7 +1,13 @@
 use serde::Serialize;
 
 const BYTES_PER_MIB: u64 = 1024 * 1024;
+const BYTES_PER_MIB_USIZE: usize = 1024 * 1024;
 pub const ENV_AUDIO_APP_ROOT_PID: &str = "AUDIO_APP_ROOT_PID";
+/// Decoded-buffer budget shared by non-Range downloads, playback loads, and gapless preload.
+pub const ENV_DECODE_MAX_MEMORY_MB: &str = "DECODE_MAX_MEMORY_MB";
+pub const DEFAULT_DECODE_MAX_MEMORY_MB: usize = 2048;
+pub const MIN_DECODE_MAX_MEMORY_MB: usize = 64;
+pub const MAX_DECODE_MAX_MEMORY_MB: usize = 32 * 1024;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DecodeMemoryBudget {
@@ -11,14 +17,12 @@ pub struct DecodeMemoryBudget {
 }
 
 pub fn decode_memory_budget() -> DecodeMemoryBudget {
-    const DEFAULT_DECODE_MAX_MEMORY_MB: usize = 2048;
-    const ENV_DECODE_MAX_MEMORY_MB: &str = "DECODE_MAX_MEMORY_MB";
-    const BYTES_PER_MIB_USIZE: usize = 1024 * 1024;
-
     let configured = std::env::var(ENV_DECODE_MAX_MEMORY_MB)
         .ok()
         .and_then(|value| value.parse::<usize>().ok());
-    let limit_mb = configured.unwrap_or(DEFAULT_DECODE_MAX_MEMORY_MB);
+    let limit_mb = configured
+        .unwrap_or(DEFAULT_DECODE_MAX_MEMORY_MB)
+        .clamp(MIN_DECODE_MAX_MEMORY_MB, MAX_DECODE_MAX_MEMORY_MB);
 
     DecodeMemoryBudget {
         limit_mb,

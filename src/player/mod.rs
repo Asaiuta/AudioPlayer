@@ -4,6 +4,9 @@
 //! Uses f64 full-stack path for maximum transparency.
 
 mod audio_thread;
+#[doc(hidden)]
+pub mod bench_support;
+mod buffer_budget;
 mod cache;
 mod callback;
 mod command_handlers;

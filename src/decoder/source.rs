@@ -15,7 +15,6 @@ const HTTP_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HTTP_RANGE_STREAM_TIMEOUT: Duration = Duration::from_secs(30);
 const HTTP_FULL_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(120);
 pub(super) const BYTES_PER_MIB: usize = 1024 * 1024;
-const DEFAULT_DECODE_MAX_MEMORY_MB: usize = 2048;
 pub(super) const F64_SAMPLE_BYTES: usize = std::mem::size_of::<f64>();
 const NON_RANGE_DOWNLOAD_MEMORY_DIVISOR: usize = 8;
 pub(super) const RANGE_PREFETCH: usize = 256 * 1024;
@@ -27,11 +26,8 @@ pub struct HttpCredentials {
 }
 
 pub(super) fn configured_decode_memory_limit() -> (usize, usize) {
-    let max_memory_mb: usize = std::env::var("DECODE_MAX_MEMORY_MB")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(DEFAULT_DECODE_MAX_MEMORY_MB);
-    (max_memory_mb, max_memory_mb * BYTES_PER_MIB)
+    let budget = crate::diagnostics::decode_memory_budget();
+    (budget.limit_mb, budget.limit_bytes)
 }
 
 pub(super) fn bytes_to_mib(bytes: usize) -> usize {

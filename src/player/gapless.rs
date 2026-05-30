@@ -7,8 +7,12 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::thread;
 
+use super::buffer_budget::{
+    decoded_buffer_estimate, ensure_decoded_samples_fit_budget, published_decoded_samples,
+    record_budget_rejection, reserve_decoded_buffer_capacity, DecodedBufferKind,
+};
 use super::callback::normalize_channels;
-use super::loading::{cached_loudness_from_db, estimated_output_sample_capacity};
+use super::loading::cached_loudness_from_db;
 use super::state::{CachedLoudness, SharedState};
 use crate::config::EngineSettings;
 use crate::config::NormalizationMode;
@@ -80,6 +84,7 @@ impl GaplessManager {
                 target_channels,
                 credentials.as_ref(),
                 &config_clone,
+                &shared_clone,
                 &shared_clone.cancel_preload_signal,
             ) {
                 Ok((samples, sr, channels, metadata)) => {
@@ -232,6 +237,7 @@ fn decode_to_buffer_with_cancel(
     target_channels: usize,
     credentials: Option<&crate::decoder::HttpCredentials>,
     config: &EngineSettings,
+    shared: &SharedState,
     cancel_signal: &std::sync::atomic::AtomicBool,
 ) -> Result<(Vec<f64>, u32, usize, crate::decoder::TrackMetadata), String> {
     let mut decoder =
@@ -244,13 +250,21 @@ fn decode_to_buffer_with_cancel(
     // Extract metadata before decoding
     let metadata = decoder.info.metadata.clone();
 
-    let mut samples: Vec<f64> = Vec::with_capacity(estimated_output_sample_capacity(
-        decoder.info.total_frames.unwrap_or(0),
-        original_sr,
-        target_sr,
-        decoded_channels,
-        need_resample,
-    ));
+    let existing_decoded_samples = published_decoded_samples(shared);
+    let output_sample_capacity = record_budget_rejection(
+        shared,
+        reserve_decoded_buffer_capacity(
+            DecodedBufferKind::GaplessPreload,
+            path,
+            decoder.info.total_frames.unwrap_or(0),
+            original_sr,
+            target_sr,
+            decoded_channels,
+            need_resample,
+            existing_decoded_samples,
+        ),
+    )?;
+    let mut samples: Vec<f64> = Vec::with_capacity(output_sample_capacity);
     let mut resampler = if need_resample {
         Some(
             StreamingResampler::with_quality(
@@ -278,15 +292,62 @@ fn decode_to_buffer_with_cancel(
         }
 
         if let Some(ref mut rs) = resampler {
+            let chunk_input_frames = (chunk.len() / decoded_channels) as u64;
+            let chunk_estimate = record_budget_rejection(
+                shared,
+                decoded_buffer_estimate(
+                    chunk_input_frames,
+                    original_sr,
+                    target_sr,
+                    decoded_channels,
+                    true,
+                ),
+            )?;
+            record_budget_rejection(
+                shared,
+                ensure_decoded_samples_fit_budget(
+                    DecodedBufferKind::GaplessPreload,
+                    path,
+                    samples.len().saturating_add(chunk_estimate.samples),
+                    existing_decoded_samples,
+                ),
+            )?;
             rs.process_chunk_append(&chunk, &mut samples);
         } else {
+            record_budget_rejection(
+                shared,
+                ensure_decoded_samples_fit_budget(
+                    DecodedBufferKind::GaplessPreload,
+                    path,
+                    samples.len().saturating_add(chunk.len()),
+                    existing_decoded_samples,
+                ),
+            )?;
             samples.extend_from_slice(&chunk);
         }
+        record_budget_rejection(
+            shared,
+            ensure_decoded_samples_fit_budget(
+                DecodedBufferKind::GaplessPreload,
+                path,
+                samples.len(),
+                existing_decoded_samples,
+            ),
+        )?;
         chunk.clear();
     }
 
     if let Some(ref mut rs) = resampler {
         rs.flush_into(&mut samples);
+        record_budget_rejection(
+            shared,
+            ensure_decoded_samples_fit_budget(
+                DecodedBufferKind::GaplessPreload,
+                path,
+                samples.len(),
+                existing_decoded_samples,
+            ),
+        )?;
     }
 
     // Channel normalization
@@ -296,10 +357,38 @@ fn decode_to_buffer_with_cancel(
             decoded_channels,
             target_channels
         );
+        let normalized_samples = samples
+            .len()
+            .checked_div(decoded_channels.max(1))
+            .and_then(|frames| frames.checked_mul(target_channels))
+            .ok_or_else(|| {
+                format!(
+                    "gapless preload decoded buffer for '{}' channel normalization overflowed",
+                    path
+                )
+            })?;
+        record_budget_rejection(
+            shared,
+            ensure_decoded_samples_fit_budget(
+                DecodedBufferKind::GaplessPreload,
+                path,
+                normalized_samples,
+                existing_decoded_samples,
+            ),
+        )?;
         normalize_channels(samples, decoded_channels, target_channels)
     } else {
         samples
     };
+    record_budget_rejection(
+        shared,
+        ensure_decoded_samples_fit_budget(
+            DecodedBufferKind::GaplessPreload,
+            path,
+            samples.len(),
+            existing_decoded_samples,
+        ),
+    )?;
 
     Ok((samples, target_sr, target_channels, metadata))
 }
@@ -309,10 +398,10 @@ mod tests {
     use std::sync::atomic::Ordering;
     use std::sync::Arc;
 
-    use super::estimated_output_sample_capacity;
     use super::GaplessManager;
     use crate::config::{EngineSettings, NormalizationMode};
     use crate::decoder::TrackMetadata;
+    use crate::player::buffer_budget::estimated_output_sample_capacity;
     use crate::player::{CachedLoudness, SharedState};
     use crate::processor::LoudnessNormalizer;
 
