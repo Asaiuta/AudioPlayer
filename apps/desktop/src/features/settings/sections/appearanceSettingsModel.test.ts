@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { UISettingsRuntime } from "../../../shared/state/useUISettings";
 import {
   STORAGE_KEYS,
-  readUISettingsSnapshot
-} from "../../../shared/state/useUISettings";
+  readUISettingsSnapshot,
+  type UISettingsRuntime
+} from "../../../shared/state/uiSettingsStorage";
 import {
   APPEARANCE_RETURNED_SETTER_FIELDS,
   APPEARANCE_SIGNAL_FIELDS,

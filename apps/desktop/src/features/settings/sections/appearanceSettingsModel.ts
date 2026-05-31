@@ -1,10 +1,6 @@
 import { createSignal, type Accessor, type Setter } from "solid-js";
-import type {
-  UISettings,
-  UISettingsFieldName,
-  UISettingsRuntime
-} from "../../../shared/state/useUISettings";
-import { commitUISettingField } from "../../../shared/state/useUISettings";
+import type { UISettings, UISettingsFieldName } from "../../../shared/state/uiSettingsModel";
+import { commitUISettingField, type UISettingsRuntime } from "../../../shared/state/uiSettingsStorage";
 
 export const APPEARANCE_SIGNAL_FIELDS = [
   "themeMode",

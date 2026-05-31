@@ -1,16 +1,16 @@
 import { createMemo, type Accessor, type Setter } from "solid-js";
-import type {
-  HiddenCovers,
-  UISettings,
-  UISettingsBooleanFieldName,
-  UISettingsBooleanRecordFieldName,
-  ThemeMode
-} from "../../../shared/state/useUISettings";
+import {
+  DEFAULT_HIDDEN_COVERS,
+  type HiddenCovers,
+  type ThemeMode,
+  type UISettings,
+  type UISettingsBooleanFieldName,
+  type UISettingsBooleanRecordFieldName
+} from "../../../shared/state/uiSettingsModel";
 import {
   commitUISettingField,
-  DEFAULT_HIDDEN_COVERS,
   readUISettingsSnapshot
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsStorage";
 import {
   applyUserAppearanceSettings,
   executeCustomJs

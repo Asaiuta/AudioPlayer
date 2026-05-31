@@ -5,12 +5,14 @@ import type { PlaybackHistoryEntry } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
 import type { TranslationKey } from "../../shared/i18n";
 import { IconDelete, IconPlayCircle } from "../../components/icons";
-import type { MediaContextAction, MediaListItem } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
+import type { MediaListItem } from "../../shared/media/mediaListItem";
 import { BackToTop } from "../../components/page/BackToTop";
 import { PageBody } from "../../components/page/PageBody";
 import { PageHero } from "../../components/page/PageHero";
 import { PageSurface } from "../../components/page/PageSurface";
 import { resolveArtworkUrl } from "../../shared/ui/artwork";
+import { displayNameFromSourcePath } from "../../shared/media/mediaPath";
 import type { NcmTrackReference } from "../online/ncmPlayback";
 import { NcmMediaList } from "../online/NcmMediaList";
 import { createPlaybackController } from "../online/shared/playback";
@@ -40,15 +42,6 @@ type HistorySongItem = MediaListItem & {
   playbackPath: string;
   ncm_source_page_url: string | null;
   eventAtEpochSecs: number;
-};
-
-const displayNameFromSourcePath = (sourcePath: string): string => {
-  const normalized = sourcePath
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/");
-  const trimmed = normalized.replace(/\/+$/, "");
-  return trimmed.split("/").filter(Boolean).pop() ?? sourcePath;
 };
 
 const toHistorySongItems = (entries: PlaybackHistoryEntry[]): HistorySongItem[] => {

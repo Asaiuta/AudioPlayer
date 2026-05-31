@@ -13,7 +13,7 @@ import {
   IconStorage
 } from "../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
-import type { MediaContextAction } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
 import type { LocalPlaylist, PlayerState } from "../../shared/api/types";
 import { SegmentedTabs } from "../../components/page/SegmentedTabs";
 import { ManageRootsModal } from "./ManageRootsModal";
@@ -39,8 +39,6 @@ interface LibraryPageProps {
   onPlaybackHistoryChanged: () => void;
   localPlaylistRequest?: { playlistId: string | null; version: number };
 }
-
-export type { LibraryListItem } from "./libraryViewTypes";
 
 type LibraryConfirmAction =
   | { kind: "delete-library"; items: LibraryListItem[] }

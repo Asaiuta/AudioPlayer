@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { TranslationKey } from "../../shared/i18n";
-import type { UISettings } from "../../shared/state/useUISettings";
+import type { UISettings } from "../../shared/state/uiSettingsModel";
 import {
   createMediaContextMenuItems,
   DEFAULT_MEDIA_CONTEXT_ACTIONS,

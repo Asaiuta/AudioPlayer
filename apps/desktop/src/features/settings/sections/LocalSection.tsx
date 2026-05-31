@@ -11,10 +11,8 @@ import {
   settingsSectionClass
 } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
-import {
-  persistUISettingField,
-  useUISettings
-} from "../../../shared/state/useUISettings";
+import { persistUISettingField } from "../../../shared/state/uiSettingsStorage";
+import { useUISettings } from "../../../shared/state/useUISettings";
 import { IconDelete, IconFolder, IconFolderPlus } from "../../../components/icons";
 
 interface LocalSectionProps {

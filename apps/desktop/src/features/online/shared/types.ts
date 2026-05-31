@@ -1,5 +1,5 @@
 import type { TranslationKey } from "../../../shared/i18n";
-import type { MediaListItem } from "../../../components/media/MediaList";
+import type { MediaListItem } from "../../../shared/media/mediaListItem";
 
 export type NeteasePageMode =
   | "recommend"

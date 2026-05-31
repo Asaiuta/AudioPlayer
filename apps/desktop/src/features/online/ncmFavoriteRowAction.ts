@@ -5,7 +5,8 @@ import { likeSong } from "../../shared/api/ncm/user";
 import { useTranslation } from "../../shared/i18n";
 import { useNcmAccount } from "../../shared/state/NcmAccountContext";
 import { message } from "../../shared/ui/naive";
-import type { MediaListItem, MediaRowAction } from "../../components/media/MediaList";
+import type { MediaListItem } from "../../shared/media/mediaListItem";
+import type { MediaRowAction } from "../../components/media/mediaListTypes";
 
 const ncmFavoriteApi = createApiClient();
 const likedSongIdsByUser = new Map<number, ReadonlySet<number>>();

@@ -1,6 +1,7 @@
 import { For, Show } from "solid-js";
 import type { PlayerBarNcmQualityOption } from "./usePlayerBarNcmQuality";
 import { NaivePopover } from "../../shared/ui/naive";
+import type { NcmSongLevel } from "../../shared/state/uiSettingsModel";
 
 interface PlayerQualityPopoverProps {
   open: boolean;
@@ -9,7 +10,7 @@ interface PlayerQualityPopoverProps {
   dialogLabel: string;
   mode: "online" | "output";
   options: readonly PlayerBarNcmQualityOption[];
-  selectedLevel: string | null;
+  selectedLevel: NcmSongLevel | null;
   loading: boolean;
   error: string | null;
   targetLabel: string;
@@ -26,7 +27,7 @@ interface PlayerQualityPopoverProps {
   loudnessValue: string;
   hintLabel: string;
   onOpenChange: (open: boolean) => void;
-  onSelectLevel?: (level: string) => void;
+  onSelectLevel?: (level: NcmSongLevel) => void;
 }
 
 export function PlayerQualityPopover(props: PlayerQualityPopoverProps) {

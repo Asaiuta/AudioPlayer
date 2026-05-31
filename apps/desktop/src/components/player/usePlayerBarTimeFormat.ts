@@ -1,7 +1,7 @@
 import { createEffect, createSignal } from "solid-js";
 import type { Accessor } from "solid-js";
 import type { TranslationKey } from "../../shared/i18n";
-import type { PlayerTimeFormat } from "../../shared/state/useUISettings";
+import type { PlayerTimeFormat } from "../../shared/state/uiSettingsModel";
 import { formatTime } from "./time";
 
 const PLAYER_TIME_FORMATS: readonly PlayerTimeFormat[] = [

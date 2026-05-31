@@ -13,15 +13,6 @@ export const formatMediaSize = (bytes: number | null | undefined): string => {
   return `${bytes} B`;
 };
 
-export const displayNameFromSourcePath = (sourcePath: string): string => {
-  const normalized = sourcePath
-    .replace(/^\\\\\?\\UNC\\/i, "\\\\")
-    .replace(/^\\\\\?\\/i, "")
-    .replace(/\\/g, "/");
-  const trimmed = normalized.replace(/\/+$/, "");
-  return trimmed.split("/").filter(Boolean).pop() ?? sourcePath;
-};
-
 export const stripBracketedContent = (value: string): string => {
   const stripped = value
     .replace(/\s*[\(（［\[{【].*?[\)）\]］}】]\s*/g, " ")

@@ -11,11 +11,8 @@ import { ncmSongPageUrl } from "../shared/api/ncm/urls";
 import type { ApiClient } from "../shared/api/client";
 import type { PlayerState } from "../shared/api/types";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
-import {
-  firstNonEmpty,
-  mediaKeyForPath,
-  readErrorMessage
-} from "./controllerHelpers";
+import { mediaKeyForPath } from "../shared/media/mediaIdentity";
+import { firstNonEmpty, readErrorMessage } from "./controllerHelpers";
 import { resolveCurrentCoverUrl } from "./ncmCoverResolution";
 
 export interface NcmTrackEnrichment {

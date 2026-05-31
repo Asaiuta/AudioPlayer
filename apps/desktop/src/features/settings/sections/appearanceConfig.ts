@@ -5,7 +5,7 @@ import type {
   PlaylistPageElements,
   RouteAnimation,
   SidebarHiddenItems
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsModel";
 
 export interface ToggleConfig<Key extends string> {
   key: Key;

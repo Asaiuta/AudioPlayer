@@ -1,6 +1,6 @@
 import { For } from "solid-js";
 import { NaiveDivider, NaiveFlex, NaivePopover } from "../../shared/ui/naive";
-import type { MediaSortField, MediaSortOrder, MediaSortState } from "./MediaList";
+import type { MediaSortField, MediaSortOrder, MediaSortState } from "./mediaListTypes";
 
 interface MediaSortPopoverProps {
   ref?: (element: HTMLDivElement) => void;

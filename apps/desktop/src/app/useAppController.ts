@@ -15,11 +15,12 @@ import type {
   RequestState,
   ShuffleMode
 } from "../shared/api/types";
+import type { NcmSongLevel } from "../shared/state/uiSettingsModel";
 import {
-  persistUISetting,
-  STORAGE_KEYS,
-  useUISettings
-} from "../shared/state/useUISettings";
+  persistUISettingField,
+  readUISettingField
+} from "../shared/state/uiSettingsStorage";
+import { useUISettings } from "../shared/state/useUISettings";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
 import { useTranslation } from "../shared/i18n";
 import { isPlaceholderPage, type ActivePage } from "../shared/ui/navigation";
@@ -124,7 +125,7 @@ export interface AppController {
   handleNavigateToSongWiki: (track: OnlineTrackItem) => void;
   handleRadioSubscribeChange: (radio: FeedCardItem, subscribed: boolean) => void;
   handleNavigateToLikedCollectionTab: (tab: "playlists" | "albums" | "artists") => void;
-  handleChangeCurrentNcmQuality: (level: string) => Promise<void>;
+  handleChangeCurrentNcmQuality: (level: NcmSongLevel) => Promise<void>;
   handleGoBack: () => void;
   handleGoForward: () => void;
   registerNcmPlayback: (track: NcmTrackReference) => void;
@@ -180,7 +181,7 @@ export function useAppController(api: ApiClient): AppController {
     localLyricDirectories: () => uiSettings.localLyricDirectories
   });
 
-  const handleChangeCurrentNcmQuality = async (level: string) => {
+  const handleChangeCurrentNcmQuality = async (level: NcmSongLevel) => {
     if (level === uiSettings.ncmSongLevel) {
       return;
     }
@@ -194,7 +195,7 @@ export function useAppController(api: ApiClient): AppController {
     const resumePosition = current?.current_time ?? 0;
     const wasPlaying = Boolean(current?.is_playing);
     playback.setCommandError(null);
-    persistUISetting(STORAGE_KEYS.ncmSongLevel, level);
+    persistUISettingField("ncmSongLevel", level);
 
     try {
       const result = await api.playNcmTrack({
@@ -221,13 +222,7 @@ export function useAppController(api: ApiClient): AppController {
     }
   };
 
-  const readNcmSongLevel = (): string => {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.ncmSongLevel) ?? "exhigh";
-    } catch {
-      return "exhigh";
-    }
-  };
+  const readNcmSongLevel = (): NcmSongLevel => readUISettingField("ncmSongLevel");
 
   const buildHeartbeatResolveInput = (item: NcmTrackSummary): ResolveNcmTrackInput => ({
     songId: item.songId,

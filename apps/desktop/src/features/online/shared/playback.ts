@@ -1,5 +1,6 @@
 import type { ApiClient, ResolveNcmTrackInput } from "../../../shared/api/client";
-import { STORAGE_KEYS } from "../../../shared/state/useUISettings";
+import type { NcmSongLevel } from "../../../shared/state/uiSettingsModel";
+import { readUISettingField } from "../../../shared/state/uiSettingsStorage";
 import type { NcmTrackReference } from "../ncmPlayback";
 import {
   createErrorMessageReader,
@@ -46,13 +47,7 @@ export function createPlaybackController(ctx: PlaybackContext): PlaybackControll
 
   const readErrorMessage = createErrorMessageReader(t);
 
-  const readSongLevel = () => {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.ncmSongLevel) ?? "exhigh";
-    } catch {
-      return "exhigh";
-    }
-  };
+  const readSongLevel = (): NcmSongLevel => readUISettingField("ncmSongLevel");
 
   const buildResolveInput = (item: OnlineTrackItem): ResolveNcmTrackInput => ({
     songId: item.songId,

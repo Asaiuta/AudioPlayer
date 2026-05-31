@@ -1,4 +1,4 @@
-import type { UISettings } from "../state/useUISettings";
+import type { UISettings } from "../state/uiSettingsModel";
 import { paletteEngine, type DynamicPalette } from "../theme/paletteEngine";
 
 const CUSTOM_CSS_STYLE_ID = "audioplayer-custom-css";

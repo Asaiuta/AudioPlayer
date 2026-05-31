@@ -1,4 +1,4 @@
-import { createMemo, createSignal, type Accessor, type Setter } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import { getCurrentWindow, ProgressBarStatus } from "@tauri-apps/api/window";
 import { createApiClient } from "../../../shared/api/client";
 import { useTranslation } from "../../../shared/i18n";
@@ -6,14 +6,12 @@ import type {
   CloseAppMethod,
   SearchInputBehavior,
   ShareUrlFormat,
-  UISettings,
-  UISettingsBooleanFieldName,
   UpdateChannel
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsModel";
 import {
   commitUISettingField,
   readUISettingsSnapshot
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsStorage";
 import { dialog, message } from "../../../shared/ui/naive";
 import {
   BooleanSettingItem,
@@ -22,7 +20,6 @@ import {
 } from "../components/SettingControls";
 import { settingsSectionClass } from "../components/SettingItem";
 import { SettingGroup } from "../components/SettingGroup";
-import { setPersistedBooleanField } from "../storage";
 import {
   clearBrowserSessionCacheByPrefix,
   requestOnlineServiceModeChange,
@@ -147,15 +144,6 @@ export function GeneralSection(props: GeneralSectionProps) {
   let itemIndex = 0;
   const nextIndex = () => itemIndex++;
 
-  const setBooleanField = <K extends UISettingsBooleanFieldName>(
-    field: K,
-    nextValue: UISettings[K],
-    value: Accessor<UISettings[K]>,
-    setValue: Setter<UISettings[K]>
-  ) => {
-    setPersistedBooleanField(field, nextValue, value, setValue);
-  };
-
   const handleOnlineServiceChange = (nextEnabled: boolean) => {
     void requestOnlineServiceModeChange(nextEnabled, {
       confirmChange: () =>
@@ -247,7 +235,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           index={nextIndex()}
           checked={showCloseAppTip()}
           onChange={(checked) =>
-            setBooleanField("showCloseAppTip", checked, showCloseAppTip, setShowCloseAppTip)
+            commitUISettingField("showCloseAppTip", checked, showCloseAppTip, setShowCloseAppTip)
           }
         />
         <BooleanSettingItem
@@ -270,7 +258,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           index={nextIndex()}
           checked={checkUpdateOnStart()}
           onChange={(checked) =>
-            setBooleanField(
+            commitUISettingField(
               "checkUpdateOnStart",
               checked,
               checkUpdateOnStart,
@@ -299,7 +287,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           index={nextIndex()}
           checked={showSearchHistory()}
           onChange={(checked) =>
-            setBooleanField("showSearchHistory", checked, showSearchHistory, setShowSearchHistory)
+            commitUISettingField("showSearchHistory", checked, showSearchHistory, setShowSearchHistory)
           }
         />
         <BooleanSettingItem
@@ -311,7 +299,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           checked={showHotSearch()}
           disabled={onlineSearchControlsDisabled()}
           onChange={(checked) =>
-            setBooleanField("showHotSearch", checked, showHotSearch, setShowHotSearch)
+            commitUISettingField("showHotSearch", checked, showHotSearch, setShowHotSearch)
           }
         />
         <BooleanSettingItem
@@ -323,7 +311,7 @@ export function GeneralSection(props: GeneralSectionProps) {
           checked={enableSearchKeyword()}
           disabled={onlineSearchControlsDisabled()}
           onChange={(checked) =>
-            setBooleanField(
+            commitUISettingField(
               "enableSearchKeyword",
               checked,
               enableSearchKeyword,

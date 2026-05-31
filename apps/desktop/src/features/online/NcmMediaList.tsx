@@ -1,10 +1,8 @@
 import { createSignal } from "solid-js";
-import {
-  MediaList,
-  type MediaContextAction,
-  type MediaListItem,
-  type MediaListProps
-} from "../../components/media/MediaList";
+import { MediaList } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
+import type { MediaListProps } from "../../components/media/mediaListTypes";
+import type { MediaListItem } from "../../shared/media/mediaListItem";
 import { copyToClipboard } from "../../shared/utils/clipboard";
 import { ncmSongShareUrl } from "../../shared/api/ncm/urls";
 import { readSongCommentsPayload, songComments } from "../../shared/api/ncm/comment";

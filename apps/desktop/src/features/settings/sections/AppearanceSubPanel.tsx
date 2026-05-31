@@ -8,7 +8,7 @@ import type {
   SidebarHiddenItems,
   UISettingsBooleanFieldName,
   UISettingsBooleanRecordFieldName
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsModel";
 import { HomeSectionManager } from "../HomeSectionManager";
 import { BooleanSettingItem, RecordBooleanSettingItem } from "../components/SettingControls";
 import {

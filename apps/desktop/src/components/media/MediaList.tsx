@@ -18,7 +18,9 @@ import { MediaListFloatTools } from "./MediaListFloatTools";
 import { MediaListRow } from "./MediaListRow";
 import { MediaSortPopover } from "./MediaSortPopover";
 import { SImage } from "../SImage";
-import { displayNameFromSourcePath, stripBracketedContent } from "./mediaListFormatting";
+import { stripBracketedContent } from "./mediaListFormatting";
+import type { MediaListItem } from "../../shared/media/mediaListItem";
+import { displayNameFromSourcePath } from "../../shared/media/mediaPath";
 import {
   createMediaIdentityIndex,
   findMediaIdentityIndex,
@@ -30,95 +32,12 @@ import {
   resolveMediaListVisibleRange,
   shouldVirtualizeMediaList
 } from "./mediaListVirtualization";
-export { isMediaListItemCurrent, mediaKeyForPath } from "../../shared/media/mediaIdentity";
-export {
-  displayNameFromSourcePath,
-  formatMediaDuration
-} from "./mediaListFormatting";
-export type { MediaContextAction } from "./mediaContextActions";
-export type MediaSortField =
-  | "default"
-  | "title"
-  | "artist"
-  | "album"
-  | "trackNumber"
-  | "filename"
-  | "duration"
-  | "size"
-  | "createTime"
-  | "updatedTime";
-export type MediaSortOrder = "default" | "asc" | "desc";
-
-export interface MediaSortState {
-  field: MediaSortField;
-  order: MediaSortOrder;
-}
-
-export interface MediaListItem {
-  id: string;
-  source_path?: string | null;
-  media_id?: string | null;
-  title: string | null;
-  artist: string | null;
-  album: string | null;
-  track_number?: number | null;
-  duration_secs: number | null;
-  songId?: number;
-  size_bytes?: number | null;
-  updated_at_epoch_secs?: number | null;
-  added_at_epoch_secs?: number | null;
-  fileName?: string | null;
-  artworkUrl?: string | null;
-  qualityLabel?: string | null;
-  privilegeTag?: string | null;
-  explicit?: boolean;
-  originalTag?: string | null;
-  mvId?: number | null;
-  isCloud?: boolean;
-}
-
-export type MediaRowAction<T extends MediaListItem> =
-  | { kind: "enqueue" }
-  | {
-      kind: "favorite";
-      isActive: (item: T) => boolean;
-      isBusy?: (item: T) => boolean;
-      onToggle: (item: T, nextFavorite: boolean) => void;
-      activeLabel: string;
-      inactiveLabel: string;
-    };
-
-export interface MediaListProps<T extends MediaListItem> {
-  items: T[];
-  totalCount?: number;
-  virtualStart?: number;
-  rowHeight?: number;
-  currentSourcePath?: string | null;
-  currentMediaId?: string | null;
-  currentSongId?: number | null;
-  isPlayingNow?: boolean;
-  onPlay: (item: T) => void;
-  onEnqueue: (item: T) => void;
-  rowAction?: MediaRowAction<T>;
-  onDoubleClick?: (item: T) => void;
-  onCopyPath?: (item: T) => void;
-  onVisibleRangeChange?: (range: { start: number; end: number }) => void;
-  onScroll?: (event: Event) => void;
-  onContextAction?: (action: MediaContextAction, item: T) => void;
-  isLoading?: boolean;
-  emptyState?: JSX.Element;
-  hideSize?: boolean;
-  hideArtwork?: boolean;
-  contextActions?: readonly MediaContextAction[];
-  deleteActionLabel?: string;
-  sort?: MediaSortState;
-  onSortChange?: (field: MediaSortField) => void;
-  onSortOrderChange?: (order: MediaSortOrder) => void;
-  sortDisabled?: boolean;
-  hideTopScrollTool?: boolean;
-  draggable?: boolean;
-  onReorder?: (fromIndex: number, toIndex: number) => void;
-}
+import type {
+  MediaListProps,
+  MediaRowAction,
+  MediaSortField,
+  MediaSortOrder
+} from "./mediaListTypes";
 
 interface MenuState {
   open: boolean;

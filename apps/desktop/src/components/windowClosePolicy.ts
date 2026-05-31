@@ -1,4 +1,4 @@
-import type { CloseAppMethod, UISettings } from "../shared/state/useUISettings";
+import type { CloseAppMethod, UISettings } from "../shared/state/uiSettingsModel";
 
 export interface WindowCloseDecision {
   readonly action: CloseAppMethod;

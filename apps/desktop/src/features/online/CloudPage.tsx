@@ -1,6 +1,6 @@
 import { Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { ContextMenu, type ContextMenuItem } from "../../components/media/ContextMenu";
-import type { MediaContextAction } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
 import {
   IconCloud,
   IconList,

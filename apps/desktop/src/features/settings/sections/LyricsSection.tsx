@@ -3,11 +3,11 @@ import { useTranslation } from "../../../shared/i18n";
 import type {
   LyricsBlendMode,
   LyricsPosition
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsModel";
 import {
   commitUISettingField,
   readUISettingsSnapshot
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsStorage";
 import {
   BooleanSettingItem,
   RangeSettingItem,

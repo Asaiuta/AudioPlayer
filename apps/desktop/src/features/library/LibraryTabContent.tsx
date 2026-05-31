@@ -1,6 +1,7 @@
 import { Show } from "solid-js";
 import { IconFolder, IconMusic } from "../../components/icons";
-import { MediaList, type MediaContextAction } from "../../components/media/MediaList";
+import { MediaList } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
 import type { LocalPlaylist } from "../../shared/api/types";
 import type { TranslationKey, TranslationParams } from "../../shared/i18n";
 import { LibraryFoldersView } from "./LibraryFoldersView";

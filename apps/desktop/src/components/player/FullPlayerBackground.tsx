@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup } from "solid-js";
 import { SImage } from "../SImage";
-import type { PlayerBackgroundType } from "../../shared/state/useUISettings";
+import type { PlayerBackgroundType } from "../../shared/state/uiSettingsModel";
 
 interface FullPlayerBackgroundProps {
   readonly coverUrl: string | null;

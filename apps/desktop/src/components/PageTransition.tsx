@@ -1,5 +1,5 @@
 import { createEffect, createSignal, onCleanup, onMount, type JSX } from "solid-js";
-import type { RouteAnimation } from "../shared/state/useUISettings";
+import type { RouteAnimation } from "../shared/state/uiSettingsModel";
 import type { ActivePage } from "../shared/ui/navigation";
 
 interface PageTransitionProps {

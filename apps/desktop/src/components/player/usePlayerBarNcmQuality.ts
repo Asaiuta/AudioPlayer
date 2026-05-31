@@ -3,10 +3,11 @@ import type { Accessor } from "solid-js";
 import { songMusicDetail } from "../../shared/api/ncm/search";
 import type { TranslationKey, TranslationParams } from "../../shared/i18n";
 import { isNumber, isRecord } from "../../shared/jsonReaders";
+import type { NcmSongLevel } from "../../shared/state/uiSettingsModel";
 
 export interface PlayerBarNcmQualityOption {
   key: string;
-  level: string;
+  level: NcmSongLevel;
   label: string;
   shortLabel: string;
   detail: string | null;
@@ -14,7 +15,7 @@ export interface PlayerBarNcmQualityOption {
 
 interface UsePlayerBarNcmQualityOptions {
   songId: Accessor<number | null>;
-  selectedLevel: Accessor<string>;
+  selectedLevel: Accessor<NcmSongLevel>;
   t: (key: TranslationKey, params?: TranslationParams) => string;
 }
 

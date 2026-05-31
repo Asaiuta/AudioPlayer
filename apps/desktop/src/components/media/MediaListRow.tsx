@@ -1,5 +1,5 @@
 import { Show } from "solid-js";
-import type { UISettings } from "../../shared/state/useUISettings";
+import type { UISettings } from "../../shared/state/uiSettingsModel";
 import { NaiveTag, type NaiveTagTone } from "../../shared/ui/naive";
 import { SImage } from "../SImage";
 import {
@@ -10,9 +10,10 @@ import {
   IconSPlayerFavorite,
   IconSPlayerFavoriteBorder
 } from "../icons";
-import type { MediaListItem, MediaRowAction } from "./MediaList";
+import type { MediaListItem } from "../../shared/media/mediaListItem";
+import type { MediaRowAction } from "./mediaListTypes";
+import { displayNameFromSourcePath } from "../../shared/media/mediaPath";
 import {
-  displayNameFromSourcePath,
   formatMediaDuration,
   formatMediaSize
 } from "./mediaListFormatting";

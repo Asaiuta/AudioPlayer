@@ -1,12 +1,12 @@
 import { For, Show, createEffect, createMemo } from "solid-js";
 import { AlbumCard } from "../../components/AlbumCard";
 import { IconPlaylist, IconPlus } from "../../components/icons";
-import {
-  type MediaContextAction,
-  type MediaSortField,
-  type MediaSortOrder,
-  type MediaSortState
-} from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
+import type {
+  MediaSortField,
+  MediaSortOrder,
+  MediaSortState
+} from "../../components/media/mediaListTypes";
 import { CoverGridSkeleton } from "../../components/page/Skeleton";
 import type { LocalPlaylist } from "../../shared/api/types";
 import { createApiClient } from "../../shared/api/client";

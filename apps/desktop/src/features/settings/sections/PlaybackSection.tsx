@@ -3,9 +3,14 @@ import { createApiClient } from "../../../shared/api/client";
 import type { TranslationKey } from "../../../shared/i18n";
 import { useTranslation } from "../../../shared/i18n";
 import {
+  isNcmSongLevel,
+  NCM_SONG_LEVELS,
+  type NcmSongLevel
+} from "../../../shared/state/uiSettingsModel";
+import {
   commitUISettingField,
   readUISettingsSnapshot
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsStorage";
 import {
   BooleanSettingItem,
   RangeSettingItem,
@@ -21,16 +26,16 @@ interface PlaybackSectionProps {
   highlightId: string | null;
 }
 
-const SONG_LEVELS: { value: string; i18nKey: TranslationKey }[] = [
-  { value: "standard", i18nKey: "settings.ncm.songLevel.standard" },
-  { value: "higher", i18nKey: "settings.ncm.songLevel.higher" },
-  { value: "exhigh", i18nKey: "settings.ncm.songLevel.exhigh" },
-  { value: "lossless", i18nKey: "settings.ncm.songLevel.lossless" },
-  { value: "hires", i18nKey: "settings.ncm.songLevel.hires" },
-  { value: "jyeffect", i18nKey: "settings.ncm.songLevel.jyeffect" },
-  { value: "sky", i18nKey: "settings.ncm.songLevel.sky" },
-  { value: "jymaster", i18nKey: "settings.ncm.songLevel.jymaster" }
-];
+const SONG_LEVEL_LABEL_KEYS: Record<NcmSongLevel, TranslationKey> = {
+  standard: "settings.ncm.songLevel.standard",
+  higher: "settings.ncm.songLevel.higher",
+  exhigh: "settings.ncm.songLevel.exhigh",
+  lossless: "settings.ncm.songLevel.lossless",
+  hires: "settings.ncm.songLevel.hires",
+  jyeffect: "settings.ncm.songLevel.jyeffect",
+  sky: "settings.ncm.songLevel.sky",
+  jymaster: "settings.ncm.songLevel.jymaster"
+};
 
 export function PlaybackSection(props: PlaybackSectionProps) {
   const { t } = useTranslation();
@@ -47,12 +52,13 @@ export function PlaybackSection(props: PlaybackSectionProps) {
     createSignal<boolean>(initialSettings.progressLyricShow);
   const [progressAdjustLyric, setProgressAdjustLyric] =
     createSignal<boolean>(initialSettings.progressAdjustLyric);
-  const [ncmSongLevel, setNcmSongLevel] = createSignal<string>(initialSettings.ncmSongLevel);
+  const [ncmSongLevel, setNcmSongLevel] =
+    createSignal<NcmSongLevel>(initialSettings.ncmSongLevel);
 
   const songLevelOptions = createMemo<SelectOption[]>(() =>
-    SONG_LEVELS.map((level) => ({
-      value: level.value,
-      label: t(level.i18nKey)
+    NCM_SONG_LEVELS.map((level) => ({
+      value: level,
+      label: t(SONG_LEVEL_LABEL_KEYS[level])
     }))
   );
 
@@ -107,6 +113,9 @@ export function PlaybackSection(props: PlaybackSectionProps) {
     );
   };
   const handleNcmSongLevel = (level: string) => {
+    if (!isNcmSongLevel(level)) {
+      return;
+    }
     commitUISettingField("ncmSongLevel", level, ncmSongLevel, setNcmSongLevel);
   };
 

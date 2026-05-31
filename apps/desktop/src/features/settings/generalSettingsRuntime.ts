@@ -1,4 +1,4 @@
-import type { UISettings } from "../../shared/state/useUISettings";
+import type { UISettings } from "../../shared/state/uiSettingsModel";
 
 export type OnlineServiceModeChangeStatus =
   | "applied"

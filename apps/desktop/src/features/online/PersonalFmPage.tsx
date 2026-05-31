@@ -10,7 +10,7 @@ import {
   IconSparkle,
   IconThumbDown
 } from "../../components/icons";
-import type { MediaContextAction } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
 import { SImage } from "../../components/SImage";
 import { createApiClient } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";

@@ -7,6 +7,7 @@ import { PlayerQualityPopover } from "./PlayerQualityPopover";
 import { PlayerVolumePopover } from "./PlayerVolumePopover";
 import { formatTime } from "./time";
 import type { PlayerBarNcmQualityOption } from "./usePlayerBarNcmQuality";
+import type { NcmSongLevel } from "../../shared/state/uiSettingsModel";
 
 interface PlayerBarUtilityQualityProps {
   open: boolean;
@@ -15,7 +16,7 @@ interface PlayerBarUtilityQualityProps {
   dialogLabel: string;
   mode: "online" | "output";
   options: readonly PlayerBarNcmQualityOption[];
-  selectedLevel: string | null;
+  selectedLevel: NcmSongLevel | null;
   loading: boolean;
   error: string | null;
   targetLabel: string;
@@ -32,7 +33,7 @@ interface PlayerBarUtilityQualityProps {
   loudnessValue: string;
   hintLabel: string;
   onOpenChange: (open: boolean) => void;
-  onSelectLevel?: (level: string) => void;
+  onSelectLevel?: (level: NcmSongLevel) => void;
 }
 
 interface PlayerBarUtilityControlsProps {

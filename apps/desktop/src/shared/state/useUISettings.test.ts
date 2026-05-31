@@ -2,17 +2,20 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Setter } from "solid-js";
 import {
-  commitUISettingField,
   createUISettingsStore,
   disposeBrowserSharedUISettingsStore,
-  persistUISettingField,
+  useUISettings
+} from "./useUISettings";
+import {
+  commitUISettingField,
   persistUISetting,
+  persistUISettingField,
+  readUISettingField,
   readUISettingsSnapshot,
   STORAGE_KEYS,
   UI_SETTINGS_CHANGED_EVENT,
-  useUISettings,
   type UISettingsRuntime
-} from "./useUISettings";
+} from "./uiSettingsStorage";
 
 const runtimeFromValues = (values: Record<string, string>): UISettingsRuntime => ({
   storage: {
@@ -216,6 +219,23 @@ test("createUISettingsStore keeps injected runtimes isolated", () => {
   assert.equal(secondStore.settings.bgEnabled, true);
   assert.equal(firstStore.settings.bgBlur, 18);
   assert.equal(secondStore.settings.bgBlur, 44);
+});
+
+test("readUISettingField reads one schema-managed field", () => {
+  assert.equal(
+    readUISettingField(
+      "ncmSongLevel",
+      runtimeFromValues({ [STORAGE_KEYS.ncmSongLevel]: "hires" })
+    ),
+    "hires"
+  );
+  assert.equal(
+    readUISettingField(
+      "ncmSongLevel",
+      runtimeFromValues({ [STORAGE_KEYS.ncmSongLevel]: "not-real" })
+    ),
+    "exhigh"
+  );
 });
 
 test("useUISettings shares one browser store and one listener pair", () => {

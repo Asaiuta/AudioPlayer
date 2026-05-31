@@ -1,13 +1,11 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup } from "solid-js";
 import { Portal } from "solid-js/web";
 import { IconClose, IconDelete, IconMusic, IconRefresh } from "../../components/icons";
-import {
-  displayNameFromSourcePath,
-  isMediaListItemCurrent,
-  type MediaListItem
-} from "../../components/media/MediaList";
 import type { QueueEntry } from "../../shared/api/types";
 import { useTranslation } from "../../shared/i18n";
+import type { MediaListItem } from "../../shared/media/mediaListItem";
+import { isMediaListItemCurrent } from "../../shared/media/mediaIdentity";
+import { displayNameFromSourcePath } from "../../shared/media/mediaPath";
 import {
   QUEUE_ROW_HEIGHT_PX,
   resolveQueueVisibleRange

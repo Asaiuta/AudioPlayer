@@ -1,5 +1,4 @@
 import { mediaKeyForPath } from "../shared/media/mediaIdentity";
-export { mediaKeyForPath } from "../shared/media/mediaIdentity";
 
 export const sameMediaPath = (
   left: string | null | undefined,

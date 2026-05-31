@@ -5,7 +5,8 @@ import { isOnlineOnlyPage } from "../shared/ui/navigation";
 import type { ApiClient } from "../shared/api/client";
 import type { LocalPlaylist, ShuffleMode } from "../shared/api/types";
 import { useNcmAccount } from "../shared/state/NcmAccountContext";
-import { useUISettings, type SidebarHiddenItemKey } from "../shared/state/useUISettings";
+import type { SidebarHiddenItemKey } from "../shared/state/uiSettingsModel";
+import { useUISettings } from "../shared/state/useUISettings";
 import { useTranslation } from "../shared/i18n";
 import { resolveArtworkUrl } from "../shared/ui/artwork";
 import {

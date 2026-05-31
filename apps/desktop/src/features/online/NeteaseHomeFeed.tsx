@@ -8,7 +8,8 @@ import { ContextMenu, type ContextMenuItem } from "../../components/media/Contex
 import { createApiClient, type NcmHomeFeed } from "../../shared/api/client";
 import { useTranslation } from "../../shared/i18n";
 import { cacheFetch } from "../../shared/state/cacheFetch";
-import { useUISettings, type CoverHiddenKey, type HomeSectionKey } from "../../shared/state/useUISettings";
+import type { CoverHiddenKey, HomeSectionKey } from "../../shared/state/uiSettingsModel";
+import { useUISettings } from "../../shared/state/useUISettings";
 import { copyToClipboard } from "../../shared/utils/clipboard";
 import { NaiveSkeleton } from "../../shared/ui/naive";
 import { coverSizeUrl } from "../../shared/ui/coverSize";

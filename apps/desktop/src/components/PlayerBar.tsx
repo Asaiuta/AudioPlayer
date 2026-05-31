@@ -3,6 +3,7 @@ import type { JSX } from "solid-js";
 import type { PlayerState, RepeatMode, RequestState, ShuffleMode } from "../shared/api/types";
 import { ncmSongShareUrl } from "../shared/api/ncm/urls";
 import { useTranslation } from "../shared/i18n";
+import type { NcmSongLevel } from "../shared/state/uiSettingsModel";
 import { useUISearch } from "../shared/state/UISearchContext";
 import { useUISettings } from "../shared/state/useUISettings";
 import { copyToClipboard } from "../shared/utils/clipboard";
@@ -65,7 +66,7 @@ interface PlayerBarProps {
   onOpenSettings?: () => void;
   onNavigate?: (page: ActivePage) => void;
   onSelectArtist?: (artist: NcmArtistSummary) => void;
-  onSelectQuality?: (level: string) => void;
+  onSelectQuality?: (level: NcmSongLevel) => void;
   isLiked?: boolean;
   onToggleLike?: () => void;
 }
@@ -257,7 +258,7 @@ export function PlayerBar(props: PlayerBarProps) {
     }
     props.onSelectArtist?.(artist);
   };
-  const handleSelectQuality = (level: string) => {
+  const handleSelectQuality = (level: NcmSongLevel) => {
     closeQuality();
     if (level === uiSettings.ncmSongLevel) {
       return;

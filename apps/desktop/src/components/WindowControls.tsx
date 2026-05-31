@@ -1,10 +1,8 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useTranslation } from "../shared/i18n";
-import {
-  persistUISettingField,
-  useUISettings
-} from "../shared/state/useUISettings";
+import { persistUISettingField } from "../shared/state/uiSettingsStorage";
+import { useUISettings } from "../shared/state/useUISettings";
 import { dialog, message } from "../shared/ui/naive/feedback-services";
 import { IconClose, IconMaximize, IconMinimize, IconRestore } from "./icons";
 import {

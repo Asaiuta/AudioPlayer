@@ -10,7 +10,7 @@ import "virtual:uno.css";
 import App from "./app/App";
 import { I18nProvider } from "./shared/i18n";
 import { NcmAccountProvider } from "./shared/state/NcmAccountContext";
-import { readUISettingsSnapshot } from "./shared/state/useUISettings";
+import { readUISettingsSnapshot } from "./shared/state/uiSettingsStorage";
 import { applyUserAppearanceSettings } from "./shared/styles/customAppearance";
 import { installNativeBrowserBehaviorGuards } from "./shared/ui/nativeBrowserBehavior";
 

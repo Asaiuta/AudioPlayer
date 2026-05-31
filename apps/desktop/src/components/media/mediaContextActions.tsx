@@ -1,6 +1,6 @@
 import type { JSX } from "solid-js";
 import type { TranslationKey } from "../../shared/i18n";
-import type { UISettings } from "../../shared/state/useUISettings";
+import type { UISettings } from "../../shared/state/uiSettingsModel";
 import {
   IconBookOpen,
   IconCloud,

@@ -10,7 +10,7 @@ import type {
   RouteAnimation,
   ThemeMode,
   UISettingsBooleanFieldName
-} from "../../../shared/state/useUISettings";
+} from "../../../shared/state/uiSettingsModel";
 import {
   BooleanSettingItem,
   ButtonSettingItem,

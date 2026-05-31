@@ -1,6 +1,6 @@
 import { For, Show, createMemo, createSignal } from "solid-js";
 import { useTranslation } from "../../../shared/i18n";
-import type { GlobalFont } from "../../../shared/state/useUISettings";
+import type { GlobalFont } from "../../../shared/state/uiSettingsModel";
 import {
   BooleanSettingItem,
   SelectSettingItem,

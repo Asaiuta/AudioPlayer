@@ -1,11 +1,7 @@
 import { For, createMemo, createSignal } from "solid-js";
 import { useTranslation } from "../../shared/i18n";
-import {
-  commitUISettingField,
-  readUISettingsSnapshot,
-  type HomeSectionConfig,
-  type HomeSectionKey
-} from "../../shared/state/useUISettings";
+import type { HomeSectionConfig, HomeSectionKey } from "../../shared/state/uiSettingsModel";
+import { commitUISettingField, readUISettingsSnapshot } from "../../shared/state/uiSettingsStorage";
 
 const SECTION_LABELS: Record<HomeSectionKey, string> = {
   dailyPicks: "ncm.home.section.dailyPicks",

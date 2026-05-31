@@ -6,7 +6,12 @@ import {
   IconMusic
 } from "../../components/icons";
 import { MediaList } from "../../components/media/MediaList";
-import type { MediaContextAction, MediaSortField, MediaSortOrder, MediaSortState } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
+import type {
+  MediaSortField,
+  MediaSortOrder,
+  MediaSortState
+} from "../../components/media/mediaListTypes";
 import { SImage } from "../../components/SImage";
 import { useTranslation } from "../../shared/i18n";
 import { useUISettings } from "../../shared/state/useUISettings";

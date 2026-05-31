@@ -1,7 +1,7 @@
 import { createMemo, createSignal } from "solid-js";
 import { IconChevronLeft, IconList, IconPlay, IconRefresh } from "../../../components/icons";
 import { ContextMenu, type ContextMenuItem } from "../../../components/media/ContextMenu";
-import type { MediaContextAction } from "../../../components/media/MediaList";
+import type { MediaContextAction } from "../../../components/media/mediaContextActions";
 import { NcmMediaList } from "../NcmMediaList";
 import { BackToTop } from "../../../components/page/BackToTop";
 import { PageBody } from "../../../components/page/PageBody";

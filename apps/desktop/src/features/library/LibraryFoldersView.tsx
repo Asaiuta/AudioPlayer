@@ -1,12 +1,12 @@
 import { For, Show, createEffect, createMemo, createSignal } from "solid-js";
 import { IconChevronDown, IconChevronRight, IconFolder } from "../../components/icons";
-import {
-  MediaList,
-  type MediaContextAction,
-  type MediaSortField,
-  type MediaSortOrder,
-  type MediaSortState
-} from "../../components/media/MediaList";
+import { MediaList } from "../../components/media/MediaList";
+import type { MediaContextAction } from "../../components/media/mediaContextActions";
+import type {
+  MediaSortField,
+  MediaSortOrder,
+  MediaSortState
+} from "../../components/media/mediaListTypes";
 import { useTranslation } from "../../shared/i18n";
 import {
   type LibraryFolderNode,
